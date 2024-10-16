@@ -525,7 +525,7 @@ GenerateSyntheticEditingCommand(enum:uint8_t WebKit::SyntheticEditingCommandType
     GetSelectedRangeAsync() -> (struct WebKit::EditingRange range)
     CharacterIndexForPointAsync(WebCore::IntPoint point) -> (uint64_t location)
     FirstRectForCharacterRangeAsync(struct WebKit::EditingRange range) -> (WebCore::IntRect rect, struct WebKit::EditingRange actualRange)
-    SetCompositionAsync(String text, Vector<WebCore::CompositionUnderline> underlines, Vector<WebCore::CompositionHighlight> highlights, HashMap<String, Vector<WebCore::CharacterRange>> annotations, struct WebKit::EditingRange selectionRange, struct WebKit::EditingRange replacementRange)
+    SetCompositionAsync(String text, Vector<WebCore::CompositionUnderline> underlines, Vector<WebCore::CompositionHighlight> highlights, UncheckedKeyHashMap<String, Vector<WebCore::CharacterRange>> annotations, struct WebKit::EditingRange selectionRange, struct WebKit::EditingRange replacementRange)
     SetWritingSuggestion(String text, struct WebKit::EditingRange selectionRange)
     ConfirmCompositionAsync()
 #endif
@@ -758,6 +758,7 @@ GenerateSyntheticEditingCommand(enum:uint8_t WebKit::SyntheticEditingCommandType
 
     UseRedirectionForCurrentNavigation(WebCore::ResourceResponse response);
 
+    UpdateFrameScrollingMode(WebCore::FrameIdentifier frame, enum:uint8_t WebCore::ScrollbarMode scrollingMode)
     UpdateFrameSize(WebCore::FrameIdentifier frame, WebCore::IntSize newSize)
 
     DispatchLoadEventToFrameOwnerElement(WebCore::FrameIdentifier frameID)
@@ -770,6 +771,8 @@ GenerateSyntheticEditingCommand(enum:uint8_t WebKit::SyntheticEditingCommandType
     FrameTextForTesting(WebCore::FrameIdentifier frameID) -> (String text) Synchronous
 
     RequestTargetedElement(struct WebCore::TargetedElementRequest request) -> (Vector<WebCore::TargetedElementInfo> elements)
+
+    RequestAllTargetableElements(float hitTestInterval) -> (Vector<Vector<WebCore::TargetedElementInfo>> elements)
 
     RequestTextExtraction(std::optional<WebCore::FloatRect> collectionRectInRootView) -> (struct WebCore::TextExtraction::Item item)
 

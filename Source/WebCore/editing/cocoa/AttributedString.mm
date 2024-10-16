@@ -50,14 +50,14 @@ OBJC_CLASS NSTextTab;
 
 namespace WebCore {
 
-using IdentifierToTableMap = HashMap<AttributedStringTextTableID, RetainPtr<NSTextTable>>;
-using IdentifierToTableBlockMap = HashMap<AttributedStringTextTableBlockID, RetainPtr<NSTextTableBlock>>;
-using IdentifierToListMap = HashMap<AttributedStringTextListID, RetainPtr<NSTextList>>;
+using IdentifierToTableMap = UncheckedKeyHashMap<AttributedStringTextTableID, RetainPtr<NSTextTable>>;
+using IdentifierToTableBlockMap = UncheckedKeyHashMap<AttributedStringTextTableBlockID, RetainPtr<NSTextTableBlock>>;
+using IdentifierToListMap = UncheckedKeyHashMap<AttributedStringTextListID, RetainPtr<NSTextList>>;
 
 
-using TableToIdentifierMap = HashMap<NSTextTable *, AttributedString::TextTableID>;
-using TableBlockToIdentifierMap = HashMap<NSTextTableBlock *, AttributedString::TextTableBlockID>;
-using ListToIdentifierMap = HashMap<NSTextList *, AttributedString::TextListID>;
+using TableToIdentifierMap = UncheckedKeyHashMap<NSTextTable *, AttributedString::TextTableID>;
+using TableBlockToIdentifierMap = UncheckedKeyHashMap<NSTextTableBlock *, AttributedString::TextTableBlockID>;
+using ListToIdentifierMap = UncheckedKeyHashMap<NSTextList *, AttributedString::TextListID>;
 
 AttributedString::AttributedString() = default;
 
@@ -71,12 +71,12 @@ AttributedString::AttributedString(const AttributedString&) = default;
 
 AttributedString& AttributedString::operator=(const AttributedString&) = default;
 
-AttributedString::AttributedString(String&& string, Vector<std::pair<Range, HashMap<String, AttributeValue>>>&& attributes, std::optional<HashMap<String, AttributeValue>>&& documentAttributes)
+AttributedString::AttributedString(String&& string, Vector<std::pair<Range, UncheckedKeyHashMap<String, AttributeValue>>>&& attributes, std::optional<UncheckedKeyHashMap<String, AttributeValue>>&& documentAttributes)
     : string(WTFMove(string))
     , attributes(WTFMove(attributes))
     , documentAttributes(WTFMove(documentAttributes)) { }
 
-bool AttributedString::rangesAreSafe(const String& string, const Vector<std::pair<Range, HashMap<String, AttributeValue>>>& vector)
+bool AttributedString::rangesAreSafe(const String& string, const Vector<std::pair<Range, UncheckedKeyHashMap<String, AttributeValue>>>& vector)
 {
     auto stringLength = string.length();
     for (auto& pair : vector) {
@@ -267,6 +267,13 @@ static MultiRepresentationHEICAttachmentData toMultiRepresentationHEICAttachment
     attachmentData.identifier = attachment.contentIdentifier;
     attachmentData.description = attachment.contentDescription;
 
+#if HAVE(NS_EMOJI_IMAGE_STRIKE_PROVENANCE)
+    if (RetainPtr<NSDictionary<NSString *, NSString *>> provenance = attachment.strikes.firstObject.provenance) {
+        attachmentData.credit = [provenance objectForKey:(__bridge NSString *)kCGImagePropertyIPTCCredit];
+        attachmentData.digitalSourceType = [provenance objectForKey:(__bridge NSString *)kCGImagePropertyIPTCExtDigitalSourceType];
+    }
+#endif
+
     for (NSEmojiImageStrike *strike in attachment.strikes) {
         MultiRepresentationHEICAttachmentSingleImage image;
         RefPtr nativeImage = NativeImage::create(strike.cgImage);
@@ -294,11 +301,27 @@ static RetainPtr<NSAdaptiveImageGlyph> toWebMultiRepresentationHEICAttachment(co
     if (!description.length)
         description = @"Apple Emoji";
 
+#if HAVE(NS_EMOJI_IMAGE_STRIKE_PROVENANCE)
+    RetainPtr<NSMutableDictionary<NSString *, NSString *>> provenanceInfo = [NSMutableDictionary dictionaryWithCapacity:2];
+
+    NSString *credit = attachmentData.credit;
+    NSString *digitalSourceType = attachmentData.digitalSourceType;
+    if (identifier.length && digitalSourceType.length) {
+        [provenanceInfo setObject:credit forKey:(__bridge NSString *)kCGImagePropertyIPTCCredit];
+        [provenanceInfo setObject:digitalSourceType forKey:(__bridge NSString *)kCGImagePropertyIPTCExtDigitalSourceType];
+    }
+#endif
+
     NSMutableArray *images = [NSMutableArray arrayWithCapacity:attachmentData.images.size()];
     for (auto& singleImage : attachmentData.images) {
+#if HAVE(NS_EMOJI_IMAGE_STRIKE_PROVENANCE)
+        RetainPtr strike = adoptNS([[CTEmojiImageStrike alloc] initWithImage:singleImage.image->nativeImage()->platformImage().get() alignmentInset:singleImage.size provenanceInfo:provenanceInfo.get()]);
+#else
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         RetainPtr strike = adoptNS([[CTEmojiImageStrike alloc] initWithImage:singleImage.image->nativeImage()->platformImage().get() alignmentInset:singleImage.size]);
 ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
+
         [images addObject:strike.get()];
     }
 
@@ -368,7 +391,7 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
     });
 }
 
-static RetainPtr<NSDictionary> toNSDictionary(const HashMap<String, AttributedString::AttributeValue>& map, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists)
+static RetainPtr<NSDictionary> toNSDictionary(const UncheckedKeyHashMap<String, AttributedString::AttributeValue>& map, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists)
 {
     auto result = adoptNS([[NSMutableDictionary alloc] initWithCapacity:map.size()]);
     for (auto& pair : map) {
@@ -724,9 +747,9 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     return std::nullopt;
 }
 
-static HashMap<String, AttributedString::AttributeValue> extractDictionary(NSDictionary *dictionary, TableToIdentifierMap& tableIDs, TableBlockToIdentifierMap& tableBlockIDs, ListToIdentifierMap& listIDs)
+static UncheckedKeyHashMap<String, AttributedString::AttributeValue> extractDictionary(NSDictionary *dictionary, TableToIdentifierMap& tableIDs, TableBlockToIdentifierMap& tableBlockIDs, ListToIdentifierMap& listIDs)
 {
-    HashMap<String, AttributedString::AttributeValue> result;
+    UncheckedKeyHashMap<String, AttributedString::AttributeValue> result;
     [dictionary enumerateKeysAndObjectsUsingBlock:[&](id key, id value, BOOL *) {
         if (![key isKindOfClass:NSString.class]) {
             ASSERT_NOT_REACHED();

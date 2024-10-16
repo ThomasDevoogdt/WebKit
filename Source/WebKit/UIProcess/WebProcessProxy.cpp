@@ -338,7 +338,7 @@ WebProcessProxy::WebProcessProxy(WebProcessPool& processPool, WebsiteDataStore* 
     , m_lockdownMode(lockdownMode)
     , m_crossOriginMode(crossOriginMode)
     , m_shutdownPreventingScopeCounter([this](RefCounterEvent event) { if (event == RefCounterEvent::Decrement) maybeShutDown(); })
-    , m_webLockRegistry(websiteDataStore ? makeUnique<WebLockRegistryProxy>(*this) : nullptr)
+    , m_webLockRegistry(websiteDataStore ? makeUniqueWithoutRefCountedCheck<WebLockRegistryProxy>(*this) : nullptr)
     , m_webPermissionController(makeUnique<WebPermissionControllerProxy>(*this))
 {
     RELEASE_ASSERT(isMainThreadOrCheckDisabled());
@@ -452,7 +452,7 @@ void WebProcessProxy::setWebsiteDataStore(WebsiteDataStore& dataStore)
 
     // Delay construction of the WebLockRegistryProxy until the WebProcessProxy has a data store since the data store holds the
     // LocalWebLockRegistry.
-    m_webLockRegistry = makeUnique<WebLockRegistryProxy>(*this);
+    m_webLockRegistry = makeUniqueWithoutRefCountedCheck<WebLockRegistryProxy>(*this);
 }
 
 bool WebProcessProxy::isDummyProcessProxy() const
@@ -728,8 +728,8 @@ void WebProcessProxy::shutDown()
 
     m_userInitiatedActionMap.clear();
 
-    if (m_webLockRegistry)
-        m_webLockRegistry->processDidExit();
+    if (RefPtr webLockRegistry = m_webLockRegistry.get())
+        webLockRegistry->processDidExit();
 
 #if ENABLE(ROUTING_ARBITRATION)
     if (RefPtr routingArbitrator = m_routingArbitrator.get())
@@ -2366,7 +2366,6 @@ void WebProcessProxy::createSpeechRecognitionServer(SpeechRecognitionServerIdent
     ASSERT(!m_speechRecognitionServerMap.contains(identifier));
     MESSAGE_CHECK(!m_speechRecognitionServerMap.contains(identifier));
 
-    auto& speechRecognitionServer = m_speechRecognitionServerMap.add(identifier, nullptr).iterator->value;
     auto permissionChecker = [weakPage = WeakPtr { targetPage }](auto& request, SpeechRecognitionPermissionRequestCallback&& completionHandler) mutable {
         RefPtr page = weakPage.get();
         if (!page) {
@@ -2380,21 +2379,24 @@ void WebProcessProxy::createSpeechRecognitionServer(SpeechRecognitionServerIdent
         return weakPage && weakPage->protectedPreferences()->mockCaptureDevicesEnabled();
     };
 
+    m_speechRecognitionServerMap.ensure(identifier, [&]() {
 #if ENABLE(MEDIA_STREAM)
-    auto createRealtimeMediaSource = [weakPage = WeakPtr { targetPage }]() {
-        return weakPage ? weakPage->createRealtimeMediaSourceForSpeechRecognition() : CaptureSourceOrError { { "Page is invalid"_s, WebCore::MediaAccessDenialReason::InvalidAccess } };
-    };
-    speechRecognitionServer = makeUnique<SpeechRecognitionServer>(*this, identifier, WTFMove(permissionChecker), WTFMove(checkIfMockCaptureDevicesEnabled), WTFMove(createRealtimeMediaSource));
+        auto createRealtimeMediaSource = [weakPage = WeakPtr { targetPage }]() {
+            return weakPage ? weakPage->createRealtimeMediaSourceForSpeechRecognition() : CaptureSourceOrError { { "Page is invalid"_s, WebCore::MediaAccessDenialReason::InvalidAccess } };
+        };
+        Ref speechRecognitionServer = SpeechRecognitionServer::create(*this, identifier, WTFMove(permissionChecker), WTFMove(checkIfMockCaptureDevicesEnabled), WTFMove(createRealtimeMediaSource));
 #else
-    speechRecognitionServer = makeUnique<SpeechRecognitionServer>(*this, identifier, WTFMove(permissionChecker), WTFMove(checkIfMockCaptureDevicesEnabled));
+        Ref speechRecognitionServer = SpeechRecognitionServer::create(*this, identifier, WTFMove(permissionChecker), WTFMove(checkIfMockCaptureDevicesEnabled));
 #endif
+        addMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier, speechRecognitionServer);
+        return speechRecognitionServer;
+    });
 
-    addMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier, *speechRecognitionServer);
 }
 
 void WebProcessProxy::destroySpeechRecognitionServer(SpeechRecognitionServerIdentifier identifier)
 {
-    if (auto server = m_speechRecognitionServerMap.take(identifier))
+    if (RefPtr server = m_speechRecognitionServerMap.take(identifier))
         removeMessageReceiver(Messages::SpeechRecognitionServer::messageReceiverName(), identifier);
 }
 
@@ -2430,7 +2432,7 @@ void WebProcessProxy::pageMutedStateChanged(WebCore::PageIdentifier identifier, 
     if (!mutedForCapture)
         return;
 
-    if (auto speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
+    if (RefPtr speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
         speechRecognitionServer->mute();
 }
 
@@ -2441,7 +2443,7 @@ void WebProcessProxy::pageIsBecomingInvisible(WebCore::PageIdentifier identifier
         return;
 #endif
 
-    if (auto speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
+    if (RefPtr speechRecognitionServer = m_speechRecognitionServerMap.get(identifier))
         speechRecognitionServer->mute();
 }
 

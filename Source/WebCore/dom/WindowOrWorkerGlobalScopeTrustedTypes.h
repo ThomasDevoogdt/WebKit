@@ -28,6 +28,7 @@
 #include "Supplementable.h"
 #include <wtf/Forward.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -46,7 +47,7 @@ public:
 };
 
 class WorkerGlobalScopeTrustedTypes : public Supplement<WorkerGlobalScope> {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(WorkerGlobalScopeTrustedTypes);
+    WTF_MAKE_TZONE_ALLOCATED(WorkerGlobalScopeTrustedTypes);
 public:
     explicit WorkerGlobalScopeTrustedTypes(WorkerGlobalScope&);
     virtual ~WorkerGlobalScopeTrustedTypes();

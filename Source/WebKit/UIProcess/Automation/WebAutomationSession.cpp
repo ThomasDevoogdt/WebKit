@@ -65,8 +65,6 @@
 #include <WebCore/AuthenticatorTransport.h>
 #endif
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 namespace WebKit {
 
 using namespace Inspector;
@@ -616,7 +614,7 @@ void WebAutomationSession::waitForNavigationToCompleteOnFrame(WebFrameProxy& fra
     }
 }
 
-void WebAutomationSession::respondToPendingPageNavigationCallbacksWithTimeout(HashMap<WebPageProxyIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
+void WebAutomationSession::respondToPendingPageNavigationCallbacksWithTimeout(UncheckedKeyHashMap<WebPageProxyIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
 {
     auto timeoutError = STRING_FOR_PREDEFINED_ERROR_NAME(Timeout);
     for (auto id : copyToVector(map.keys())) {
@@ -636,7 +634,7 @@ static WebPageProxy* findPageForFrameID(const WebProcessPool& processPool, Frame
     return nullptr;
 }
 
-void WebAutomationSession::respondToPendingFrameNavigationCallbacksWithTimeout(HashMap<FrameIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
+void WebAutomationSession::respondToPendingFrameNavigationCallbacksWithTimeout(UncheckedKeyHashMap<FrameIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
 {
     auto timeoutError = STRING_FOR_PREDEFINED_ERROR_NAME(Timeout);
     for (auto id : copyToVector(map.keys())) {
@@ -1647,8 +1645,8 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Automa
 
 Inspector::Protocol::ErrorStringOr<void> WebAutomationSession::setSessionPermissions(Ref<JSON::Array>&& permissions)
 {
-    for (auto it = permissions->begin(); it != permissions->end(); ++it) {
-        auto permission = it->get().asObject();
+    for (auto& value : permissions.get()) {
+        auto permission = value->asObject();
         if (!permission)
             SYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(InvalidParameter, "The parameter 'permissions' is invalid."_s);
 
@@ -2016,8 +2014,8 @@ void WebAutomationSession::performMouseInteraction(const Inspector::Protocol::Au
     auto floatY = static_cast<float>(*y);
 
     OptionSet<WebEventModifier> keyModifiers;
-    for (auto it = keyModifierStrings->begin(); it != keyModifierStrings->end(); ++it) {
-        auto modifierString = it->get().asString();
+    for (auto& value : keyModifierStrings.get()) {
+        auto modifierString = value->asString();
         if (!modifierString)
             ASYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(InvalidParameter, "The parameter 'modifiers' is invalid."_s);
 
@@ -2352,8 +2350,8 @@ void WebAutomationSession::performInteractionSequence(const Inspector::Protocol:
             if (auto pressedVirtualKeysArray = stateObject->getArray("pressedVirtualKeys"_s)) {
                 VirtualKeyMap pressedVirtualKeys;
 
-                for (auto it = pressedVirtualKeysArray->begin(); it != pressedVirtualKeysArray->end(); ++it) {
-                    auto pressedVirtualKeyString = (*it)->asString();
+                for (auto& value : *pressedVirtualKeysArray) {
+                    auto pressedVirtualKeyString = value->asString();
                     if (!pressedVirtualKeyString)
                         ASYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(InvalidParameter, "Encountered a non-string virtual key value."_s);
 
@@ -2582,5 +2580,3 @@ std::optional<String> WebAutomationSession::platformGenerateLocalFilePathForRemo
 #endif // !PLATFORM(COCOA)
 
 } // namespace WebKit
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

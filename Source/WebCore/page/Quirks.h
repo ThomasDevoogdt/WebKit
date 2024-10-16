@@ -96,7 +96,7 @@ public:
 
     WEBCORE_EXPORT bool shouldDisableWritingSuggestionsByDefault() const;
 
-    WEBCORE_EXPORT static void updateStorageAccessUserAgentStringQuirks(HashMap<RegistrableDomain, String>&&);
+    WEBCORE_EXPORT static void updateStorageAccessUserAgentStringQuirks(UncheckedKeyHashMap<RegistrableDomain, String>&&);
     WEBCORE_EXPORT String storageAccessUserAgentStringQuirkForDomain(const URL&);
     WEBCORE_EXPORT static bool needsIPadMiniUserAgent(const URL&);
     WEBCORE_EXPORT static bool needsIPhoneUserAgent(const URL&);
@@ -110,6 +110,8 @@ public:
     bool needsFullscreenDisplayNoneQuirk() const;
     bool needsFullscreenObjectFitQuirk() const;
     bool needsWeChatScrollingQuirk() const;
+
+    bool needsPrimeVideoUserSelectNoneQuirk() const;
 
     bool needsYouTubeDarkModeQuirk() const;
 
@@ -275,6 +277,7 @@ private:
     mutable std::optional<bool> m_shouldIgnorePlaysInlineRequirementQuirk;
     mutable std::optional<bool> m_needsRelaxedCorsMixedContentCheckQuirk;
     mutable std::optional<bool> m_needsYouTubeDarkModeQuirk;
+    mutable std::optional<bool> m_needsPrimeVideoUserSelectNoneQuirk;
 
     Vector<RegistrableDomain> m_subFrameDomainsForStorageAccessQuirk;
 };

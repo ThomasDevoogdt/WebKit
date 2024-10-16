@@ -77,7 +77,7 @@ LayoutUnit FlexFormattingUtils::columnGapValue(const ElementBox& flexContainer, 
     return valueForLength(columnGap.length(), flexContainerContentBoxWidth);
 }
 
-LayoutUnit FlexFormattingUtils::usedMinimumMainSize(const LogicalFlexItem& flexItem) const
+LayoutUnit FlexFormattingUtils::usedMinimumSizeInMainAxis(const LogicalFlexItem& flexItem) const
 {
     if (auto mainAxisMinimumWidth = flexItem.mainAxis().minimumSize)
         return *mainAxisMinimumWidth;
@@ -89,10 +89,43 @@ LayoutUnit FlexFormattingUtils::usedMinimumMainSize(const LogicalFlexItem& flexI
     return minimumContentSize;
 }
 
-std::optional<LayoutUnit> FlexFormattingUtils::usedMaxiumMainSize(const LogicalFlexItem& flexItem) const
+std::optional<LayoutUnit> FlexFormattingUtils::usedMaximumSizeInMainAxis(const LogicalFlexItem& flexItem) const
 {
     // Initial value of 'max-width: none' computes to used 'infinite'
     return flexItem.mainAxis().maximumSize;
+}
+
+LayoutUnit FlexFormattingUtils::usedMaxContentSizeInMainAxis(const LogicalFlexItem& flexItem) const
+{
+    auto isMainAxisParallelWithInlineAxis = this->isMainAxisParallelWithInlineAxis(formattingContext().root());
+    auto& flexItemBox = downcast<ElementBox>(flexItem.layoutBox());
+
+    auto contentSize = LayoutUnit { };
+    if (isMainAxisParallelWithInlineAxis)
+        contentSize = formattingContext().integrationUtils().maxContentSize(flexItemBox);
+    else {
+        formattingContext().integrationUtils().layoutWithFormattingContextForBox(flexItemBox);
+        contentSize = formattingContext().geometryForFlexItem(flexItemBox).contentBoxHeight();
+    }
+
+    if (!flexItem.isContentBoxBased())
+        contentSize += flexItem.mainAxis().borderAndPadding;
+    return contentSize;
+}
+
+LayoutUnit FlexFormattingUtils::usedSizeInCrossAxis(const LogicalFlexItem& flexItem, LayoutUnit maxAxisConstraint) const
+{
+    if (auto definiteSize = flexItem.crossAxis().definiteSize)
+        return *definiteSize;
+
+    auto isMainAxisParallelWithInlineAxis = this->isMainAxisParallelWithInlineAxis(formattingContext().root());
+    auto widtConstraintForLayout = isMainAxisParallelWithInlineAxis ? std::make_optional(maxAxisConstraint) : std::nullopt;
+    auto& flexItemBox = flexItem.layoutBox();
+    formattingContext().integrationUtils().layoutWithFormattingContextForBox(downcast<ElementBox>(flexItemBox), widtConstraintForLayout);
+    auto crossSize = isMainAxisParallelWithInlineAxis ? formattingContext().geometryForFlexItem(flexItemBox).contentBoxHeight() : formattingContext().geometryForFlexItem(flexItemBox).contentBoxWidth();
+    if (!flexItem.isContentBoxBased())
+        crossSize += flexItem.crossAxis().borderAndPadding;
+    return crossSize;
 }
 
 }

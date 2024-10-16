@@ -2519,7 +2519,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(FORWARD_ACTION_TO_WKCONTENTVIEW)
 - (void)_didEnableBrowserExtensions:(NSDictionary<NSString *, NSString *> *)extensionIDToNameMap
 {
     THROW_IF_SUSPENDED;
-    HashMap<String, String> transformed;
+    UncheckedKeyHashMap<String, String> transformed;
     transformed.reserveInitialCapacity(extensionIDToNameMap.count);
     [extensionIDToNameMap enumerateKeysAndObjectsUsingBlock:[&](NSString *extensionID, NSString *extensionName, BOOL *) {
         transformed.set(extensionID, extensionName);
@@ -3182,6 +3182,17 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
     _page->requestTargetedElement(*request->_request, [completion = makeBlockPtr(completion)](auto& elements) {
         completion(createNSArray(elements, [](auto& element) {
             return wrapper(element);
+        }).get());
+    });
+}
+
+- (void)_requestAllTargetableElementsInfo:(CGFloat)hitTestInterval completionHandler:(void(^)(NSArray<NSArray<_WKTargetedElementInfo *> *> *))completionHandler
+{
+    _page->requestAllTargetableElements(float(hitTestInterval), [completion = makeBlockPtr(completionHandler)](auto&& elements) {
+        completion(createNSArray(elements, [](auto& subelements) {
+            return createNSArray(subelements, [](auto& subelement) {
+                return wrapper(subelement);
+            });
         }).get());
     });
 }

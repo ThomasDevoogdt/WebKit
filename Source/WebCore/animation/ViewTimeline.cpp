@@ -38,7 +38,6 @@
 #include "CSSValuePool.h"
 #include "CSSViewValue.h"
 #include "Document.h"
-#include "DocumentInlines.h"
 #include "Element.h"
 #include "RenderBox.h"
 #include "ScrollAnchoringController.h"
@@ -56,7 +55,7 @@ Ref<ViewTimeline> ViewTimeline::create(const AtomString& name, ScrollAxis axis, 
     return adoptRef(*new ViewTimeline(name, axis, WTFMove(insets)));
 }
 
-Ref<ViewTimeline> ViewTimeline::createFromCSSValue(Style::BuilderState& builderState, const CSSViewValue& cssViewValue)
+Ref<ViewTimeline> ViewTimeline::createFromCSSValue(const Style::BuilderState& builderState, const CSSViewValue& cssViewValue)
 {
     auto axisValue = cssViewValue.axis();
     auto axis = axisValue ? fromCSSValueID<ScrollAxis>(axisValue->valueID()) : ScrollAxis::Block;
@@ -189,7 +188,7 @@ Ref<CSSValue> ViewTimeline::toCSSValue(const RenderStyle& style) const
 AnimationTimelinesController* ViewTimeline::controller() const
 {
     if (m_subject)
-        return &m_subject->protectedDocument()->ensureTimelinesController();
+        return &m_subject->document().ensureTimelinesController();
     return nullptr;
 }
 

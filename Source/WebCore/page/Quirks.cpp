@@ -95,10 +95,10 @@ static inline OptionSet<AutoplayQuirk> allowedAutoplayQuirks(Document& document)
     return loader->allowedAutoplayQuirks();
 }
 
-static HashMap<RegistrableDomain, String>& updatableStorageAccessUserAgentStringQuirks()
+static UncheckedKeyHashMap<RegistrableDomain, String>& updatableStorageAccessUserAgentStringQuirks()
 {
     // FIXME: Make this a member of Quirks.
-    static MainThreadNeverDestroyed<HashMap<RegistrableDomain, String>> map;
+    static MainThreadNeverDestroyed<UncheckedKeyHashMap<RegistrableDomain, String>> map;
     return map.get();
 }
 
@@ -336,7 +336,7 @@ bool Quirks::shouldDisableWritingSuggestionsByDefault() const
     return url.host() == "mail.google.com"_s;
 }
 
-void Quirks::updateStorageAccessUserAgentStringQuirks(HashMap<RegistrableDomain, String>&& userAgentStringQuirks)
+void Quirks::updateStorageAccessUserAgentStringQuirks(UncheckedKeyHashMap<RegistrableDomain, String>&& userAgentStringQuirks)
 {
     auto& quirks = updatableStorageAccessUserAgentStringQuirks();
     quirks.clear();
@@ -634,6 +634,22 @@ bool Quirks::needsYouTubeOverflowScrollQuirk() const
         m_needsYouTubeOverflowScrollQuirk = m_document->url().host() == "www.youtube.com"_s;
 
     return *m_needsYouTubeOverflowScrollQuirk;
+#else
+    return false;
+#endif
+}
+
+// amazon.com rdar://128962002
+bool Quirks::needsPrimeVideoUserSelectNoneQuirk() const
+{
+#if PLATFORM(MAC)
+    if (!needsQuirks())
+        return false;
+
+    if (!m_needsPrimeVideoUserSelectNoneQuirk)
+        m_needsPrimeVideoUserSelectNoneQuirk = m_document->url().host() == "www.amazon.com"_s;
+
+    return *m_needsPrimeVideoUserSelectNoneQuirk;
 #else
     return false;
 #endif
