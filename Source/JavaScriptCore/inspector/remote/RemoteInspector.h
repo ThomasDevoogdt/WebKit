@@ -245,7 +245,7 @@ private:
     void receivedPingSuccessMessage() WTF_REQUIRES_LOCK(m_mutex);
 #endif
 #if USE(INSPECTOR_SOCKET_SERVER)
-    UncheckedKeyHashMap<String, CallHandler>& dispatchMap() final;
+    HashMap<String, CallHandler>& dispatchMap() final;
     void didClose(RemoteInspectorSocketEndpoint&, ConnectionID) final;
 
     void sendWebInspectorEvent(const String&);
@@ -318,7 +318,7 @@ private:
 #endif
     bool m_shouldSendParentProcessInformation { false };
     bool m_automaticInspectionEnabled WTF_GUARDED_BY_LOCK(m_mutex) { false };
-    HashSet<TargetID, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_pausedAutomaticInspectionCandidates WTF_GUARDED_BY_LOCK(m_mutex);
+    UncheckedKeyHashSet<TargetID, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> m_pausedAutomaticInspectionCandidates WTF_GUARDED_BY_LOCK(m_mutex);
 };
 
 } // namespace Inspector

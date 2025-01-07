@@ -56,14 +56,12 @@ public:
 
     void didReceivePlayerMessage(IPC::Connection&, IPC::Decoder&);
 
-    void ref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ModelProcessModelPlayerManager>::ref(); }
-    void deref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ModelProcessModelPlayerManager>::deref(); }
-    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ModelProcessModelPlayerManager>::controlBlock(); }
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
 private:
     ModelProcessModelPlayerManager();
 
-    UncheckedKeyHashMap<WebCore::ModelPlayerIdentifier, WeakPtr<ModelProcessModelPlayer>> m_players;
+    HashMap<WebCore::ModelPlayerIdentifier, WeakPtr<ModelProcessModelPlayer>> m_players;
     ThreadSafeWeakPtr<ModelProcessConnection> m_modelProcessConnection;
 };
 

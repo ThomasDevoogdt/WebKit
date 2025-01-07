@@ -30,7 +30,6 @@
 
 #import "LayerHostingContext.h"
 #import "MediaPlayerPrivateRemoteMessages.h"
-#import "WebCoreArgumentCoders.h"
 #import <QuartzCore/QuartzCore.h>
 #import <WebCore/FloatSize.h>
 #import <WebCore/IOSurface.h>
@@ -179,14 +178,6 @@ void RemoteMediaPlayerProxy::colorSpace(CompletionHandler<void(WebCore::Destinat
 
     completionHandler(player->colorSpace());
 }
-
-#if !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
-void RemoteMediaPlayerProxy::willBeAskedToPaintGL()
-{
-    if (RefPtr player = m_player)
-        player->willBeAskedToPaintGL();
-}
-#endif
 
 } // namespace WebKit
 

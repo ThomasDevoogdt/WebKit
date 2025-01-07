@@ -73,7 +73,7 @@
 
 #define MESSAGE_CHECK(assertion, connection) MESSAGE_CHECK_BASE(assertion, connection)
 #define MESSAGE_CHECK_COMPLETION(assertion, connection, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, connection, completion)
-#define MESSAGE_CHECK_URL(url) MESSAGE_CHECK_BASE(checkURLReceivedFromCurrentOrPreviousWebProcess(m_legacyMainFrameProcess, url), m_legacyMainFrameProcess->connection())
+#define MESSAGE_CHECK_URL(process, url) MESSAGE_CHECK_BASE(checkURLReceivedFromCurrentOrPreviousWebProcess(process, url), process->connection())
 #define MESSAGE_CHECK_WITH_RETURN_VALUE(assertion, returnValue) MESSAGE_CHECK_WITH_RETURN_VALUE_BASE(assertion, process().connection(), returnValue)
 
 @interface NSApplication ()
@@ -257,8 +257,9 @@ bool WebPageProxy::readSelectionFromPasteboard(const String& pasteboardName)
 void WebPageProxy::setPromisedDataForImage(IPC::Connection& connection, const String& pasteboardName, SharedMemory::Handle&& imageHandle, const String& filename, const String& extension,
     const String& title, const String& url, const String& visibleURL, SharedMemory::Handle&& archiveHandle, const String& originIdentifier)
 {
-    MESSAGE_CHECK_URL(url);
-    MESSAGE_CHECK_URL(visibleURL);
+    Ref process = *downcast<WebProcessProxy>(AuxiliaryProcessProxy::fromConnection(connection));
+    MESSAGE_CHECK_URL(process, url);
+    MESSAGE_CHECK_URL(process, visibleURL);
     MESSAGE_CHECK(extension == FileSystem::lastComponentOfPathIgnoringTrailingSlash(extension), connection);
 
     auto sharedMemoryImage = SharedMemory::map(WTFMove(imageHandle), SharedMemory::Protection::ReadOnly);
@@ -389,6 +390,68 @@ void WebPageProxy::handleAcceptsFirstMouse(bool acceptsFirstMouse)
     m_acceptsFirstMouse = acceptsFirstMouse;
 }
 
+void WebPageProxy::setAutomaticallyAdjustsContentInsets(bool automaticallyAdjustsContentInsets)
+{
+    m_automaticallyAdjustsContentInsets = automaticallyAdjustsContentInsets;
+    updateContentInsetsIfAutomatic();
+}
+
+void WebPageProxy::updateContentInsetsIfAutomatic()
+{
+    if (!m_automaticallyAdjustsContentInsets)
+        return;
+
+    m_pendingTopContentInset = std::nullopt;
+
+    scheduleSetTopContentInsetDispatch();
+}
+
+void WebPageProxy::setTopContentInsetAsync(float contentInset)
+{
+    m_pendingTopContentInset = contentInset;
+    scheduleSetTopContentInsetDispatch();
+}
+
+float WebPageProxy::pendingOrActualTopContentInset() const
+{
+    return m_pendingTopContentInset.value_or(m_topContentInset);
+}
+
+void WebPageProxy::scheduleSetTopContentInsetDispatch()
+{
+    if (m_didScheduleSetTopContentInsetDispatch)
+        return;
+
+    m_didScheduleSetTopContentInsetDispatch = true;
+
+    callOnMainRunLoop([weakThis = WeakPtr { *this }] {
+        if (!weakThis)
+            return;
+        weakThis->dispatchSetTopContentInset();
+    });
+}
+
+void WebPageProxy::dispatchSetTopContentInset()
+{
+    bool wasScheduled = std::exchange(m_didScheduleSetTopContentInsetDispatch, false);
+    if (!wasScheduled)
+        return;
+
+    if (!m_pendingTopContentInset) {
+        if (!m_automaticallyAdjustsContentInsets)
+            return;
+
+        if (RefPtr pageClient = this->pageClient())
+            m_pendingTopContentInset = pageClient->computeAutomaticTopContentInset();
+
+        if (!m_pendingTopContentInset)
+            m_pendingTopContentInset = 0;
+    }
+
+    setTopContentInset(*m_pendingTopContentInset);
+    m_pendingTopContentInset = std::nullopt;
+}
+
 void WebPageProxy::setRemoteLayerTreeRootNode(RemoteLayerTreeNode* rootNode)
 {
     if (RefPtr pageClient = this->pageClient())
@@ -433,7 +496,7 @@ static NSString *temporaryPDFDirectoryPath()
     static NeverDestroyed path = [] {
         auto temporaryDirectoryTemplate = [NSTemporaryDirectory() stringByAppendingPathComponent:@"WebKitPDFs-XXXXXX"];
         CString templateRepresentation = [temporaryDirectoryTemplate fileSystemRepresentation];
-        if (mkdtemp(templateRepresentation.mutableData()))
+        if (mkdtemp(templateRepresentation.mutableSpanIncludingNullTerminator().data()))
             return adoptNS([[[NSFileManager defaultManager] stringWithFileSystemRepresentation:templateRepresentation.data() length:templateRepresentation.length()] copy]);
         return RetainPtr<id> { };
     }();
@@ -458,7 +521,7 @@ static NSString *pathToPDFOnDisk(const String& suggestedFilename)
         NSString *pathTemplate = [pathTemplatePrefix stringByAppendingString:suggestedFilename];
         CString pathTemplateRepresentation = [pathTemplate fileSystemRepresentation];
 
-        int fd = mkstemps(pathTemplateRepresentation.mutableData(), pathTemplateRepresentation.length() - strlen([pathTemplatePrefix fileSystemRepresentation]) + 1);
+        int fd = mkstemps(pathTemplateRepresentation.mutableSpanIncludingNullTerminator().data(), pathTemplateRepresentation.length() - strlen([pathTemplatePrefix fileSystemRepresentation]) + 1);
         if (fd < 0) {
             WTFLogAlways("Cannot create PDF file in the temporary directory (%s).", suggestedFilename.utf8().data());
             return nil;
@@ -535,6 +598,10 @@ void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu,
         [nsItem setTitle:item.title];
         [nsItem setEnabled:item.enabled == ContextMenuItemEnablement::Enabled];
         [nsItem setState:item.state];
+#if ENABLE(CONTEXT_MENU_IMAGES_FOR_INTERNAL_CLIENTS)
+        if (m_preferences->contextMenuImagesForInternalClientsEnabled() && [nsItem respondsToSelector:@selector(_setActionImage:)])
+            [nsItem _setActionImage:[NSImage imageWithSystemSymbolName:symbolNameForAction(item.action, false) accessibilityDescription:nil]];
+#endif
         if (item.hasAction == ContextMenuItemHasAction::Yes) {
             [nsItem setTarget:menuTarget.get()];
             [nsItem setAction:@selector(contextMenuAction:)];
@@ -868,6 +935,19 @@ void WebPageProxy::handleContextMenuWritingTools(WebCore::WritingTools::Requeste
 }
 
 #endif
+
+WebCore::FloatRect WebPageProxy::selectionBoundingRectInRootViewCoordinates() const
+{
+    if (editorState().selectionIsNone)
+        return { };
+
+    if (!editorState().hasPostLayoutData())
+        return { };
+
+    auto bounds = WebCore::FloatRect { editorState().postLayoutData->selectionBoundingRect };
+    bounds.move(internals().scrollPositionDuringLastEditorStateUpdate - mainFrameScrollPosition());
+    return bounds;
+}
 
 } // namespace WebKit
 

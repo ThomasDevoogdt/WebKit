@@ -47,6 +47,9 @@ class WebSpeechRecognitionConnection final : public WebCore::SpeechRecognitionCo
 public:
     static Ref<WebSpeechRecognitionConnection> create(SpeechRecognitionConnectionIdentifier);
 
+    void ref() const final { WebCore::SpeechRecognitionConnection::ref(); }
+    void deref() const final { WebCore::SpeechRecognitionConnection::deref(); }
+
     void start(WebCore::SpeechRecognitionConnectionClientIdentifier, const String& lang, bool continuous, bool interimResults, uint64_t maxAlternatives, WebCore::ClientOrigin&&, WebCore::FrameIdentifier) final;
     void stop(WebCore::SpeechRecognitionConnectionClientIdentifier) final;
     void abort(WebCore::SpeechRecognitionConnectionClientIdentifier) final;
@@ -68,7 +71,7 @@ private:
     uint64_t messageSenderDestinationID() const final;
 
     SpeechRecognitionConnectionIdentifier m_identifier;
-    UncheckedKeyHashMap<WebCore::SpeechRecognitionConnectionClientIdentifier, WeakPtr<WebCore::SpeechRecognitionConnectionClient>> m_clientMap;
+    HashMap<WebCore::SpeechRecognitionConnectionClientIdentifier, WeakPtr<WebCore::SpeechRecognitionConnectionClient>> m_clientMap;
 };
 
 } // namespace WebKit

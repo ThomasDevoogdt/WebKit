@@ -92,9 +92,10 @@
 - (void)drawForPage:(PDFPage *)page withBox:(CGPDFBox)box active:(BOOL)active inContext:(CGContextRef)context;
 - (PDFPoint)firstCharCenter;
 - (/*nullable*/ NSString *)html;
-- (/*nullable*/ NSData *)webArchive;
-- (NSAttributedString *)attributedStringScaled:(CGFloat)scale;
 - (BOOL)isEmpty;
+#if HAVE(PDFSELECTION_ENUMERATE_RECTS_AND_TRANSFORMS)
+- (void)enumerateRectsAndTransformsForPage:(PDFPage *)page usingBlock:(void (^)(CGRect rect, CGAffineTransform transform))block;
+#endif
 @end
 
 #if HAVE(PDFDOCUMENT_ANNOTATIONS_FOR_FIELD_NAME)
@@ -148,18 +149,6 @@
 @end
 #endif
 
-#if HAVE(PDFDOCUMENT_SELECTION_WITH_GRANULARITY)
-typedef NS_ENUM(NSUInteger, PDFSelectionGranularity);
-
-#define PDFSelectionGranularityCharacter 0
-#define PDFSelectionGranularityWord 1
-#define PDFSelectionGranularityLine 2
-
-@interface PDFDocument (Staging_122179178)
-- (/*nullable*/ PDFSelection *)selectionFromPage:(PDFPage *)startPage atPoint:(PDFPoint)startPoint toPage:(PDFPage *)endPage atPoint:(PDFPoint)endPoint withGranularity:(PDFSelectionGranularity)granularity;
-@end
-#endif
-
 #if ENABLE(UNIFIED_PDF_DATA_DETECTION)
 
 #if HAVE(PDFDOCUMENT_ENABLE_DATA_DETECTORS)
@@ -176,10 +165,11 @@ typedef NS_ENUM(NSUInteger, PDFSelectionGranularity);
 
 #endif
 
-#if HAVE(PDFSELECTION_ENUMERATE_RECTS_AND_TRANSFORMS)
+#if HAVE(PDFSELECTION_HTMLDATA_RTFDATA)
 
-@interface PDFSelection (Staging_125426369)
-- (void)enumerateRectsAndTransformsForPage:(PDFPage *)page usingBlock:(void (^)(CGRect rect, CGAffineTransform transform))block;
+@interface PDFSelection (Staging_136075998)
+- (/*nullable*/ NSData *)htmlData;
+- (/*nullable*/ NSData *)rtfData;
 @end
 
 #endif

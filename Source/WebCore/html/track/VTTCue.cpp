@@ -69,12 +69,12 @@ namespace WebCore {
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(VTTCue);
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(VTTCueBox);
 
-static const CSSValueID displayWritingModeMap[] = {
+static constexpr std::array<CSSValueID, 3> displayWritingModeMap {
     CSSValueHorizontalTb, CSSValueVerticalRl, CSSValueVerticalLr
 };
 static_assert(std::size(displayWritingModeMap) == static_cast<size_t>(WebCore::VTTDirectionSetting::MaxValue) + 1, "displayWritingModeMap has wrong size");
 
-static const CSSValueID displayAlignmentMap[] = {
+static constexpr std::array<CSSValueID, 5> displayAlignmentMap {
     CSSValueStart, CSSValueCenter, CSSValueEnd, CSSValueLeft, CSSValueRight
 };
 static_assert(std::size(displayAlignmentMap) == static_cast<size_t>(WebCore::VTTAlignSetting::MaxValue) + 1, "displayAlignmentMap has wrong size");
@@ -540,7 +540,7 @@ RefPtr<DocumentFragment> VTTCue::createCueRenderingTree()
     // The cloned fragment is never exposed to author scripts so it's safe to dispatch events here.
     ScriptDisallowedScope::EventAllowedScope allowedScope(clonedFragment);
 
-    m_webVTTNodeTree->cloneChildNodes(clonedFragment);
+    m_webVTTNodeTree->cloneChildNodes(*document, clonedFragment);
     return clonedFragment;
 }
 
@@ -1128,17 +1128,17 @@ std::pair<double, double> VTTCue::getPositionCoordinates() const
 VTTCue::CueSetting VTTCue::settingName(VTTScanner& input)
 {
     CueSetting parsedSetting = None;
-    if (input.scan("vertical"))
+    if (input.scan("vertical"_span))
         parsedSetting = Vertical;
-    else if (input.scan("line"))
+    else if (input.scan("line"_span))
         parsedSetting = Line;
-    else if (input.scan("position"))
+    else if (input.scan("position"_span))
         parsedSetting = Position;
-    else if (input.scan("size"))
+    else if (input.scan("size"_span))
         parsedSetting = Size;
-    else if (input.scan("align"))
+    else if (input.scan("align"_span))
         parsedSetting = Align;
-    else if (input.scan("region"))
+    else if (input.scan("region"_span))
         parsedSetting = Region;
 
     // Verify that a ':' follows.

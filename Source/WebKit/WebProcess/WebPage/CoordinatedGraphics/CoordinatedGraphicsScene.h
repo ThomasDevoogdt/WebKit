@@ -21,14 +21,10 @@
 #pragma once
 
 #if USE(COORDINATED_GRAPHICS)
-
 #include <WebCore/Damage.h>
-#include <WebCore/NicosiaPlatformLayer.h>
-#include <WebCore/NicosiaScene.h>
 #include <WebCore/TextureMapper.h>
 #include <WebCore/TextureMapperFPSCounter.h>
 #include <WebCore/TextureMapperLayer.h>
-#include <WebCore/TextureMapperPlatformLayerProxy.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
@@ -37,76 +33,56 @@
 #include <wtf/Vector.h>
 
 namespace WebCore {
-class CoordinatedBackingStore;
+class CoordinatedPlatformLayer;
 }
 
 namespace WebKit {
+class CoordinatedSceneState;
 
 class CoordinatedGraphicsSceneClient {
 public:
     virtual ~CoordinatedGraphicsSceneClient() { }
     virtual void updateViewport() = 0;
+#if ENABLE(DAMAGE_TRACKING)
+    virtual const WebCore::Damage& addSurfaceDamage(const WebCore::Damage&) = 0;
+#endif
 };
 
-class CoordinatedGraphicsScene : public ThreadSafeRefCounted<CoordinatedGraphicsScene>, public WebCore::TextureMapperPlatformLayerProxy::Compositor
-    , public WebCore::TextureMapperLayerDamageVisitor {
+class CoordinatedGraphicsScene : public ThreadSafeRefCounted<CoordinatedGraphicsScene> {
 public:
-    CoordinatedGraphicsScene(CoordinatedGraphicsSceneClient*, WebCore::Damage::ShouldPropagate);
+    CoordinatedGraphicsScene(CoordinatedGraphicsSceneClient&, CoordinatedSceneState&);
     virtual ~CoordinatedGraphicsScene();
 
-    void applyStateChanges(const Vector<RefPtr<Nicosia::Scene>>&);
+#if !HAVE(DISPLAY_LINK)
+    CoordinatedSceneState& state() const { return m_sceneState.get(); }
+#endif
+
     void paintToCurrentGLContext(const WebCore::TransformationMatrix&, const WebCore::FloatRect&, bool flipY = false);
     void updateSceneState();
     void detach();
 
-    // The painting thread must lock the main thread to use below two methods, because two methods access members that the main thread manages. See m_client.
-    // Currently, QQuickWebPage::updatePaintNode() locks the main thread before calling both methods.
     void purgeGLResources();
 
     bool isActive() const { return m_isActive; }
     void setActive(bool active) { m_isActive = active; }
 
-    const WebCore::Damage& lastDamage() const { return m_damage; }
-    void recordDamage(const WebCore::FloatRect&) override;
+#if ENABLE(DAMAGE_TRACKING)
+    void setDamagePropagation(WebCore::Damage::Propagation damagePropagation) { m_damagePropagation = damagePropagation; }
+#endif
 
 private:
-    void commitSceneState(const RefPtr<Nicosia::Scene>&);
-
-    WebCore::TextureMapperLayer* rootLayer() { return m_rootLayer.get(); }
-
     void updateViewport();
 
-    void ensureRootLayer();
-
-    void onNewBufferAvailable() override;
-
-    void removeLayer(Nicosia::CompositionLayer&);
-
-    struct {
-        RefPtr<Nicosia::Scene> scene;
-        Nicosia::Scene::State state;
-    } m_nicosia;
-
+    Ref<CoordinatedSceneState> m_sceneState;
     std::unique_ptr<WebCore::TextureMapper> m_textureMapper;
-
-    // Below two members are accessed by only the main thread. The painting thread must lock the main thread to access both members.
-    CoordinatedGraphicsSceneClient* m_client;
+    CoordinatedGraphicsSceneClient* m_client { nullptr };
     bool m_isActive { false };
-
-    WebCore::Damage::ShouldPropagate m_propagateDamage;
-    WebCore::Damage m_damage;
-
-    std::unique_ptr<WebCore::TextureMapperLayer> m_rootLayer;
-
-    Nicosia::PlatformLayer::LayerID m_rootLayerID { 0 };
-
-    UncheckedKeyHashMap<WebCore::TextureMapperLayer*, Ref<WebCore::CoordinatedBackingStore>> m_backingStores;
-
     WebCore::TextureMapperFPSCounter m_fpsCounter;
+#if ENABLE(DAMAGE_TRACKING)
+    WebCore::Damage::Propagation m_damagePropagation { WebCore::Damage::Propagation::None };
+#endif
 };
 
 } // namespace WebKit
 
 #endif // USE(COORDINATED_GRAPHICS)
-
-

@@ -56,14 +56,19 @@ bool SystemSettingsManagerProxy::darkMode() const
         return true;
 
     // FIXME: These are just heuristics, we should get the dark mode from libhandy/libadwaita, falling back to the settings portal.
-
-    if (auto* themeNameEnv = g_getenv("GTK_THEME"))
-        return g_str_has_suffix(themeNameEnv, "-dark") || g_str_has_suffix(themeNameEnv, "-Dark") || g_str_has_suffix(themeNameEnv, ":dark");
+    // Or maybe just use the settings portal, because we don't want to depend on libhandy, and maybe don't want to depend on libadwaita?
+    if (const char* themeNameEnv = g_getenv("GTK_THEME")) {
+        String themeNameEnvString = String::fromUTF8(themeNameEnv);
+        return themeNameEnvString.endsWith("-dark"_s) || themeNameEnvString.endsWith("-Dark"_s) || themeNameEnvString.endsWith(":dark"_s);
+    }
 
     GUniqueOutPtr<char> themeName;
     g_object_get(m_settings, "gtk-theme-name", &themeName.outPtr(), nullptr);
-    if (g_str_has_suffix(themeName.get(), "-dark") || (g_str_has_suffix(themeName.get(), "-Dark")))
-        return true;
+    if (themeName) {
+        String themeNameString = String::fromUTF8(themeName.get());
+        if (themeNameString.endsWith("-dark"_s) || themeNameString.endsWith("-Dark"_s))
+            return true;
+    }
 
     return false;
 }
@@ -108,6 +113,21 @@ int SystemSettingsManagerProxy::xftDPI() const
     int dpiSetting;
     g_object_get(m_settings, "gtk-xft-dpi", &dpiSetting, nullptr);
     return dpiSetting;
+}
+
+bool SystemSettingsManagerProxy::followFontSystemSettings() const
+{
+#if USE(GTK4)
+#if GTK_CHECK_VERSION(4, 16, 0)
+    GtkFontRendering fontRendering;
+    g_object_get(m_settings, "gtk-font-rendering", &fontRendering, nullptr);
+    return fontRendering == GTK_FONT_RENDERING_MANUAL;
+#else
+    return false;
+#endif
+#endif
+
+    return true;
 }
 
 bool SystemSettingsManagerProxy::cursorBlink() const
@@ -159,6 +179,9 @@ SystemSettingsManagerProxy::SystemSettingsManagerProxy()
     g_signal_connect_swapped(m_settings, "notify::gtk-xft-hinting", G_CALLBACK(settingsChangedCallback), this);
     g_signal_connect_swapped(m_settings, "notify::gtk-xft-hintstyle", G_CALLBACK(settingsChangedCallback), this);
     g_signal_connect_swapped(m_settings, "notify::gtk-xft-rgba", G_CALLBACK(settingsChangedCallback), this);
+#if GTK_CHECK_VERSION(4, 16, 0)
+    g_signal_connect_swapped(m_settings, "notify::gtk-font-rendering", G_CALLBACK(settingsChangedCallback), this);
+#endif
     g_signal_connect_swapped(m_settings, "notify::gtk-cursor-blink", G_CALLBACK(settingsChangedCallback), this);
     g_signal_connect_swapped(m_settings, "notify::gtk-cursor-blink-time", G_CALLBACK(settingsChangedCallback), this);
     g_signal_connect_swapped(m_settings, "notify::gtk-primary-button-warps-slider", G_CALLBACK(settingsChangedCallback), this);
@@ -170,3 +193,4 @@ SystemSettingsManagerProxy::SystemSettingsManagerProxy()
 }
 
 } // namespace WebKit
+

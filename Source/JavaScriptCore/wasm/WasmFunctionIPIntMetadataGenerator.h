@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 #if ENABLE(WEBASSEMBLY)
 
 #include "BytecodeConventions.h"
@@ -78,6 +82,8 @@ public:
     FunctionCodeIndex functionIndex() const { return m_functionIndex; }
     const BitVector& tailCallSuccessors() const { return m_tailCallSuccessors; }
     bool tailCallClobbersInstance() const { return m_tailCallClobbersInstance ; }
+    void setTailCall(uint32_t, bool);
+    void setTailCallClobbersInstance() { m_tailCallClobbersInstance = true; }
 
     FixedBitVector&& takeCallees() { return WTFMove(m_callees); }
 
@@ -138,3 +144,5 @@ void FunctionIPIntMetadataGenerator::addBlankSpace(size_t size)
 } } // namespace JSC::Wasm
 
 #endif // ENABLE(WEBASSEMBLY)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -43,24 +43,8 @@ from twisted.trial import unittest
 from . import send_email
 
 from .layout_test_failures import LayoutTestFailures
-from .steps import (AddReviewerToCommitMessage, AddMergeLabelsToPRs, AnalyzeAPITestsResults, AnalyzeCompileWebKitResults,
-                    AnalyzeJSCTestsResults, AnalyzeLayoutTestsResults, ApplyPatch, ApplyWatchList, ArchiveBuiltProduct, ArchiveTestResults, ArchiveStaticAnalyzerResults, BugzillaMixin, BlockPullRequest,
-                    Canonicalize, CheckOutPullRequest, CheckOutLLVMProject, CheckOutSource, CheckOutSpecificRevision, CheckChangeRelevance, CheckStatusOnEWSQueues, CheckStatusOfPR, CheckStyle,
-                    CleanBuild, CleanDerivedSources, CleanUpGitIndexLock, CleanGitRepo, CleanWorkingDirectory, CompileJSC, CompileJSCWithoutChange,
-                    CompileWebKit, CompileWebKitWithoutChange, ConfigureBuild, ConfigureBuild, Contributors, DetermineLabelOwner,
-                    DetermineLandedIdentifier, DisplaySaferCPPResults, DownloadBuiltProduct, DownloadBuiltProductFromMaster,
-                    EWS_BUILD_HOSTNAMES, ExtractBuiltProduct, ExtractTestResults,
-                    FetchBranches, FindModifiedLayoutTests, FindUnexpectedStaticAnalyzerResults, GetTestExpectationsBaseline, GetUpdatedTestExpectations, GitHub, GitHubMixin, GenerateS3URL,
-                    InstallBuiltProduct, InstallGtkDependencies, InstallWpeDependencies, InstallHooks, LeaveComment, InstallCMake, InstallNinja,
-                    KillOldProcesses, ParseStaticAnalyzerResults, PrintConfiguration, PrintClangVersion, PushCommitToWebKitRepo, PushPullRequestBranch, RemoveAndAddLabels, ReRunAPITests, ReRunWebKitPerlTests, RetrievePRDataFromLabel,
-                    MapBranchAlias, ReRunWebKitTests, RevertAppliedChanges, RunAPITests, RunAPITestsWithoutChange, RunBindingsTests, RunBuildWebKitOrgUnitTests,
-                    RunBuildbotCheckConfigForBuildWebKit, RunBuildbotCheckConfigForEWS, RunEWSUnitTests, RunResultsdbpyTests,
-                    RunJavaScriptCoreTests, RunJSCTestsWithoutChange, RunWebKit1Tests, RunWebKitPerlTests,
-                    RunWebKitPyTests, RunWebKitTests, RunWebKitTestsInStressMode, RunWebKitTestsInStressGuardmallocMode,
-                    RunWebKitTestsWithoutChange, RunWebKitTestsRedTree, RunWebKitTestsRepeatFailuresRedTree,
-                    RunWebKitTestsRepeatFailuresWithoutChangeRedTree, RunWebKitTestsWithoutChangeRedTree, AnalyzeLayoutTestsResultsRedTree, TestWithFailureCount, SetBuildSummary, SetCommitQueueMinusFlagOnPatch,
-                    ScanBuild, ShowIdentifier, Trigger, TransferToS3, TwistedAdditions, UpdateClang, UpdatePullRequest, UpdateWorkingDirectory, UploadBuiltProduct,
-                    UploadFileToS3, UploadTestResults, ValidateCommitMessage, ValidateCommitterAndReviewer, ValidateChange, ValidateRemote, ValidateSquashed)
+from .steps import *
+from Shared.steps import *
 
 # Workaround for https://github.com/buildbot/buildbot/issues/4669
 from buildbot.test.fake.fakebuild import FakeBuild
@@ -1210,7 +1194,7 @@ class TestCompileWebKit(BuildStepMixinAdditions, unittest.TestCase):
             ExpectShell(workdir='wkdir',
                         timeout=3600,
                         logEnviron=False,
-                        command=['perl', 'Tools/Scripts/build-webkit', '--release', '--prefix=/app/webkit/WebKitBuild/release/install', '--gtk'],
+                        command=['perl', 'Tools/Scripts/build-webkit', '--release', '--gtk'],
                         )
             + 0,
         )
@@ -3869,7 +3853,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'cherry-pick', 'HEAD..remotes/Contributor/eng/pull-request-branch'],
+                command=['git', 'cherry-pick', '--allow-empty', 'HEAD..remotes/Contributor/eng/pull-request-branch'],
             ) + 0,
         )
         self.expectOutcome(result=SUCCESS, state_string='Checked out pull request')
@@ -3921,7 +3905,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'cherry-pick', 'HEAD..remotes/Contributor-apple/eng/pull-request-branch'],
+                command=['git', 'cherry-pick', '--allow-empty', 'HEAD..remotes/Contributor-apple/eng/pull-request-branch'],
             ) + 0,
         )
         self.expectOutcome(result=SUCCESS, state_string='Checked out pull request')
@@ -3973,7 +3957,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'cherry-pick', 'HEAD..remotes/WebKit-integration/integration/ci/1234'],
+                command=['git', 'cherry-pick', '--allow-empty', 'HEAD..remotes/WebKit-integration/integration/ci/1234'],
             ) + 0,
         )
         self.expectOutcome(result=SUCCESS, state_string='Checked out pull request')
@@ -4025,7 +4009,7 @@ class TestCheckOutPullRequest(BuildStepMixinAdditions, unittest.TestCase):
                 timeout=600,
                 logEnviron=False,
                 env=self.ENV,
-                command=['git', 'cherry-pick', 'HEAD..remotes/Contributor/eng/pull-request-branch'],
+                command=['git', 'cherry-pick', '--allow-empty', 'HEAD..remotes/Contributor/eng/pull-request-branch'],
             ) + 0,
         )
         self.expectOutcome(result=SUCCESS, state_string='Checked out pull request')
@@ -4340,7 +4324,7 @@ class TestCheckChangeRelevance(BuildStepMixinAdditions, unittest.TestCase):
         queues = ['Commit-Queue', 'Style-EWS', 'Apply-WatchList-EWS', 'GTK-Build-EWS', 'GTK-WK2-Tests-EWS',
                   'iOS-13-Build-EWS', 'iOS-13-Simulator-Build-EWS', 'iOS-13-Simulator-WK2-Tests-EWS',
                   'macOS-Catalina-Release-Build-EWS', 'macOS-Catalina-Release-WK2-Tests-EWS', 'macOS-Catalina-Debug-Build-EWS',
-                  'Win-Build-EWS', 'WPE-Build-EWS', 'WebKitPerl-Tests-EWS', 'WPE-Cairo-Build-EWS']
+                  'PlayStation-Build-EWS', 'Win-Build-EWS', 'WPE-Build-EWS', 'WebKitPerl-Tests-EWS', 'WPE-Cairo-Build-EWS']
         for queue in queues:
             self.setupStep(CheckChangeRelevance())
             self.setProperty('buildername', queue)
@@ -4877,8 +4861,8 @@ class TestGenerateS3URL(BuildStepMixinAdditions, unittest.TestCase):
     def tearDown(self):
         return self.tearDownBuildStep()
 
-    def configureStep(self, identifier='mac-highsierra-x86_64-release', extension='zip', content_type=None):
-        self.setupStep(GenerateS3URL(identifier, extension=extension, content_type=content_type))
+    def configureStep(self, identifier='mac-highsierra-x86_64-release', extension='zip', additions=None, content_type=None):
+        self.setupStep(GenerateS3URL(identifier, extension=extension, additions=additions, content_type=content_type))
         self.setProperty('change_id', '1234')
 
     def disabled_test_success(self):
@@ -4898,13 +4882,14 @@ class TestGenerateS3URL(BuildStepMixinAdditions, unittest.TestCase):
             return self.runStep()
 
     def test_failure(self):
-        self.configureStep('ios-simulator-16-x86_64-debug')
+        self.configureStep('ios-simulator-16-x86_64-debug', additions='123')
         self.expectLocalCommands(
             ExpectMasterShellCommand(command=['python3',
                                               '../Shared/generate-s3-url',
                                               '--change-id', '1234',
                                               '--identifier', 'ios-simulator-16-x86_64-debug',
                                               '--extension', 'zip',
+                                              '--additions', '123'
                                               ])
             + 2,
         )
@@ -6284,7 +6269,7 @@ class TestRetrievePRDataFromLabel(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_success(self):
         self.setupStep(RetrievePRDataFromLabel(project='WebKit/WebKit'))
-        GitHubMixin.get_number_of_prs_with_label = lambda self, label: 4
+        GitHubMixin.get_number_of_prs_with_label = lambda self, label, retry=0: 4
         query_result = {'data': {'repository': {'pullRequests': {'edges': [
             {'node':
                 {'title': 'Fix `test-webkitpy webkitflaskpy`', 'number': 17412, 'commits':
@@ -6395,7 +6380,7 @@ class TestRetrievePRDataFromLabel(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_success_project(self):
         self.setupStep(RetrievePRDataFromLabel(project='testRepo/WebKit'))
-        GitHubMixin.get_number_of_prs_with_label = lambda self, label: 4
+        GitHubMixin.get_number_of_prs_with_label = lambda self, label, retry=0: 4
         query_result = {'data': {'repository': {'pullRequests': {'edges': [
             {'node':
                 {'title': 'Fix `test-webkitpy webkitflaskpy`', 'number': 17412, 'commits':
@@ -6503,6 +6488,18 @@ class TestRetrievePRDataFromLabel(BuildStepMixinAdditions, unittest.TestCase):
         self.assertEqual(self.getProperty('list_of_prs'), [17412, 17418, 17451, 17454])
         return rc
 
+    def test_failure(self):
+        self.timeout = 1000
+        self.setupStep(RetrievePRDataFromLabel(project='testRepo/WebKit'))
+        GitHubMixin.get_number_of_prs_with_label = lambda self, label, retry=0: None
+        query_result = {'errors': [{'message': 'Error'}]}
+        GitHubMixin.query_graph_ql = lambda self, query: query_result
+        self.expectOutcome(result=FAILURE, state_string="Failed to retrieve pull request data")
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('project'), 'testRepo/WebKit')
+        self.assertEqual(self.getProperty('repository'), 'https://github.com/testRepo/WebKit')
+        return rc
+
 
 class TestCheckStatusOfPR(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
@@ -6589,6 +6586,57 @@ class TestRemoveAndAddLabels(BuildStepMixinAdditions, unittest.TestCase):
         rc = self.runStep()
         self.assertEqual(self.getProperty('passed_status_check'), [])
         return rc
+
+
+class TestValidateUserForQueue(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        self.longMessage = True
+        Contributors.load = mock_load_contributors
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def test_success_patch(self):
+        self.setupStep(ValidateUserForQueue())
+        self.setProperty('patch_committer', 'committer@webkit.org')
+        self.expectOutcome(result=SUCCESS, state_string='Validated user for queue')
+        return self.runStep()
+
+    def test_success_pr(self):
+        self.setupStep(ValidateUserForQueue())
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['webkit-commit-queue'])
+        self.expectOutcome(result=SUCCESS, state_string='Validated user for queue')
+        return self.runStep()
+
+    def test_failure_load_contributors_patch(self):
+        self.setupStep(ValidateUserForQueue())
+        self.setProperty('patch_committer', 'abc@webkit.org')
+        Contributors.load = lambda *args, **kwargs: ({}, [])
+        self.expectOutcome(result=FAILURE, state_string='Failed to get contributors information (failure)')
+        return self.runStep()
+
+    def test_failure_load_contributors_pr(self):
+        self.setupStep(ValidateUserForQueue())
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['abc'])
+        Contributors.load = lambda *args, **kwargs: ({}, [])
+        self.expectOutcome(result=FAILURE, state_string='Failed to get contributors information (failure)')
+        return self.runStep()
+
+    def test_failure_invalid_committer_patch(self):
+        self.setupStep(ValidateUserForQueue())
+        self.setProperty('patch_committer', 'abc@webkit.org')
+        self.expectOutcome(result=FAILURE, state_string='Skipping queue, as abc@webkit.org lacks committer status (failure)')
+        return self.runStep()
+
+    def test_failure_invalid_committer_pr(self):
+        self.setupStep(ValidateUserForQueue())
+        self.setProperty('github.number', '1234')
+        self.setProperty('owners', ['abc'])
+        self.expectOutcome(result=FAILURE, state_string='Skipping queue, as abc lacks committer status (failure)')
+        return self.runStep()
 
 
 class TestValidateCommitterAndReviewer(BuildStepMixinAdditions, unittest.TestCase):
@@ -7639,46 +7687,6 @@ class TestFetchBranches(BuildStepMixinAdditions, unittest.TestCase):
             ) + 0,
         )
         self.expectOutcome(result=FAILURE)
-        return self.runStep()
-
-
-class TestInstallBuiltProduct(BuildStepMixinAdditions, unittest.TestCase):
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def test_success(self):
-        self.setupStep(InstallBuiltProduct())
-        self.setProperty('fullPlatform', 'ios-14')
-        self.setProperty('configuration', 'release')
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        command=['python3', 'Tools/Scripts/install-built-product', '--platform=ios-14', '--release'],
-                        logEnviron=True,
-                        timeout=1200,
-                        )
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Installed Built Product')
-        return self.runStep()
-
-    def test_failure(self):
-        self.setupStep(InstallBuiltProduct())
-        self.setProperty('fullPlatform', 'ios-14')
-        self.setProperty('configuration', 'debug')
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        command=['python3', 'Tools/Scripts/install-built-product', '--platform=ios-14', '--debug'],
-                        logEnviron=True,
-                        timeout=1200,
-                        )
-            + ExpectShell.log('stdio', stdout='Unexpected error.')
-            + 2,
-        )
-        self.expectOutcome(result=FAILURE, state_string='Installed Built Product (failure)')
         return self.runStep()
 
 
@@ -9238,6 +9246,182 @@ class TestParseStaticAnalyzerResults(BuildStepMixinAdditions, unittest.TestCase)
 
 
 class TestFindUnexpectedStaticAnalyzerResults(BuildStepMixinAdditions, unittest.TestCase):
+    command = ['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--archived-dir', 'wkdir/build/baseline', '--scan-build-path', '../llvm-project/clang/tools/scan-build/bin/scan-build', '--delete-results']
+    upload_options = ['--builder-name', 'Safer-CPP-Checks', '--build-number', 1234, '--buildbot-worker', 'ews123', '--buildbot-master', EWS_BUILD_HOSTNAMES[0], '--report', 'https://results.webkit.org/']
+    configuration = ['--architecture', 'arm64', '--platform', 'mac', '--version', '14.6.1', '--version-name', 'Sonoma', '--style', 'release', '--sdk', '23G93']
+    jsonFileName = f'{SCAN_BUILD_OUTPUT_DIR}/unexpected_results.json'
+
+    def setUp(self):
+        os.environ['RESULTS_SERVER_API_KEY'] = 'test-api-key'
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def configureStep(self, use_expectations, was_filtered=False):
+        self.setupStep(FindUnexpectedStaticAnalyzerResults(use_expectations=use_expectations, was_filtered=was_filtered))
+        self.setProperty('builddir', 'wkdir')
+        self.setProperty('buildnumber', 1234)
+        self.setProperty('architecture', 'arm64')
+        self.setProperty('platform', 'mac')
+        self.setProperty('os_version', '14.6.1')
+        self.setProperty('os_name', 'Sonoma')
+        self.setProperty('configuration', 'release')
+        self.setProperty('build_version', '23G93')
+        self.setProperty('got_revision', '1234567')
+        self.setProperty('branch', 'main')
+        self.setProperty('buildername', 'Safer-CPP-Checks')
+        self.setProperty('workername', 'ews123')
+        self.setProperty('builddir', 'wkdir')
+        self.setProperty('buildnumber', 1234)
+        self.setProperty('change_id', 1234)
+
+    def test_success_no_issues(self):
+        self.configureStep(False)
+
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        logfiles={'json': self.jsonFileName},
+                        command=self.command + self.upload_options + self.configuration,
+                        env={'RESULTS_SERVER_API_KEY': 'test-api-key'})
+            + ExpectShell.log('stdio', stdout='')
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='Found no unexpected results')
+        with current_hostname(EWS_BUILD_HOSTNAMES[0]):
+            return self.runStep()
+
+    def test_new_issues(self):
+        self.configureStep(False)
+
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        logfiles={'json': self.jsonFileName},
+                        command=self.command + self.upload_options + self.configuration,
+                        env={'RESULTS_SERVER_API_KEY': 'test-api-key'})
+            + ExpectShell.log('stdio', stdout='Total new issues: 19\nTotal fixed files: 3\n')
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='19 new issues 3 fixed files')
+        with current_hostname(EWS_BUILD_HOSTNAMES[0]):
+            return self.runStep()
+
+    def test_with_expectations_results_failure(self):
+        self.configureStep(True)
+        FindUnexpectedStaticAnalyzerResults.filter_results_using_results_db = lambda self, logText: False
+        next_steps = []
+        self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        logfiles={'json': self.jsonFileName},
+                        command=['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--check-expectations'],
+                        env={'RESULTS_SERVER_API_KEY': 'test-api-key'})
+            + ExpectShell.log('stdio', stdout='Total new issues: 19\nTotal fixed files: 3\n')
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='19 new issues 3 fixed files')
+        with current_hostname(EWS_BUILD_HOSTNAMES[0]):
+            rc = self.runStep()
+        self.assertEqual([ValidateChange(verifyBugClosed=False, addURLs=False), RevertAppliedChanges(exclude=['new*', 'scan-build-output*']), ScanBuildWithoutChange()], next_steps)
+        return rc
+
+    def test_with_expectations_results_success_unexpected(self):
+        self.configureStep(True, was_filtered=True)
+        FindUnexpectedStaticAnalyzerResults.filter_results_using_results_db = lambda self, logText: True
+        FindUnexpectedStaticAnalyzerResults.write_unexpected_results_file_to_master = lambda self: None
+        next_steps = []
+        self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        logfiles={'json': self.jsonFileName},
+                        command=['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--check-expectations'],
+                        env={'RESULTS_SERVER_API_KEY': 'test-api-key'})
+            + ExpectShell.log('stdio', stdout='Total new issues: 19\nTotal new files: 3\n')
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='3 failing files ')
+        with current_hostname(EWS_BUILD_HOSTNAMES[0]):
+            rc = self.runStep()
+        self.assertEqual([DownloadUnexpectedResultsFromMaster(), DeleteStaticAnalyzerResults(results_dir='StaticAnalyzerUnexpectedRegressions'), GenerateSaferCPPResultsIndex(), DeleteStaticAnalyzerResults(), ArchiveStaticAnalyzerResults(), UploadStaticAnalyzerResults(), ExtractStaticAnalyzerTestResults(), DisplaySaferCPPResults()], next_steps)
+        return rc
+
+    def test_with_expectations_results_success_without_unexpected(self):
+        self.configureStep(True)
+        FindUnexpectedStaticAnalyzerResults.filter_results_using_results_db = lambda self, logText: True
+        next_steps = []
+        self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
+        self.expectRemoteCommands(
+            ExpectShell(workdir='wkdir',
+                        logEnviron=False,
+                        logfiles={'json': self.jsonFileName},
+                        command=['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--check-expectations'],
+                        env={'RESULTS_SERVER_API_KEY': 'test-api-key'})
+            + ExpectShell.log('stdio', stdout='Total new issues: 19\nTotal fixed files: 3\n')
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='19 new issues 3 fixed files')
+        with current_hostname(EWS_BUILD_HOSTNAMES[0]):
+            rc = self.runStep()
+        self.assertEqual([GenerateSaferCPPResultsIndex(), DeleteStaticAnalyzerResults(), ArchiveStaticAnalyzerResults(), UploadStaticAnalyzerResults(), ExtractStaticAnalyzerTestResults(), DisplaySaferCPPResults()], next_steps)
+        return rc
+
+
+class TestDownloadUnexpectedResultsfromMaster(BuildStepMixinAdditions, unittest.TestCase):
+    READ_LIMIT = 1000
+
+    def setUp(self):
+        self.longMessage = True
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def configureStep(self):
+        self.setupStep(DownloadUnexpectedResultsFromMaster(mastersrc=__file__))
+        self.setProperty('buildername', 'Safer-CPP-EWS')
+        self.setProperty('change_id', '123456')
+        self.setProperty('buildnumber', '123')
+
+    @staticmethod
+    def downloadFileRecordingContents(limit, recorder):
+        def behavior(command):
+            reader = command.args['reader']
+            data = reader.remote_read(limit)
+            recorder(data)
+            reader.remote_close()
+        return behavior
+
+    @defer.inlineCallbacks
+    def test_success(self):
+        self.configureStep()
+        self.expectHidden(False)
+        buf = []
+        self.expectRemoteCommands(
+            Expect('downloadFile', dict(
+                workerdest=f'{SCAN_BUILD_OUTPUT_DIR}/unexpected_results.json', workdir='wkdir',
+                blocksize=1024 * 256, maxsize=None, mode=0o0644,
+                reader=ExpectRemoteRef(remotetransfer.FileReader),
+            ))
+            + Expect.behavior(self.downloadFileRecordingContents(self.READ_LIMIT, buf.append))
+            + 0,
+        )
+        self.expectOutcome(result=SUCCESS, state_string='downloading to unexpected_results.json')
+
+        yield self.runStep()
+
+        buf = b''.join(buf)
+        self.assertEqual(len(buf), self.READ_LIMIT)
+        with open(__file__, 'rb') as masterFile:
+            data = masterFile.read(self.READ_LIMIT)
+            if data != buf:
+                self.assertEqual(buf, data)
+
+
+class TestDeleteStaticAnalyzerResults(BuildStepMixinAdditions, unittest.TestCase):
     def setUp(self):
         return self.setUpBuildStep()
 
@@ -9245,41 +9429,50 @@ class TestFindUnexpectedStaticAnalyzerResults(BuildStepMixinAdditions, unittest.
         return self.tearDownBuildStep()
 
     def configureStep(self):
-        self.setupStep(FindUnexpectedStaticAnalyzerResults())
-
-    def test_success_no_issues(self):
-        self.configureStep()
+        self.setupStep(DeleteStaticAnalyzerResults())
         self.setProperty('builddir', 'wkdir')
-        self.setProperty('buildnumber', 2)
 
+    def test_success(self):
+        self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--archived-dir', 'wkdir/build/baseline', '--scan-build-path', '../llvm-project/clang/tools/scan-build/bin/scan-build', '--delete-results'])
-            + ExpectShell.log('stdio', stdout='')
+                        command=['rm', '-r', os.path.join(self.getProperty('builddir'), f'build/{SCAN_BUILD_OUTPUT_DIR}/StaticAnalyzer')])
             + 0,
         )
-        self.expectOutcome(result=SUCCESS, state_string='Found no unexpected results')
+        self.expectOutcome(result=SUCCESS, state_string='deleted static analyzer results')
         return self.runStep()
 
-    def test_new_issues(self):
-        self.configureStep()
-        self.setProperty('builddir', 'wkdir')
-        self.setProperty('buildnumber', 1234)
 
+class TestGenerateSaferCPPResultsIndex(BuildStepMixinAdditions, unittest.TestCase):
+    def setUp(self):
+        os.environ['RESULTS_SERVER_API_KEY'] = 'test-api-key'
+        return self.setUpBuildStep()
+
+    def tearDown(self):
+        return self.tearDownBuildStep()
+
+    def configureStep(self):
+        self.setupStep(GenerateSaferCPPResultsIndex())
+        self.setProperty('builddir', 'wkdir')
+
+    def test_success(self):
+        self.configureStep()
         self.expectRemoteCommands(
             ExpectShell(workdir='wkdir',
                         logEnviron=False,
-                        command=['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--archived-dir', 'wkdir/build/baseline', '--scan-build-path', '../llvm-project/clang/tools/scan-build/bin/scan-build', '--delete-results'],)
-            + ExpectShell.log('stdio', stdout='Total new issues: 19\nTotal fixed files: 3\n')
+                        command=['python3', 'Tools/Scripts/compare-static-analysis-results', 'wkdir/build/new', '--build-output', SCAN_BUILD_OUTPUT_DIR, '--scan-build-path', '../llvm-project/clang/tools/scan-build/bin/scan-build', '--generate-results-only'])
+            + ExpectShell.log('stdio', stdout='scan-build: 1 bug found\n')
             + 0,
         )
-        self.expectOutcome(result=SUCCESS, state_string='19 new issues 3 fixed files')
-        return self.runStep()
+        self.expectOutcome(result=SUCCESS, state_string='generated safer cpp results')
+        rc = self.runStep()
+        self.assertEqual(self.getProperty('num_unexpected_issues'), 1)
+        return rc
 
 
 class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
-    HEADER = '### Safer C++ Build [#123](http://localhost:8080/#/builders/1/builds/13)\n'
+    HEADER = '### Safer C++ Build [#123](http://localhost:8080/#/builders/1/builds/13) (https://github.com/WebKit/WebKit/commit/7e4dc83588490a785f71acac4724e4e43a705077)\n'
 
     def setUp(self):
         return self.setUpBuildStep()
@@ -9292,6 +9485,8 @@ class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
         self.setupStep(DisplaySaferCPPResults())
         self.setProperty('buildnumber', '123')
         self.setProperty('github.number', '17')
+        self.setProperty('repository', 'https://github.com/WebKit/WebKit')
+        self.setProperty('github.head.sha', '7e4dc83588490a785f71acac4724e4e43a705077')
 
         def loadResultsData(self, path):
             return {
@@ -9329,7 +9524,7 @@ class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_success_preexisting_failures(self):
         self.configureStep()
-        self.setProperty('unexpected_new_issues', 10)
+        self.setProperty('num_unexpected_issues', 10)
         next_steps = []
         self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
 
@@ -9342,14 +9537,14 @@ class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_success_only_fixes(self):
         self.configureStep()
-        self.setProperty('unexpected_passing_files', 1)
+        self.setProperty('num_passing_files', 1)
         next_steps = []
         self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
 
         self.expectOutcome(result=SUCCESS, state_string='Found 1 fixed file: File17.cpp')
         rc = self.runStep()
         self.assertEqual(self.getProperty('passes'), ['File17.cpp'])
-        expected_comment = self.HEADER + "\n:warning: Found 1 fixed file! Please update expectations in `Source/[WebKit/WebCore]/SaferCPPExpectations` by running the following command and update your pull request:\n"
+        expected_comment = self.HEADER + "\n:warning: Found 1 fixed file! Please update expectations in `Source/[Project]/SaferCPPExpectations` by running the following command and update your pull request:\n"
         expected_comment += "- `Tools/Scripts/update-safer-cpp-expectations -p WebKit --RefCntblBaseVirtualDtor File17.cpp`"
         self.assertEqual(self.getProperty('comment_text'), expected_comment)
         self.assertEqual(self.getProperty('build_summary'), 'Found 1 fixed file: File17.cpp')
@@ -9358,8 +9553,8 @@ class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_failure_new_failures(self):
         self.configureStep()
-        self.setProperty('unexpected_new_issues', 10)
-        self.setProperty('unexpected_failing_files', 1)
+        self.setProperty('num_unexpected_issues', 10)
+        self.setProperty('num_failing_files', 1)
         next_steps = []
         self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
 
@@ -9374,9 +9569,9 @@ class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
 
     def test_failure_mixed(self):
         self.configureStep()
-        self.setProperty('unexpected_new_issues', 10)
-        self.setProperty('unexpected_passing_files', 1)
-        self.setProperty('unexpected_failing_files', 1)
+        self.setProperty('num_unexpected_issues', 10)
+        self.setProperty('num_passing_files', 1)
+        self.setProperty('num_failing_files', 1)
         next_steps = []
         self.patch(self.build, 'addStepsAfterCurrentStep', lambda s: next_steps.extend(s))
 
@@ -9384,244 +9579,11 @@ class TestDisplaySaferCPPResults(BuildStepMixinAdditions, unittest.TestCase):
         rc = self.runStep()
         expected_comment = self.HEADER + ":x: Found [10 new failures](https://ews-build.s3-us-west-2.amazonaws.com/None/None-123/scan-build-output/new-results.html). "
         expected_comment += "Please address these issues before landing. See [WebKit Guidelines for Safer C++ Programming](https://github.com/WebKit/WebKit/wiki/Safer-CPP-Guidelines).\n(cc @rniwa)\n"
-        expected_comment += "\n:warning: Found 1 fixed file! Please update expectations in `Source/[WebKit/WebCore]/SaferCPPExpectations` by running the following command and update your pull request:\n"
+        expected_comment += "\n:warning: Found 1 fixed file! Please update expectations in `Source/[Project]/SaferCPPExpectations` by running the following command and update your pull request:\n"
         expected_comment += '- `Tools/Scripts/update-safer-cpp-expectations -p WebKit --RefCntblBaseVirtualDtor File17.cpp`'
         self.assertEqual(self.getProperty('comment_text'), expected_comment)
         self.assertEqual(self.getProperty('build_finish_summary'), 'Found 10 new failures in File1.cpp')
         self.assertEqual([LeaveComment(), SetBuildSummary()], next_steps)
-
-
-class TestPrintClangVersion(BuildStepMixinAdditions, unittest.TestCase):
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def configureStep(self):
-        self.setupStep(PrintClangVersion())
-
-    def test_success(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=False,
-                        timeout=60,
-                        command=['./build/bin/clang', '--version'])
-            + ExpectShell.log('stdio', stdout='clang version 17.0.6 (https://github.com/rniwa/llvm-project.git 34715c1b2049d8aa738ade79f003ed4b82259a89) Target: arm64-apple-darwin23.5.0\nThread model: posix\nInstalledDir: /Volumes/Data/worker/macOS-Sonoma-Safer-CPP-Checks-EWS/llvm-project/./build/bin')
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='clang version 17.0.6 (https://github.com/rniwa/llvm-project.git 34715c1b2049d8aa738ade79f003ed4b82259a89)')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('llvm_revision'), '34715c1b2049d8aa738ade79f003ed4b82259a89')
-        return rc
-
-    def test_failure(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=False,
-                        timeout=60,
-                        command=['./build/bin/clang', '--version'])
-            + ExpectShell.log('stdio', stdout='No such file or directory\n')
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Clang executable does not exist')
-        rc = self.runStep()
-        self.assertEqual(self.getProperty('llvm_revision'), None)
-        return rc
-
-
-class TestCheckoutLLVMProject(BuildStepMixinAdditions, unittest.TestCase):
-    LLVM_REVISION = '123456'
-
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def configureStep(self):
-        self.setupStep(CheckOutLLVMProject())
-
-        def doStepIf(self, step):
-            return self.build.getProperty('llvm_revision', '') != TestCheckoutLLVMProject.LLVM_REVISION
-        CheckOutLLVMProject.doStepIf = doStepIf
-
-    def test_skipped(self):
-        self.configureStep()
-        self.setProperty('llvm_revision', '123456')
-        self.expectOutcome(result=SKIPPED, state_string='llvm-project is already up to date')
-        return self.runStep()
-
-
-class TestUpdateClang(BuildStepMixinAdditions, unittest.TestCase):
-    ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/CMake.app/Contents/bin/:BuildDir'}
-    LLVM_REVISION = '123456'
-
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def configureStep(self):
-        self.setupStep(UpdateClang())
-        self.setProperty('builddir', 'BuildDir')
-
-        def doStepIf(self, step):
-            return self.build.getProperty('llvm_revision', '') != TestUpdateClang.LLVM_REVISION
-        UpdateClang.doStepIf = doStepIf
-
-    def test_success(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['/bin/sh', '-c', 'rm -r build-new; mkdir build-new']) + 0,
-            ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['/bin/sh', '-c', 'cd build-new; xcrun cmake -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_BUILD_TYPE=Release -G Ninja ../llvm -DCMAKE_MAKE_PROGRAM=$(xcrun --sdk macosx --find ninja)']) + 0,
-            ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['/bin/sh', '-c', 'cd build-new; ninja clang']) + 0,
-            ExpectShell(workdir=LLVM_DIR,
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['rm', '-r', '../build/WebKitBuild']) + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Successfully updated clang')
-        return self.runStep()
-
-    def test_skipped(self):
-        self.configureStep()
-        self.setProperty('llvm_revision', '123456')
-        self.expectOutcome(result=SKIPPED, state_string='Clang is already up to date')
-        self.runStep()
-
-
-class TestInstallCMake(BuildStepMixinAdditions, unittest.TestCase):
-    ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/CMake.app/Contents/bin/'}
-
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def configureStep(self):
-        self.setupStep(InstallCMake())
-
-    def test_success_update(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['python3', 'Tools/CISupport/Shared/download-and-install-build-tools', 'cmake'])
-            + ExpectShell.log('stdio', stdout='cmake version 3.30.4\n')
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Successfully installed CMake')
-        return self.runStep()
-
-    def test_success_update_skipped(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['python3', 'Tools/CISupport/Shared/download-and-install-build-tools', 'cmake'])
-            + ExpectShell.log('stdio', stdout='cmake is already up to date... skipping download and installation.\n')
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='CMake is already installed')
-        return self.runStep()
-
-    def test_failure(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['python3', 'Tools/CISupport/Shared/download-and-install-build-tools', 'cmake'])
-            + ExpectShell.log('stdio', stdout='zsh: command not found: cmake\n')
-            + 1,
-        )
-        self.expectOutcome(result=FAILURE, state_string='Failed to install CMake')
-        return self.runStep()
-
-
-class TestInstallNinja(BuildStepMixinAdditions, unittest.TestCase):
-    ENV = {'PATH': "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:BuildDir"}
-
-    def setUp(self):
-        self.longMessage = True
-        return self.setUpBuildStep()
-
-    def tearDown(self):
-        return self.tearDownBuildStep()
-
-    def configureStep(self):
-        self.setupStep(InstallNinja())
-        self.setProperty('builddir', 'BuildDir')
-
-    def test_success_update(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['/bin/sh', '-c', 'cd ../; python3 build/Tools/CISupport/Shared/download-and-install-build-tools ninja'])
-            + ExpectShell.log('stdio', stdout='1.12.1\n')
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Successfully installed Ninja')
-        return self.runStep()
-
-    def test_success_update_skipped(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['/bin/sh', '-c', 'cd ../; python3 build/Tools/CISupport/Shared/download-and-install-build-tools ninja'])
-            + ExpectShell.log('stdio', stdout='ninja is already up to date... skipping download and installation.\n')
-            + 0,
-        )
-        self.expectOutcome(result=SUCCESS, state_string='Ninja is already installed')
-        return self.runStep()
-
-    def test_failure(self):
-        self.configureStep()
-        self.expectRemoteCommands(
-            ExpectShell(workdir='wkdir',
-                        logEnviron=True,
-                        timeout=1200,
-                        env=self.ENV,
-                        command=['/bin/sh', '-c', 'cd ../; python3 build/Tools/CISupport/Shared/download-and-install-build-tools ninja'])
-            + ExpectShell.log('stdio', stdout='zsh: command not found: ninja')
-            + 1,
-        )
-        self.expectOutcome(result=FAILURE, state_string='Failed to install Ninja')
-        return self.runStep()
-
 
 if __name__ == '__main__':
     unittest.main()

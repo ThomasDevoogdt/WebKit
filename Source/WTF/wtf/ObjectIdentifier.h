@@ -26,15 +26,10 @@
 #pragma once
 
 #include <wtf/Compiler.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 #include <wtf/HashTraits.h>
 #include <wtf/UUID.h>
 #include <wtf/text/TextStream.h>
 #include <wtf/text/WTFString.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 namespace WTF {
 
@@ -260,7 +255,7 @@ class ObjectIdentifierGenericBaseStringTypeAdapter<uint64_t> {
 public:
     unsigned length() const { return lengthOfIntegerAsString(m_identifier); }
     bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const { writeIntegerToBuffer(m_identifier, destination); }
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const { writeIntegerToBuffer(m_identifier, destination); }
 protected:
     explicit ObjectIdentifierGenericBaseStringTypeAdapter(uint64_t identifier)
         : m_identifier(identifier) { }

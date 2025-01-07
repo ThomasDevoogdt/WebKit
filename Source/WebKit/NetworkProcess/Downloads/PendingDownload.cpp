@@ -33,7 +33,6 @@
 #include "NetworkLoad.h"
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/LocalFrameLoaderClient.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -124,14 +123,14 @@ void PendingDownload::publishProgress(const URL& url, SandboxExtension::Handle&&
 }
 #endif
 
-void PendingDownload::didBecomeDownload(const std::unique_ptr<Download>& download)
+void PendingDownload::didBecomeDownload(Download& download)
 {
     if (!m_progressURL.isValid())
         return;
 #if HAVE(MODERN_DOWNLOADPROGRESS)
-    download->publishProgress(m_progressURL, m_bookmarkData, m_useDownloadPlaceholder, m_activityAccessToken);
+    download.publishProgress(m_progressURL, m_bookmarkData, m_useDownloadPlaceholder, m_activityAccessToken);
 #else
-    download->publishProgress(m_progressURL, WTFMove(m_progressSandboxExtension));
+    download.publishProgress(m_progressURL, WTFMove(m_progressSandboxExtension));
 #endif
 }
 #endif // PLATFORM(COCOA)

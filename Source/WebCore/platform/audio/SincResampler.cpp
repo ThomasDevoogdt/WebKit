@@ -37,6 +37,7 @@
 #include <wtf/Algorithms.h>
 #include <wtf/MathExtras.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/ParsingUtilities.h>
 
 #if USE(ACCELERATE)
 #include <Accelerate/Accelerate.h>
@@ -217,15 +218,14 @@ void SincResampler::processBuffer(std::span<const float> source, std::span<float
 
         // Zero-pad if necessary.
         if (framesToCopy < framesToProcess)
-            memsetSpan(buffer.subspan(framesToCopy, framesToProcess - framesToCopy), 0);
+            zeroSpan(buffer.subspan(framesToCopy, framesToProcess - framesToCopy));
 
-        source = source.subspan(framesToCopy);
+        skip(source, framesToCopy);
     });
 
     while (!destination.empty()) {
         unsigned framesThisTime = std::min<size_t>(destination.size(), AudioUtilities::renderQuantumSize);
-        resampler.process(destination, framesThisTime);
-        destination = destination.subspan(framesThisTime);
+        resampler.process(consumeSpan(destination, framesThisTime), framesThisTime);
     }
 }
 
@@ -293,7 +293,9 @@ void SincResampler::process(std::span<float> destination, size_t framesToProcess
     }
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 float SincResampler::convolve(const float* inputP, const float* k1, const float* k2, float kernelInterpolationFactor)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 {
 #if USE(ACCELERATE)
     float sum1;

@@ -77,7 +77,7 @@ public:
 
     void takeAllChildrenFrom(ContainerNode*);
 
-    void cloneChildNodes(ContainerNode& clone);
+    void cloneChildNodes(TreeScope&, ContainerNode& clone);
 
     struct ChildChange {
         enum class Type : uint8_t { ElementInserted, ElementRemoved, TextInserted, TextRemoved, TextChanged, AllChildrenRemoved, NonContentsChildRemoved, NonContentsChildInserted, AllChildrenReplaced };
@@ -85,9 +85,10 @@ public:
         enum class AffectsElements : uint8_t { Unknown, No, Yes };
 
         ChildChange::Type type;
-        Element* siblingChanged;
-        Element* previousSiblingElement;
-        Element* nextSiblingElement;
+        // Making these raw pointers RefPtr leads to a Speedometer 3 regression.
+        SUPPRESS_UNCOUNTED_MEMBER Element* siblingChanged;
+        SUPPRESS_UNCOUNTED_MEMBER Element* previousSiblingElement;
+        SUPPRESS_UNCOUNTED_MEMBER Element* nextSiblingElement;
         ChildChange::Source source;
         AffectsElements affectsElements;
 
@@ -202,10 +203,25 @@ inline Node* Node::firstChild() const
     return containerNode ? containerNode->firstChild() : nullptr;
 }
 
+inline RefPtr<Node> Node::protectedFirstChild() const
+{
+    return firstChild();
+}
+
 inline Node* Node::lastChild() const
 {
     auto* containerNode = dynamicDowncast<ContainerNode>(*this);
     return containerNode ? containerNode->lastChild() : nullptr;
+}
+
+inline RefPtr<Node> Node::protectedLastChild() const
+{
+    return lastChild();
+}
+
+inline bool Node::hasChildNodes() const
+{
+    return firstChild();
 }
 
 inline ContainerNode& TreeScope::rootNode() const
@@ -229,7 +245,7 @@ inline ContainerNode& ContainerNode::rootNode() const
 
 inline void collectChildNodes(Node& node, NodeVector& children)
 {
-    for (Node* child = node.firstChild(); child; child = child->nextSibling())
+    for (SUPPRESS_UNCOUNTED_LOCAL Node* child = node.firstChild(); child; child = child->nextSibling())
         children.append(*child);
 }
 

@@ -38,9 +38,8 @@
 #include <WebCore/SharedBuffer.h>
 #include <wtf/Function.h>
 #include <wtf/MainThread.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WebKit {
 
@@ -85,7 +84,7 @@ void LibWebRTCSocket::signalReadPacket(std::span<const uint8_t> data, rtc::Socke
         return;
 
     m_remoteAddress = WTFMove(address);
-    absl::optional<webrtc::Timestamp> packetTimestamp;
+    std::optional<webrtc::Timestamp> packetTimestamp;
     if (timestamp)
         packetTimestamp = webrtc::Timestamp::Micros(timestamp);
     NotifyPacketReceived({ { data.data(), data.size() }, m_remoteAddress, packetTimestamp, ecn });
@@ -122,7 +121,7 @@ int LibWebRTCSocket::SendTo(const void *value, size_t size, const rtc::SocketAdd
     if (m_isSuspended)
         return size;
 
-    std::span data(static_cast<const uint8_t*>(value), size);
+    auto data = unsafeMakeSpan(static_cast<const uint8_t*>(value), size);
     connection->send(Messages::NetworkRTCProvider::SendToSocket { identifier(), data, RTCNetwork::SocketAddress { address }, RTCPacketOptions { options } }, 0);
 
     return size;
@@ -143,18 +142,16 @@ int LibWebRTCSocket::Close()
 
 int LibWebRTCSocket::GetOption(rtc::Socket::Option option, int* value)
 {
-    ASSERT(option < MAX_SOCKET_OPTION);
-    if (auto storedValue = m_options[option]) {
-        *value = *storedValue;
-        return 0;
-    }
-    return -1;
+    auto iterator = m_options.find(option);
+    if (iterator == m_options.end())
+        return -1;
+
+    *value = iterator->second;
+    return 0;
 }
 
 int LibWebRTCSocket::SetOption(rtc::Socket::Option option, int value)
 {
-    ASSERT(option < MAX_SOCKET_OPTION);
-
     m_options[option] = value;
 
     if (RefPtr connection = m_factory->connection())
@@ -181,7 +178,5 @@ void LibWebRTCSocket::suspend()
 }
 
 } // namespace WebKit
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // USE(LIBWEBRTC)

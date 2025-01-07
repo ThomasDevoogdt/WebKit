@@ -37,6 +37,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/Identified.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WallTime.h>
 #include <wtf/WeakPtr.h>
@@ -52,7 +53,7 @@ struct ServiceWorkerContextData;
 
 enum class IsAppInitiated : bool { No, Yes };
 
-class SWServerRegistration : public RefCounted<SWServerRegistration>, public CanMakeWeakPtr<SWServerRegistration>, public Identified<ServiceWorkerRegistrationIdentifier> {
+class SWServerRegistration : public RefCountedAndCanMakeWeakPtr<SWServerRegistration>, public Identified<ServiceWorkerRegistrationIdentifier> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(SWServerRegistration, WEBCORE_EXPORT);
 public:
     static Ref<SWServerRegistration> create(SWServer&, const ServiceWorkerRegistrationKey&, ServiceWorkerUpdateViaCache, const URL& scopeURL, const URL& scriptURL, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, NavigationPreloadState&&);
@@ -149,7 +150,7 @@ private:
     WeakPtr<SWServer> m_server;
 
     MonotonicTime m_creationTime;
-    UncheckedKeyHashMap<SWServerConnectionIdentifier, HashSet<ScriptExecutionContextIdentifier>> m_clientsUsingRegistration;
+    HashMap<SWServerConnectionIdentifier, HashSet<ScriptExecutionContextIdentifier>> m_clientsUsingRegistration;
 
     WebCore::Timer m_softUpdateTimer;
     

@@ -29,8 +29,8 @@
 #import <wtf/CompletionHandler.h>
 #import <wtf/FastMalloc.h>
 #import <wtf/Ref.h>
-#import <wtf/RefCounted.h>
 #import <wtf/WeakPtr.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 struct WGPUXRSubImageImpl {
 };
@@ -41,7 +41,7 @@ class CommandEncoder;
 class Device;
 class Texture;
 
-class XRSubImage : public WGPUXRSubImageImpl, public RefCounted<XRSubImage>, public CanMakeWeakPtr<XRSubImage> {
+class XRSubImage : public RefCountedAndCanMakeWeakPtr<XRSubImage>, public WGPUXRSubImageImpl {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     static Ref<XRSubImage> create(Device& device)
@@ -66,8 +66,8 @@ private:
     XRSubImage(bool, Device&);
     XRSubImage(Device&);
 
-    UncheckedKeyHashMap<uint64_t, RefPtr<Texture>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_colorTextures;
-    UncheckedKeyHashMap<uint64_t, RefPtr<Texture>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_depthTextures;
+    HashMap<uint64_t, RefPtr<Texture>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_colorTextures;
+    HashMap<uint64_t, RefPtr<Texture>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_depthTextures;
     uint64_t m_currentTextureIndex { 0 };
 
     ThreadSafeWeakPtr<Device> m_device;

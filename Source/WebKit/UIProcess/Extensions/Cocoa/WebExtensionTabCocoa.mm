@@ -89,6 +89,7 @@ WebExtensionTab::WebExtensionTab(const WebExtensionContext& context, WKWebExtens
     , m_respondsToDuplicate([delegate respondsToSelector:@selector(duplicateUsingConfiguration:forWebExtensionContext:completionHandler:)])
     , m_respondsToClose([delegate respondsToSelector:@selector(closeForWebExtensionContext:completionHandler:)])
     , m_respondsToShouldGrantTabPermissionsOnUserGesture([delegate respondsToSelector:@selector(shouldGrantPermissionsOnUserGestureForWebExtensionContext:)])
+    , m_respondsToShouldBypassPermissions([delegate respondsToSelector:@selector(shouldBypassPermissionsForWebExtensionContext:)])
 {
     // Access to cache the result early, when the window is associated.
     isPrivate();
@@ -252,7 +253,14 @@ bool WebExtensionTab::extensionHasPermission() const
 {
     ASSERT(extensionHasAccess());
 
-    return extensionContext()->hasPermission(url(), const_cast<WebExtensionTab*>(this));
+    RefPtr extensionContext = m_extensionContext.get();
+    if (!extensionContext)
+        return false;
+
+    if (m_respondsToShouldBypassPermissions && [m_delegate shouldBypassPermissionsForWebExtensionContext:extensionContext->wrapper()])
+        return true;
+
+    return extensionContext->hasPermission(url(), const_cast<WebExtensionTab*>(this));
 }
 
 bool WebExtensionTab::extensionHasTemporaryPermission() const
@@ -267,11 +275,15 @@ RefPtr<WebExtensionWindow> WebExtensionTab::window() const
     if (!isValid() || !m_respondsToWindow)
         return nullptr;
 
-    auto window = [m_delegate windowForWebExtensionContext:m_extensionContext->wrapper()];
+    RefPtr extensionContext = m_extensionContext.get();
+    if (!extensionContext)
+        return nullptr;
+
+    auto window = [m_delegate windowForWebExtensionContext:extensionContext->wrapper()];
     if (!window)
         return nullptr;
 
-    return m_extensionContext->getOrCreateWindow(window);
+    return extensionContext->getOrCreateWindow(window);
 }
 
 size_t WebExtensionTab::index() const
@@ -293,11 +305,15 @@ RefPtr<WebExtensionTab> WebExtensionTab::parentTab() const
     if (!isValid() || !m_respondsToParentTab)
         return nullptr;
 
-    auto parentTab = [m_delegate parentTabForWebExtensionContext:m_extensionContext->wrapper()];
+    RefPtr extensionContext = m_extensionContext.get();
+    if (!extensionContext)
+        return nullptr;
+
+    auto parentTab = [m_delegate parentTabForWebExtensionContext:extensionContext->wrapper()];
     if (!parentTab)
         return nullptr;
 
-    return m_extensionContext->getOrCreateTab(parentTab);
+    return extensionContext->getOrCreateTab(parentTab);
 }
 
 void WebExtensionTab::setParentTab(RefPtr<WebExtensionTab> parentTab, CompletionHandler<void(Expected<void, WebExtensionError>&&)>&& completionHandler)
@@ -767,7 +783,13 @@ void WebExtensionTab::duplicate(const WebExtensionTabParameters& parameters, Com
         return;
     }
 
-    auto window = parameters.windowIdentifier ? m_extensionContext->getWindow(parameters.windowIdentifier.value()) : this->window();
+    RefPtr extensionContext = m_extensionContext.get();
+    if (!extensionContext) {
+        completionHandler(toWebExtensionError(apiName, nil, @"No extensionContext"));
+        return;
+    }
+
+    auto window = parameters.windowIdentifier ? extensionContext->getWindow(parameters.windowIdentifier.value()) : this->window();
 
     size_t index = 0;
     if (parameters.index)
@@ -781,7 +803,7 @@ void WebExtensionTab::duplicate(const WebExtensionTabParameters& parameters, Com
     configuration.window = window ? window->delegate() : nil;
     configuration.index = index;
 
-    [m_delegate duplicateUsingConfiguration:configuration forWebExtensionContext:m_extensionContext->wrapper() completionHandler:makeBlockPtr([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](id<WKWebExtensionTab> duplicatedTab, NSError *error) mutable {
+    [m_delegate duplicateUsingConfiguration:configuration forWebExtensionContext:extensionContext->wrapper() completionHandler:makeBlockPtr([extensionContext, completionHandler = WTFMove(completionHandler)](id<WKWebExtensionTab> duplicatedTab, NSError *error) mutable {
         if (error) {
             RELEASE_LOG_ERROR(Extensions, "Error for duplicate: %{public}@", privacyPreservingDescription(error));
             completionHandler(toWebExtensionError(apiName, nil, error.localizedDescription));
@@ -793,7 +815,7 @@ void WebExtensionTab::duplicate(const WebExtensionTabParameters& parameters, Com
             return;
         }
 
-        completionHandler(RefPtr { m_extensionContext->getOrCreateTab(duplicatedTab).ptr() });
+        completionHandler(RefPtr { extensionContext->getOrCreateTab(duplicatedTab).ptr() });
     }).get()];
 }
 
@@ -825,7 +847,7 @@ bool WebExtensionTab::shouldGrantPermissionsOnUserGesture() const
     return [m_delegate shouldGrantPermissionsOnUserGestureForWebExtensionContext:m_extensionContext->wrapper()];
 }
 
-WebExtensionTab::WebProcessProxySet WebExtensionTab::processes(WebExtensionEventListenerType type, WebExtensionContentWorldType contentWorldType) const
+WebExtensionTab::WebProcessProxySet WebExtensionTab::processes(WebExtensionEventListenerType listenerType, WebExtensionContentWorldType contentWorldType) const
 {
     if (!isValid())
         return { };
@@ -834,14 +856,13 @@ WebExtensionTab::WebProcessProxySet WebExtensionTab::processes(WebExtensionEvent
     if (!webView)
         return { };
 
-    if (!extensionContext()->pageListensForEvent(*webView._page, type, contentWorldType))
+    RefPtr extensionContext = m_extensionContext.get();
+    if (!extensionContext)
         return { };
 
-    Ref process = webView._page->legacyMainFrameProcess();
-    if (!process->canSendMessage())
-        return { };
-
-    return { WTFMove(process) };
+    return extensionContext->processes({ listenerType }, { contentWorldType }, [&](auto& page, auto& frame) {
+        return webView._page.get() == &page;
+    });
 }
 
 } // namespace WebKit

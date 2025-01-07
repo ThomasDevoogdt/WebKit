@@ -36,6 +36,8 @@
 #include <wtf/HashMap.h>
 #include <wtf/Vector.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 {
 
 namespace {
@@ -305,13 +307,13 @@ private:
             auto* pointer = dataSection + getOffset(entry.key.opcode(), entry.value);
             switch (entry.key.opcode()) {
             case Const128:
-                *bitwise_cast<v128_t*>(pointer) = entry.key.vectorValue();
+                *std::bit_cast<v128_t*>(pointer) = entry.key.vectorValue();
                 break;
             case ConstDouble:
-                *bitwise_cast<double*>(pointer) = entry.key.doubleValue();
+                *std::bit_cast<double*>(pointer) = entry.key.doubleValue();
                 break;
             case ConstFloat:
-                *bitwise_cast<float*>(pointer) = entry.key.floatValue();
+                *std::bit_cast<float*>(pointer) = entry.key.floatValue();
                 break;
             default:
                 RELEASE_ASSERT_NOT_REACHED();
@@ -338,6 +340,12 @@ private:
                     if (child->type().isVector())
                         continue;
 
+                    // BigImms don't work reliably for 32-bit, so this is the most reliable.
+                    if constexpr (is32Bit()) {
+                        if (child->hasDouble() && !WTF::isIdentical(child->asDouble(), 0.0))
+                            continue;
+                    }
+
                     ValueKey key = child->key();
                     child = m_insertionSet.insertValue(
                         valueIndex, key.materialize(m_proc, value->origin()));
@@ -363,7 +371,7 @@ private:
 
                 Value* tableBase = m_insertionSet.insertIntConstant(
                     valueIndex, value->origin(), pointerType(),
-                    bitwise_cast<intptr_t>(dataSection));
+                    std::bit_cast<intptr_t>(dataSection));
                 Value* result = m_insertionSet.insert<MemoryValue>(
                     valueIndex, Load, value->type(), value->origin(), tableBase,
                     static_cast<Value::OffsetType>(offset));
@@ -378,10 +386,10 @@ private:
     {
         switch (value->opcode()) {
         case ConstDouble: {
-            return !Air::Arg::isValidFPImm64Form(bitwise_cast<uint64_t>(value->asDouble()));
+            return !Air::Arg::isValidFPImm64Form(std::bit_cast<uint64_t>(value->asDouble()));
         }
         case ConstFloat: {
-            return !Air::Arg::isValidFPImm32Form(bitwise_cast<uint32_t>(value->asFloat()));
+            return !Air::Arg::isValidFPImm32Form(std::bit_cast<uint32_t>(value->asFloat()));
         }
         case Const128: {
             return !bitEquals(value->asV128(), v128_t { });
@@ -407,5 +415,6 @@ void moveConstants(Procedure& proc)
 
 } } // namespace JSC::B3
 
-#endif // ENABLE(B3_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(B3_JIT)

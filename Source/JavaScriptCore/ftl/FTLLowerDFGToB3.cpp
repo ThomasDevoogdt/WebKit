@@ -114,6 +114,8 @@
 #include <wtf/RecursableLambda.h>
 #include <wtf/text/MakeString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace FTL {
 
 using namespace B3;
@@ -1302,6 +1304,9 @@ private:
             break;
         case MakeAtomString:
             compileMakeAtomString();
+            break;
+        case StringAt:
+            compileStringAt();
             break;
         case StringCharAt:
             compileStringCharAt();
@@ -5898,7 +5903,7 @@ IGNORE_CLANG_WARNINGS_END
 
         LBasicBlock lastNext = m_out.appendTo(outOfBoundsCase, continuation);
         vmCall(Void, operationReportBoundsCheckEliminationErrorAndCrash,
-            m_out.constIntPtr(bitwise_cast<intptr_t>(codeBlock())),
+            m_out.constIntPtr(std::bit_cast<intptr_t>(codeBlock())),
             m_out.constInt32(m_node->index()),
             m_out.constInt32(m_node->child1()->index()),
             m_out.constInt32(m_node->child2()->index()),
@@ -7748,7 +7753,7 @@ IGNORE_CLANG_WARNINGS_END
                     m_out.notZero64(result), usually(continuation), rarely(slowCase));
             } else {
                 LValue result = m_out.loadDouble(pointer);
-                m_out.store64(m_out.constInt64(bitwise_cast<int64_t>(PNaN)), pointer);
+                m_out.store64(m_out.constInt64(std::bit_cast<int64_t>(PNaN)), pointer);
                 results.append(m_out.anchor(boxDouble(result)));
                 m_out.branch(
                     m_out.doubleEqual(result, result),
@@ -8006,7 +8011,7 @@ IGNORE_CLANG_WARNINGS_END
         m_out.store64(arg1, fastObject, m_heaps.JSBoundFunction_boundArg1);
         m_out.store64(arg2, fastObject, m_heaps.JSBoundFunction_boundArg2);
         m_out.storePtr(m_out.intPtrZero, fastObject, m_heaps.JSBoundFunction_nameMayBeNull);
-        m_out.store64(m_out.constInt64(bitwise_cast<uint64_t>(PNaN)), fastObject, m_heaps.JSBoundFunction_length);
+        m_out.store64(m_out.constInt64(std::bit_cast<uint64_t>(PNaN)), fastObject, m_heaps.JSBoundFunction_length);
         m_out.store32(m_out.constInt32(numberOfBoundArguments), fastObject, m_heaps.JSBoundFunction_boundArgsLength);
         m_out.store32As8(m_out.constInt32(static_cast<uint32_t>(TriState::Indeterminate)), fastObject, m_heaps.JSBoundFunction_canConstruct);
         mutatorFence();
@@ -8328,9 +8333,9 @@ IGNORE_CLANG_WARNINGS_END
                     unsure(slowCase), unsure(rareDataCase));
 
                 m_out.appendTo(rareDataCase, useCacheCase);
-                ASSERT(bitwise_cast<uintptr_t>(StructureRareData::cachedPropertyNamesSentinel()) == 1);
+                ASSERT(std::bit_cast<uintptr_t>(StructureRareData::cachedPropertyNamesSentinel()) == 1);
                 LValue cached = m_out.loadPtr(previousOrRareData, abstractHeapForOwnPropertyKeysCache(op));
-                m_out.branch(m_out.belowOrEqual(cached, m_out.constIntPtr(bitwise_cast<void*>(StructureRareData::cachedPropertyNamesSentinel()))), unsure(slowCase), unsure(useCacheCase));
+                m_out.branch(m_out.belowOrEqual(cached, m_out.constIntPtr(std::bit_cast<void*>(StructureRareData::cachedPropertyNamesSentinel()))), unsure(slowCase), unsure(useCacheCase));
 
                 m_out.appendTo(useCacheCase, slowButArrayBufferCase);
                 RegisteredStructure arrayStructure = m_graph.registerStructure(globalObject->arrayStructureForIndexingTypeDuringAllocation(CopyOnWriteArrayWithContiguous));
@@ -8398,8 +8403,8 @@ IGNORE_CLANG_WARNINGS_END
             m_out.appendTo(useCacheCase, slowCase);
             LValue string = m_out.loadPtr(cache, m_heaps.SpecialPropertyCache_cachedToStringTagValue);
             ValueFromBlock fastResult = m_out.anchor(string);
-            ASSERT(bitwise_cast<uintptr_t>(JSCell::seenMultipleCalleeObjects()) == 1);
-            m_out.branch(m_out.belowOrEqual(string, m_out.constIntPtr(bitwise_cast<void*>(JSCell::seenMultipleCalleeObjects()))), unsure(slowCase), unsure(continuation));
+            ASSERT(std::bit_cast<uintptr_t>(JSCell::seenMultipleCalleeObjects()) == 1);
+            m_out.branch(m_out.belowOrEqual(string, m_out.constIntPtr(std::bit_cast<void*>(JSCell::seenMultipleCalleeObjects()))), unsure(slowCase), unsure(continuation));
 
             m_out.appendTo(slowCase, continuation);
             VM& vm = this->vm();
@@ -10115,16 +10120,19 @@ IGNORE_CLANG_WARNINGS_END
     LValue compileStringCharAtImpl()
     {
         LValue base = lowString(m_graph.child(m_node, 0));
-        LValue index = lowInt32(m_graph.child(m_node, 1));
+        LValue originalIndex = lowInt32(m_graph.child(m_node, 1));
+
+        LValue stringImpl = m_out.loadPtr(base, m_heaps.JSString_value);
+        LValue stringLength = m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length);
+
+        LValue index = m_node->op() == StringAt ? m_out.select(m_out.lessThan(originalIndex, m_out.int32Zero), m_out.add(stringLength, originalIndex), originalIndex) : originalIndex;
 
         LBasicBlock fastPath = m_out.newBlock();
         LBasicBlock slowPath = m_out.newBlock();
         LBasicBlock continuation = m_out.newBlock();
 
-        LValue stringImpl = m_out.loadPtr(base, m_heaps.JSString_value);
         m_out.branch(
-            m_out.aboveOrEqual(
-                index, m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length)),
+            m_out.aboveOrEqual(index, stringLength),
             rarely(slowPath), usually(fastPath));
 
         LBasicBlock lastNext = m_out.appendTo(fastPath, slowPath);
@@ -10144,18 +10152,19 @@ IGNORE_CLANG_WARNINGS_END
 
         // FIXME: Need to cage strings!
         // https://bugs.webkit.org/show_bug.cgi?id=174924
-        ValueFromBlock char8Bit = m_out.anchor(
-            m_out.load8ZeroExt32(baseIndexWithProvenValue(m_heaps.characters8, m_out.loadPtr(stringImpl, m_heaps.StringImpl_data), index,
-                m_graph.child(m_node, 1))));
+        TypedPointer char8BitBaseIndex = m_node->op() == StringAt
+            ? m_out.baseIndex(m_heaps.characters8, m_out.loadPtr(stringImpl, m_heaps.StringImpl_data), m_out.zeroExtPtr(index))
+            : baseIndexWithProvenValue(m_heaps.characters8, m_out.loadPtr(stringImpl, m_heaps.StringImpl_data), index, m_graph.child(m_node, 1));
+        LValue char8BitValue = m_out.load8ZeroExt32(char8BitBaseIndex);
+        ValueFromBlock char8Bit = m_out.anchor(char8BitValue);
         m_out.jump(bitsContinuation);
 
         m_out.appendTo(is16Bit, bigCharacter);
 
-        LValue char16BitValue = m_out.load16ZeroExt32(baseIndexWithProvenValue(
-            m_heaps.characters16,
-            m_out.loadPtr(stringImpl, m_heaps.StringImpl_data),
-            index,
-            m_graph.child(m_node, 1)));
+        TypedPointer char16BitBaseIndex = m_node->op() == StringAt
+            ? m_out.baseIndex(m_heaps.characters16, m_out.loadPtr(stringImpl, m_heaps.StringImpl_data), m_out.zeroExtPtr(index))
+            : baseIndexWithProvenValue(m_heaps.characters16, m_out.loadPtr(stringImpl, m_heaps.StringImpl_data), index, m_graph.child(m_node, 1));
+        LValue char16BitValue = m_out.load16ZeroExt32(char16BitBaseIndex);
         ValueFromBlock char16Bit = m_out.anchor(char16BitValue);
         m_out.branch(
             m_out.above(char16BitValue, m_out.constInt32(maxSingleCharacterString)),
@@ -10189,25 +10198,30 @@ IGNORE_CLANG_WARNINGS_END
                 speculate(OutOfBounds, noValue(), nullptr, m_out.booleanTrue);
                 results.append(m_out.anchor(m_out.intPtrZero));
             } else {
-                // FIXME: Revisit JSGlobalObject.
-                // https://bugs.webkit.org/show_bug.cgi?id=203204
-                JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
-                if (m_graph.isWatchingStringPrototypeChainIsSaneWatchpoint(m_node)) {
-                    // FIXME: This could be captured using a Speculation mode that means
-                    // "out-of-bounds loads return a trivial value", something like
-                    // OutOfBoundsSaneChain.
-                    // https://bugs.webkit.org/show_bug.cgi?id=144668
-                    LBasicBlock negativeIndex = m_out.newBlock();
-
+                if (m_node->op() == StringAt) {
+                    // String#at can accept out of range index and it always returns undefined.
                     results.append(m_out.anchor(m_out.constInt64(JSValue::encode(jsUndefined()))));
-                    m_out.branch(
-                        m_out.lessThan(index, m_out.int32Zero),
-                        rarely(negativeIndex), usually(continuation));
+                } else {
+                    // FIXME: Revisit JSGlobalObject.
+                    // https://bugs.webkit.org/show_bug.cgi?id=203204
+                    JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+                    if (m_graph.isWatchingStringPrototypeChainIsSaneWatchpoint(m_node)) {
+                        // FIXME: This could be captured using a Speculation mode that means
+                        // "out-of-bounds loads return a trivial value", something like
+                        // OutOfBoundsSaneChain.
+                        // https://bugs.webkit.org/show_bug.cgi?id=144668
+                        LBasicBlock negativeIndex = m_out.newBlock();
 
-                    m_out.appendTo(negativeIndex, continuation);
+                        results.append(m_out.anchor(m_out.constInt64(JSValue::encode(jsUndefined()))));
+                        m_out.branch(
+                            m_out.lessThan(index, m_out.int32Zero),
+                            rarely(negativeIndex), usually(continuation));
+
+                        m_out.appendTo(negativeIndex, continuation);
+                    }
+
+                    results.append(m_out.anchor(vmCall(Int64, operationGetByValStringInt, weakPointer(globalObject), base, index)));
                 }
-
-                results.append(m_out.anchor(vmCall(Int64, operationGetByValStringInt, weakPointer(globalObject), base, index)));
             }
         }
         m_out.jump(continuation);
@@ -10219,6 +10233,11 @@ IGNORE_CLANG_WARNINGS_END
     }
 
     void compileStringCharAt()
+    {
+        setJSValue(compileStringCharAtImpl());
+    }
+
+    void compileStringAt()
     {
         setJSValue(compileStringCharAtImpl());
     }
@@ -10475,7 +10494,7 @@ IGNORE_CLANG_WARNINGS_END
 
             case GetByOffsetMethod::Constant:
                 if (m_node->hasDoubleResult())
-                    result = m_out.constDouble(bitwise_cast<double>(JSValue::encode(method.constant()->value())));
+                    result = m_out.constDouble(std::bit_cast<double>(JSValue::encode(method.constant()->value())));
                 else
                     result = m_out.constInt64(JSValue::encode(method.constant()->value()));
                 break;
@@ -12487,7 +12506,7 @@ IGNORE_CLANG_WARNINGS_END
                     slowCase.link(&jit);
                     jit.setupArguments<decltype(operationThrowStackOverflowForVarargs)>(CCallHelpers::TrustedImmPtr(jit.codeBlock()->globalObjectFor(semanticNodeOrigin)));
                     jit.prepareCallOperation(jit.vm());
-                    callWithExceptionCheck(bitwise_cast<void(*)()>(operationThrowStackOverflowForVarargs));
+                    callWithExceptionCheck(reinterpret_cast<void(*)()>(operationThrowStackOverflowForVarargs));
                     jit.abortWithReason(DFGVarargsThrowingPathDidNotThrow);
 
                     done.link(&jit);
@@ -12495,7 +12514,7 @@ IGNORE_CLANG_WARNINGS_END
                     jit.move(CCallHelpers::TrustedImm32(originalStackHeight / sizeof(EncodedJSValue)), scratchGPR1);
                     jit.setupArguments<decltype(operationSizeFrameForVarargs)>(CCallHelpers::TrustedImmPtr(jit.codeBlock()->globalObjectFor(semanticNodeOrigin)), argumentsGPR, scratchGPR1, CCallHelpers::TrustedImm32(data->firstVarArgOffset));
                     jit.prepareCallOperation(jit.vm());
-                    callWithExceptionCheck(bitwise_cast<void(*)()>(operationSizeFrameForVarargs));
+                    callWithExceptionCheck(reinterpret_cast<void(*)()>(operationSizeFrameForVarargs));
 
                     jit.move(GPRInfo::returnValueGPR, scratchGPR1);
                     jit.move(CCallHelpers::TrustedImm32(originalStackHeight / sizeof(EncodedJSValue)), scratchGPR2);
@@ -12504,7 +12523,7 @@ IGNORE_CLANG_WARNINGS_END
                     jit.addPtr(CCallHelpers::TrustedImm32(-minimumJSCallAreaSize), scratchGPR2, CCallHelpers::stackPointerRegister);
                     jit.setupArguments<decltype(operationSetupVarargsFrame)>(CCallHelpers::TrustedImmPtr(jit.codeBlock()->globalObjectFor(semanticNodeOrigin)), scratchGPR2, argumentsGPR, CCallHelpers::TrustedImm32(data->firstVarArgOffset), scratchGPR1);
                     jit.prepareCallOperation(jit.vm());
-                    callWithExceptionCheck(bitwise_cast<void(*)()>(operationSetupVarargsFrame));
+                    callWithExceptionCheck(reinterpret_cast<void(*)()>(operationSetupVarargsFrame));
 
                     jit.addPtr(CCallHelpers::TrustedImm32(sizeof(CallerFrameAndPC)), GPRInfo::returnValueGPR, CCallHelpers::stackPointerRegister);
 
@@ -15349,13 +15368,13 @@ IGNORE_CLANG_WARNINGS_END
 
     void compileSuperSamplerBegin()
     {
-        TypedPointer counter = m_out.absolute(bitwise_cast<void*>(&g_superSamplerCount));
+        TypedPointer counter = m_out.absolute(std::bit_cast<void*>(&g_superSamplerCount));
         m_out.store32(m_out.add(m_out.load32(counter), m_out.constInt32(1)), counter);
     }
 
     void compileSuperSamplerEnd()
     {
-        TypedPointer counter = m_out.absolute(bitwise_cast<void*>(&g_superSamplerCount));
+        TypedPointer counter = m_out.absolute(std::bit_cast<void*>(&g_superSamplerCount));
         m_out.store32(m_out.sub(m_out.load32(counter), m_out.constInt32(1)), counter);
     }
 
@@ -17051,12 +17070,12 @@ IGNORE_CLANG_WARNINGS_END
         CallSiteIndex callSiteIndex = m_ftlState.jitCode->common.codeOrigins->addCodeOrigin(m_origin.semantic);
 
         m_out.storePtr(m_callFrame, packet, m_heaps.ShadowChicken_Packet_frame);
-        m_out.storePtr(m_out.constIntPtr(bitwise_cast<intptr_t>(ShadowChicken::Packet::tailMarker())), packet, m_heaps.ShadowChicken_Packet_callee);
+        m_out.storePtr(m_out.constIntPtr(std::bit_cast<intptr_t>(ShadowChicken::Packet::tailMarker())), packet, m_heaps.ShadowChicken_Packet_callee);
         m_out.store64(thisValue, packet, m_heaps.ShadowChicken_Packet_thisValue);
         m_out.storePtr(scope, packet, m_heaps.ShadowChicken_Packet_scope);
         // We don't want the CodeBlock to have a weak pointer to itself because
         // that would cause it to always get collected.
-        m_out.storePtr(m_out.constIntPtr(bitwise_cast<intptr_t>(codeBlock())), packet, m_heaps.ShadowChicken_Packet_codeBlock);
+        m_out.storePtr(m_out.constIntPtr(std::bit_cast<intptr_t>(codeBlock())), packet, m_heaps.ShadowChicken_Packet_codeBlock);
         m_out.store32(m_out.constInt32(callSiteIndex.bits()), packet, m_heaps.ShadowChicken_Packet_callSiteIndex);
     }
 
@@ -17296,7 +17315,7 @@ IGNORE_CLANG_WARNINGS_END
 
             LValue hole;
             if (hasDouble(rawIndexingType))
-                hole = m_out.constInt64(bitwise_cast<int64_t>(PNaN));
+                hole = m_out.constInt64(std::bit_cast<int64_t>(PNaN));
             else
                 hole = m_out.constInt64(JSValue::encode(JSValue()));
 
@@ -17304,7 +17323,7 @@ IGNORE_CLANG_WARNINGS_END
         } else {
             LValue hole = m_out.select(
                 m_out.equal(m_out.bitAnd(indexingType, m_out.constInt32(IndexingShapeMask)), m_out.constInt32(DoubleShape)),
-                m_out.constInt64(bitwise_cast<int64_t>(PNaN)),
+                m_out.constInt64(std::bit_cast<int64_t>(PNaN)),
                 m_out.constInt64(JSValue::encode(JSValue())));
             splatWords(butterfly, begin, end, hole, m_heaps.root);
         }
@@ -19219,7 +19238,7 @@ IGNORE_CLANG_WARNINGS_END
     {
         JITAllocator actualAllocator;
         if (allocator->hasIntPtr())
-            actualAllocator = JITAllocator::constant(Allocator(bitwise_cast<LocalAllocator*>(allocator->asIntPtr())));
+            actualAllocator = JITAllocator::constant(Allocator(std::bit_cast<LocalAllocator*>(allocator->asIntPtr())));
         else
             actualAllocator = JITAllocator::variable();
 
@@ -19323,7 +19342,7 @@ IGNORE_CLANG_WARNINGS_END
     void storeStructure(LValue object, LValue structure)
     {
         if (structure->hasIntPtr()) {
-            storeStructure(object, bitwise_cast<Structure*>(structure->asIntPtr()));
+            storeStructure(object, std::bit_cast<Structure*>(structure->asIntPtr()));
             return;
         }
 
@@ -19354,7 +19373,7 @@ IGNORE_CLANG_WARNINGS_END
             splatWords(
                 result,
                 m_out.constInt32(JSFinalObject::offsetOfInlineStorage() / 8),
-                m_out.constInt32(JSFinalObject::offsetOfInlineStorage() / 8 + bitwise_cast<Structure*>(structure->asIntPtr())->inlineCapacity()),
+                m_out.constInt32(JSFinalObject::offsetOfInlineStorage() / 8 + std::bit_cast<Structure*>(structure->asIntPtr())->inlineCapacity()),
                 m_out.int64Zero,
                 m_heaps.properties.atAnyNumber());
         } else {
@@ -19395,7 +19414,7 @@ IGNORE_CLANG_WARNINGS_END
 
         // Try to do some constant-folding here.
         if (subspace->hasIntPtr() && size->hasIntPtr()) {
-            CompleteSubspace* actualSubspace = bitwise_cast<CompleteSubspace*>(subspace->asIntPtr());
+            CompleteSubspace* actualSubspace = std::bit_cast<CompleteSubspace*>(subspace->asIntPtr());
             size_t actualSize = size->asIntPtr();
 
             Allocator actualAllocator = actualSubspace->allocatorFor(actualSize, AllocatorForMode::AllocatorIfExists);
@@ -19527,7 +19546,7 @@ IGNORE_CLANG_WARNINGS_END
                 unsigned publicLengthConst = static_cast<unsigned>(publicLength->asInt32());
                 if (publicLengthConst <= MAX_STORAGE_VECTOR_LENGTH) {
                     publicLengthConst = Butterfly::optimalContiguousVectorLength(
-                        bitwise_cast<Structure*>(structure->asIntPtr())->outOfLineCapacity(), publicLengthConst);
+                        std::bit_cast<Structure*>(structure->asIntPtr())->outOfLineCapacity(), publicLengthConst);
                     staticVectorLengthFromPublicLength = publicLengthConst;
                 }
 
@@ -19536,7 +19555,7 @@ IGNORE_CLANG_WARNINGS_END
                 unsigned vectorLengthConst = static_cast<unsigned>(vectorLength->asInt32());
                 if (vectorLengthConst <= MAX_STORAGE_VECTOR_LENGTH) {
                     vectorLengthConst = Butterfly::optimalContiguousVectorLength(
-                        bitwise_cast<Structure*>(structure->asIntPtr())->outOfLineCapacity(), vectorLengthConst);
+                        std::bit_cast<Structure*>(structure->asIntPtr())->outOfLineCapacity(), vectorLengthConst);
                     vectorLength = m_out.constInt32(vectorLengthConst);
                     staticVectorLength = vectorLengthConst;
                 }
@@ -20307,7 +20326,7 @@ IGNORE_CLANG_WARNINGS_END
 
         Vector<SwitchCase> cases;
         // These may be negative, or zero, or probably other stuff, too. We don't want to mess with HashSet's corner cases and we don't really care about throughput here.
-        HashSet<GenericHashKey<int32_t>> alreadyHandled;
+        UncheckedKeyHashSet<GenericHashKey<int32_t>> alreadyHandled;
         for (unsigned i = 0; i < data->cases.size(); ++i) {
             // FIXME: The fact that we're using the bytecode's switch table means that the
             // following DFG IR transformation would be invalid.
@@ -23716,7 +23735,7 @@ IGNORE_CLANG_WARNINGS_END
             m_out.operation(ftlUnreachable),
             // We don't want the CodeBlock to have a weak pointer to itself because
             // that would cause it to always get collected.
-            m_out.constIntPtr(bitwise_cast<intptr_t>(codeBlock())), m_out.constInt32(blockIndex),
+            m_out.constIntPtr(std::bit_cast<intptr_t>(codeBlock())), m_out.constInt32(blockIndex),
             m_out.constInt32(nodeIndex));
 #endif // ASSERT_ENABLED
         m_out.unreachable();
@@ -23810,5 +23829,6 @@ void lowerDFGToB3(State& state)
 
 } } // namespace JSC::FTL
 
-#endif // ENABLE(FTL_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(FTL_JIT)

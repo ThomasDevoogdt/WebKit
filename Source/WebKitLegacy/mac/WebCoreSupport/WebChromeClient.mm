@@ -646,19 +646,19 @@ void WebChromeClient::scrollContainingScrollViewsToRevealRect(const IntRect& r) 
 
 // End host window methods.
 
-bool WebChromeClient::shouldUnavailablePluginMessageBeButton(RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
+bool WebChromeClient::shouldUnavailablePluginMessageBeButton(PluginUnavailabilityReason pluginUnavailabilityReason) const
 {
-    if (pluginUnavailabilityReason == RenderEmbeddedObject::PluginMissing)
+    if (pluginUnavailabilityReason == PluginUnavailabilityReason::PluginMissing)
         return [[m_webView UIDelegate] respondsToSelector:@selector(webView:didPressMissingPluginButton:)];
 
     return false;
 }
 
-void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
+void WebChromeClient::unavailablePluginButtonClicked(Element& element, PluginUnavailabilityReason pluginUnavailabilityReason) const
 {
     ASSERT(element.hasTagName(objectTag) || element.hasTagName(embedTag) || element.hasTagName(appletTag));
 
-    ASSERT(pluginUnavailabilityReason == RenderEmbeddedObject::PluginMissing);
+    ASSERT(pluginUnavailabilityReason == PluginUnavailabilityReason::PluginMissing);
     CallUIDelegate(m_webView, @selector(webView:didPressMissingPluginButton:), kit(&element));
 }
 
@@ -697,7 +697,7 @@ void WebChromeClient::exceededDatabaseQuota(LocalFrame& frame, const String& dat
 
 #if ENABLE(INPUT_TYPE_COLOR)
 
-std::unique_ptr<ColorChooser> WebChromeClient::createColorChooser(ColorChooserClient& client, const Color& initialColor)
+RefPtr<ColorChooser> WebChromeClient::createColorChooser(ColorChooserClient& client, const Color& initialColor)
 {
     // FIXME: Implement <input type='color'> for WK1 (Bug 119094).
     ASSERT_NOT_REACHED();

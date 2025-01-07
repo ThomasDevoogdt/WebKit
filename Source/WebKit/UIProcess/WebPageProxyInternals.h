@@ -95,6 +95,10 @@
 #include "CocoaWindow.h"
 #endif
 
+#if PLATFORM(IOS_FAMILY) && ENABLE(MODEL_PROCESS)
+#include "ModelPresentationManagerProxy.h"
+#endif
+
 namespace WebKit {
 
 #if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
@@ -273,10 +277,19 @@ struct WebPageProxy::Internals final : WebPopupMenuProxy::Client
 public:
     virtual ~Internals();
 
-    uint32_t ptrCount() const { return WebPopupMenuProxy::Client::ptrCount(); }
-    uint32_t ptrCountWithoutThreadCheck() const { return WebPopupMenuProxy::Client::ptrCountWithoutThreadCheck(); }
-    void incrementPtrCount() const { WebPopupMenuProxy::Client::incrementPtrCount(); }
-    void decrementPtrCount() const { WebPopupMenuProxy::Client::decrementPtrCount(); }
+    uint32_t checkedPtrCount() const { return WebPopupMenuProxy::Client::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const { return WebPopupMenuProxy::Client::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const { WebPopupMenuProxy::Client::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const { WebPopupMenuProxy::Client::decrementCheckedPtrCount(); }
+
+#if PLATFORM(MACCATALYST)
+    // EndowmentStateTrackerClient
+    void ref() const final { page->ref(); }
+    void deref() const final { page->deref(); }
+#else
+    void ref() const { page->ref(); }
+    void deref() const { page->deref(); }
+#endif
 
     WeakRef<WebPageProxy> page;
     OptionSet<WebCore::ActivityState> activityState;
@@ -322,7 +335,7 @@ public:
     WebCore::Color underPageBackgroundColorOverride;
     WebCore::Color underlayColor;
     RunLoop::Timer updateReportedMediaCaptureStateTimer;
-    UncheckedKeyHashMap<WebURLSchemeHandlerIdentifier, Ref<WebURLSchemeHandler>> urlSchemeHandlersByIdentifier;
+    HashMap<WebURLSchemeHandlerIdentifier, Ref<WebURLSchemeHandler>> urlSchemeHandlersByIdentifier;
     std::optional<WebCore::FloatRect> viewExposedRect;
     std::optional<WebCore::FloatSize> viewportSizeForCSSViewportUnits;
     VisibleWebPageToken visiblePageToken;
@@ -334,7 +347,7 @@ public:
     WebPageProxyMessageReceiverRegistration messageReceiverRegistration;
 
     WeakHashSet<WebPageProxy> m_openedPages;
-    UncheckedKeyHashMap<WebCore::SleepDisablerIdentifier, std::unique_ptr<WebCore::SleepDisabler>> sleepDisablers;
+    HashMap<WebCore::SleepDisablerIdentifier, std::unique_ptr<WebCore::SleepDisabler>> sleepDisablers;
 
 #if ENABLE(APPLE_PAY)
     RefPtr<WebPaymentCoordinatorProxy> paymentCoordinator;
@@ -400,10 +413,10 @@ public:
 #endif
 
 #if ENABLE(WRITING_TOOLS)
-    UncheckedKeyHashMap<WTF::UUID, WebCore::TextIndicatorData> textIndicatorDataForAnimationID;
-    UncheckedKeyHashMap<WTF::UUID, CompletionHandler<void(WebCore::TextAnimationRunMode)>> completionHandlerForAnimationID;
-    UncheckedKeyHashMap<WTF::UUID, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>)>> completionHandlerForDestinationTextIndicatorForSourceID;
-    UncheckedKeyHashMap<WTF::UUID, WTF::UUID> sourceAnimationIDtoDestinationAnimationID;
+    HashMap<WTF::UUID, WebCore::TextIndicatorData> textIndicatorDataForAnimationID;
+    HashMap<WTF::UUID, CompletionHandler<void(WebCore::TextAnimationRunMode)>> completionHandlerForAnimationID;
+    HashMap<WTF::UUID, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>)>> completionHandlerForDestinationTextIndicatorForSourceID;
+    HashMap<WTF::UUID, WTF::UUID> sourceAnimationIDtoDestinationAnimationID;
 #endif
 
     MonotonicTime didFinishDocumentLoadForMainFrameTimestamp;
@@ -420,7 +433,7 @@ public:
 #endif
 
 #if ENABLE(WEBXR) && !USE(OPENXR)
-    std::unique_ptr<PlatformXRSystem> xrSystem;
+    RefPtr<PlatformXRSystem> xrSystem;
 #endif
 
 #if ENABLE(EXTENSION_CAPABILITIES)
@@ -429,12 +442,20 @@ public:
 
 #if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
     std::unique_ptr<WebPageProxyFrameLoadStateObserver> frameLoadStateObserver;
-    UncheckedKeyHashMap<WebCore::RegistrableDomain, OptionSet<WebCore::WindowProxyProperty>> windowOpenerAccessedProperties;
+    HashMap<WebCore::RegistrableDomain, OptionSet<WebCore::WindowProxyProperty>> windowOpenerAccessedProperties;
 #endif
     PageLoadTimingFrameLoadStateObserver pageLoadTimingFrameLoadStateObserver;
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     RunLoop::Timer activityStateChangeTimer;
+#endif
+
+#if PLATFORM(MAC)
+    WebCore::FloatPoint scrollPositionDuringLastEditorStateUpdate;
+#endif
+
+#if PLATFORM(IOS_FAMILY) && ENABLE(MODEL_PROCESS)
+    RefPtr<ModelPresentationManagerProxy> modelPresentationManagerProxy;
 #endif
 
     bool allowsLayoutViewportHeightExpansion { true };
@@ -506,8 +527,15 @@ public:
     void externalOutputDeviceAvailableDidChange(WebCore::PlaybackTargetClientContextIdentifier, bool) final;
     void setShouldPlayToPlaybackTarget(WebCore::PlaybackTargetClientContextIdentifier, bool) final;
     void playbackTargetPickerWasDismissed(WebCore::PlaybackTargetClientContextIdentifier) final;
-    bool alwaysOnLoggingAllowed() const final { return protectedPage()->sessionID().isAlwaysOnLoggingAllowed(); }
+    bool alwaysOnLoggingAllowed() const final { return protectedPage()->isAlwaysOnLoggingAllowed(); }
     RetainPtr<PlatformView> platformView() const final;
+#endif
+
+    Ref<PageLoadState> protectedPageLoadState() { return pageLoadState; }
+    Ref<WebNotificationManagerMessageHandler> protectedNotificationManagerMessageHandler() { return notificationManagerMessageHandler; }
+    Ref<PageLoadTimingFrameLoadStateObserver> protectedPageLoadTimingFrameLoadStateObserver() { return pageLoadTimingFrameLoadStateObserver; }
+#if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
+    RefPtr<WebPageProxyFrameLoadStateObserver> protectedFrameLoadStateObserver() { return frameLoadStateObserver.get(); }
 #endif
 };
 

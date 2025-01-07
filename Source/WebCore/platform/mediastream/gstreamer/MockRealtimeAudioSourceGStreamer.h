@@ -35,15 +35,18 @@ class MockRealtimeAudioSourceGStreamer final : public MockRealtimeAudioSource, G
 public:
     static Ref<MockRealtimeAudioSource> createForMockAudioCapturer(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&&);
 
-    static const HashSet<MockRealtimeAudioSource*>& allMockRealtimeAudioSources();
+    static const UncheckedKeyHashSet<MockRealtimeAudioSource*>& allMockRealtimeAudioSources();
 
     ~MockRealtimeAudioSourceGStreamer();
 
     // GStreamerCapturerObserver
     void captureEnded() final;
 
+    std::pair<GstClockTime, GstClockTime> queryCaptureLatency() const final;
+
 protected:
     void render(Seconds) final;
+    void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) final;
 
 private:
     friend class MockRealtimeAudioSource;

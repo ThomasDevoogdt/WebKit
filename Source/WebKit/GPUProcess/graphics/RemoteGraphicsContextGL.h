@@ -106,7 +106,13 @@ protected:
     virtual void platformWorkQueueInitialize(WebCore::GraphicsContextGLAttributes&&) { };
     void workQueueUninitialize();
     template<typename T>
-    IPC::Error send(T&& message) const { return m_streamConnection->send(std::forward<T>(message), m_graphicsContextGLIdentifier); }
+    IPC::Error send(T&& message) const
+    {
+        // FIXME: Remove this suppression once https://github.com/llvm/llvm-project/pull/119336 is merged.
+IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_BEGIN("alpha.webkit.UncountedCallArgsChecker")
+        return Ref { *m_streamConnection }->send(std::forward<T>(message), m_graphicsContextGLIdentifier);
+IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_END
+    }
 
     // GraphicsContextGL::Client overrides.
     void forceContextLost() final;
@@ -158,11 +164,7 @@ protected:
     using GCGLContext = WebCore::GraphicsContextGLTextureMapperANGLE;
 #endif
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 #include "RemoteGraphicsContextGLFunctionsGenerated.h" // NOLINT
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 private:
     void paintNativeImageToImageBuffer(WebCore::NativeImage&, WebCore::RenderingResourceIdentifier);
@@ -170,6 +172,7 @@ private:
     bool webXRPromptAccepted() const;
     Ref<IPC::StreamConnectionWorkQueue> protectedWorkQueue() const { return m_workQueue; }
     RefPtr<GCGLContext> protectedContext();
+    void messageCheck(bool);
 
 protected:
     ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
@@ -188,7 +191,7 @@ protected:
     ScopedWebGLRenderingResourcesRequest m_renderingResourcesRequest;
     WebCore::ProcessIdentifier m_webProcessIdentifier;
     SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
-    UncheckedKeyHashMap<uint32_t, PlatformGLObject, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_objectNames;
+    HashMap<uint32_t, PlatformGLObject, IntHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_objectNames;
 };
 
 

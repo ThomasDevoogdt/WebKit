@@ -67,8 +67,8 @@ using namespace HTMLNames;
 
 using LazySlowPathColorParsingParameters = std::tuple<
     CSSPropertyParserHelpers::CSSColorParsingOptions,
-    CSSUnresolvedColorResolutionState,
-    std::optional<CSSUnresolvedColorResolutionDelegate>
+    CSS::PlatformColorResolutionState,
+    std::optional<CSS::PlatformColorResolutionDelegate>
 >;
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#valid-simple-colour
@@ -97,9 +97,9 @@ static LazySlowPathColorParsingParameters colorParsingParameters()
 {
     return {
         CSSPropertyParserHelpers::CSSColorParsingOptions {
-            .allowedColorTypes = { StyleColor::CSSColorType::Absolute, StyleColor::CSSColorType::Current, StyleColor::CSSColorType::System }
+            .allowedColorTypes = { CSS::ColorType::Absolute, CSS::ColorType::Current, CSS::ColorType::System }
         },
-        CSSUnresolvedColorResolutionState {
+        CSS::PlatformColorResolutionState {
             .resolvedCurrentColor = Color::black
         },
         std::nullopt
@@ -236,8 +236,8 @@ void ColorInputType::setValue(const String& value, bool valueChanged, TextFieldE
         return;
 
     updateColorSwatch();
-    if (m_chooser)
-        m_chooser->setSelectedColor(valueAsColor());
+    if (RefPtr chooser = m_chooser)
+        chooser->setSelectedColor(valueAsColor());
 }
 
 void ColorInputType::attributeChanged(const QualifiedName& name)
@@ -268,10 +268,10 @@ void ColorInputType::handleDOMActivateEvent(Event& event)
 void ColorInputType::showPicker() 
 {
     if (Chrome* chrome = this->chrome()) {
-        if (!m_chooser)
-            m_chooser = chrome->createColorChooser(*this, valueAsColor());
+        if (RefPtr chooser = m_chooser)
+            chooser->reattachColorChooser(valueAsColor());
         else
-            m_chooser->reattachColorChooser(valueAsColor());
+            m_chooser = chrome->createColorChooser(*this, valueAsColor());
     }
 }
 
@@ -329,8 +329,8 @@ void ColorInputType::didEndChooser()
 
 void ColorInputType::endColorChooser()
 {
-    if (m_chooser)
-        m_chooser->endChooser();
+    if (RefPtr chooser = m_chooser)
+        chooser->endChooser();
 }
 
 void ColorInputType::updateColorSwatch()

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -62,7 +62,7 @@
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(DisplayCaptureSourceCocoa);
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(DisplayCaptureSourceCocoaCapturer, DisplayCaptureSourceCocoa::Capturer);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DisplayCaptureSourceCocoa::Capturer);
 
 CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
@@ -73,7 +73,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
             return CaptureSourceOrError { CaptureSourceError { "Screen capture unavailable"_s, MediaAccessDenialReason::NoCaptureDevices } };
 
         return create([] (auto& source) {
-            return ReplayKitCaptureSource::create(source);
+            return makeUniqueRefWithoutRefCountedCheck<ReplayKitCaptureSource>(source);
         }, device, WTFMove(hashSalts), constraints, pageIdentifier);
 #elif HAVE(SCREEN_CAPTURE_KIT)
         FALLTHROUGH;
@@ -88,7 +88,7 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
             if (!deviceID)
                 return CaptureSourceOrError { WTFMove(deviceID).error() };
             return create([deviceID = deviceID.value(), &device] (auto& source) {
-                return ScreenCaptureKitCaptureSource::create(source, device, deviceID);
+                return makeUniqueRefWithoutRefCountedCheck<ScreenCaptureKitCaptureSource>(source, device, deviceID);
             }, device, WTFMove(hashSalts), constraints, pageIdentifier);
         }
         ASSERT_NOT_REACHED();
@@ -139,6 +139,7 @@ const RealtimeMediaSourceCapabilities& DisplayCaptureSourceCocoa::capabilities()
         capabilities.setWidth({ 1, intrinsicSize.width() });
         capabilities.setHeight({ 1, intrinsicSize.height() });
         capabilities.setFrameRate({ .01, 30.0 });
+        capabilities.setDeviceId(hashedId());
 
         m_capabilities = WTFMove(capabilities);
     }

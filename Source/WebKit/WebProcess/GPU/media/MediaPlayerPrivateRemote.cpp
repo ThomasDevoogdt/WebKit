@@ -41,7 +41,6 @@
 #include "TextTrackPrivateRemoteConfiguration.h"
 #include "VideoLayerRemote.h"
 #include "VideoTrackPrivateRemoteConfiguration.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include <JavaScriptCore/TypedArrayInlines.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
@@ -65,8 +64,7 @@
 #include <wtf/URL.h>
 #include <wtf/text/CString.h>
 
-#if USE(NICOSIA)
-#include <WebCore/NicosiaPlatformLayer.h>
+#if PLATFORM(GTK) || PLATFORM(WPE)
 #include <WebCore/TextureMapperPlatformLayerProxy.h>
 #elif USE(COORDINATED_GRAPHICS)
 #include <WebCore/TextureMapperPlatformLayerProxyProvider.h>
@@ -1237,17 +1235,6 @@ void MediaPlayerPrivateRemote::paintCurrentFrameInContext(GraphicsContext& conte
     context.drawVideoFrame(*videoFrame, rect, ImageOrientation::Orientation::None, false);
 }
 
-#if PLATFORM(COCOA) && !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
-void MediaPlayerPrivateRemote::willBeAskedToPaintGL()
-{
-    if (m_hasBeenAskedToPaintGL)
-        return;
-
-    m_hasBeenAskedToPaintGL = true;
-    connection().send(Messages::RemoteMediaPlayerProxy::WillBeAskedToPaintGL(), m_id);
-}
-#endif
-
 RefPtr<WebCore::VideoFrame> MediaPlayerPrivateRemote::videoFrameForCurrentTime()
 {
     if (readyState() < MediaPlayer::ReadyState::HaveCurrentData)
@@ -1409,7 +1396,7 @@ AudioSourceProvider* MediaPlayerPrivateRemote::audioSourceProvider()
 #endif
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateRemote::createSession(const String&, LegacyCDMSessionClient&)
+RefPtr<LegacyCDMSession> MediaPlayerPrivateRemote::createSession(const String&, LegacyCDMSessionClient&)
 {
     notImplemented();
     return nullptr;
@@ -1420,11 +1407,8 @@ void MediaPlayerPrivateRemote::setCDM(LegacyCDM* cdm)
     if (!cdm)
         return;
 
-    auto remoteCDM = WebProcess::singleton().legacyCDMFactory().findCDM(cdm->cdmPrivate());
-    if (!remoteCDM)
-        return;
-
-    remoteCDM->setPlayerId(m_id);
+    if (RefPtr remoteCDM = WebProcess::singleton().protectedLegacyCDMFactory()->findCDM(cdm->cdmPrivate()))
+        remoteCDM->setPlayerId(m_id);
 }
 
 void MediaPlayerPrivateRemote::setCDMSession(LegacyCDMSession* session)

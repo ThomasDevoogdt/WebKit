@@ -38,6 +38,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StdLibExtras.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
 
@@ -75,7 +76,7 @@ static bool deviceHasStreams(AudioObjectID deviceID, const AudioObjectPropertyAd
         return false;
 
     auto bufferList = std::unique_ptr<AudioBufferList>((AudioBufferList*) ::operator new (dataSize));
-    memset(bufferList.get(), 0, dataSize);
+    zeroSpan(unsafeMakeSpan(reinterpret_cast<uint8_t*>(bufferList.get()), dataSize));
     err = AudioObjectGetPropertyData(deviceID, &address, 0, nullptr, &dataSize, bufferList.get());
 
     return !err && bufferList->mNumberBuffers;
@@ -176,10 +177,11 @@ Vector<CoreAudioCaptureDevice>& CoreAudioCaptureDeviceManager::coreAudioCaptureD
         initialized = true;
         refreshAudioCaptureDevices(NotifyIfDevicesHaveChanged::DoNotNotify);
 
-        auto listener = ^(UInt32 count, const AudioObjectPropertyAddress properties[]) {
+        auto listener = ^(UInt32 count, const AudioObjectPropertyAddress rawProperties[]) {
+            auto properties = unsafeMakeSpan(rawProperties, count);
             bool notify = false;
-            for (UInt32 i = 0; i < count; ++i)
-                notify |= (properties[i].mSelector == kAudioHardwarePropertyDevices || properties[i].mSelector == kAudioHardwarePropertyDefaultInputDevice || properties[i].mSelector == kAudioHardwarePropertyDefaultOutputDevice);
+            for (auto& property : properties)
+                notify |= (property.mSelector == kAudioHardwarePropertyDevices || property.mSelector == kAudioHardwarePropertyDefaultInputDevice || property.mSelector == kAudioHardwarePropertyDefaultOutputDevice);
 
             if (notify)
                 CoreAudioCaptureDeviceManager::singleton().scheduleUpdateCaptureDevices();

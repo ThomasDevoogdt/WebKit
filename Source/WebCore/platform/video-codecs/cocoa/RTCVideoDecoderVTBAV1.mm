@@ -36,6 +36,7 @@
 #import <wtf/CheckedArithmetic.h>
 #import <wtf/FastMalloc.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/cf/VectorCF.h>
 
 #import "CoreVideoSoftLink.h"
 #import "VideoToolboxSoftLink.h"
@@ -136,8 +137,8 @@ static std::optional<std::pair<std::span<const uint8_t>, std::span<const uint8_t
             return { };
 
         if (headerType == 1) {
-            std::span<const uint8_t> fullObu { data.data() + startIndex, payloadSize + index - startIndex };
-            std::span<const uint8_t> obuData { data.data() + index, payloadSize };
+            auto fullObu = data.subspan(startIndex, payloadSize + index - startIndex);
+            auto obuData = data.subspan(index, payloadSize);
             return std::make_pair(fullObu, obuData);
         }
 
@@ -275,14 +276,14 @@ static RetainPtr<CMVideoFormatDescriptionRef> computeAV1InputFormat(std::span<co
     size_t cfDataSize = VPCodecConfigurationContentsSize + fullOBUHeader.size();
     auto cfData = adoptCF(CFDataCreateMutable(kCFAllocatorDefault, cfDataSize));
     CFDataIncreaseLength(cfData.get(), cfDataSize);
-    uint8_t* header = CFDataGetMutableBytePtr(cfData.get());
+    auto header = mutableSpan(cfData.get());
 
     header[0] = 129;
     header[1] = (parameters->profile << 5) | parameters->level;
     header[2] = (parameters->high_bitdepth << 6) | (parameters->twelve_bit << 5) | (parameters->chroma_type << 2);
     header[3] = 0;
 
-    memcpy(header + 4, fullOBUHeader.data(), fullOBUHeader.size());
+    memcpySpan(header.subspan(4), fullOBUHeader);
 
     auto configurationDict = @{ @"av1C": (__bridge NSData *)cfData.get() };
     auto extensions = @{ (__bridge NSString *)PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: configurationDict };
@@ -374,15 +375,16 @@ static void av1DecompressionOutputCallback(void* decoderRef, void* params, OSSta
     _shouldCheckFormat = true;
 }
 
-- (NSInteger)decodeData:(const uint8_t *)data size:(size_t)size timeStamp:(int64_t)timeStamp {
+- (NSInteger)decodeData:(const uint8_t *)rawData size:(size_t)size timeStamp:(int64_t)timeStamp {
     if (_error != noErr) {
         RELEASE_LOG_ERROR(WebRTC, "RTCVideoDecoderVTBAV1 Last frame decode failed");
         _error = noErr;
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
+    auto data = unsafeMakeSpan(rawData, size);
 
     if (_shouldCheckFormat || !_videoFormat) {
-        auto inputFormat = computeAV1InputFormat({ data, size }, _width, _height);
+        auto inputFormat = computeAV1InputFormat(data, _width, _height);
         if (inputFormat) {
             _shouldCheckFormat = false;
             if (!PAL::CMFormatDescriptionEqual(inputFormat.get(), _videoFormat.get())) {
@@ -399,7 +401,7 @@ static void av1DecompressionOutputCallback(void* decoderRef, void* params, OSSta
     if (!_videoFormat)
         return WEBRTC_VIDEO_CODEC_ERROR;
 
-    auto sampleBuffer = av1BufferToCMSampleBuffer({ data, size }, _videoFormat.get());
+    auto sampleBuffer = av1BufferToCMSampleBuffer(data, _videoFormat.get());
     if (!sampleBuffer)
         return WEBRTC_VIDEO_CODEC_ERROR;
 

@@ -5,14 +5,19 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebCore_SOURCES
     platform/graphics/texmap/BitmapTexture.cpp
     platform/graphics/texmap/BitmapTexturePool.cpp
+    platform/graphics/texmap/ClipPath.cpp
     platform/graphics/texmap/ClipStack.cpp
+    platform/graphics/texmap/FloatPlane3D.cpp
+    platform/graphics/texmap/FloatPolygon3D.cpp
     platform/graphics/texmap/GraphicsContextGLTextureMapperANGLE.cpp
     platform/graphics/texmap/TextureMapper.cpp
     platform/graphics/texmap/TextureMapperAnimation.cpp
     platform/graphics/texmap/TextureMapperBackingStore.cpp
     platform/graphics/texmap/TextureMapperFPSCounter.cpp
     platform/graphics/texmap/TextureMapperGCGLPlatformLayer.cpp
+    platform/graphics/texmap/TextureMapperGPUBuffer.cpp
     platform/graphics/texmap/TextureMapperLayer.cpp
+    platform/graphics/texmap/TextureMapperLayer3DRenderingContext.cpp
     platform/graphics/texmap/TextureMapperPlatformLayer.cpp
     platform/graphics/texmap/TextureMapperShaderProgram.cpp
 )
@@ -20,7 +25,10 @@ list(APPEND WebCore_SOURCES
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/texmap/BitmapTexture.h
     platform/graphics/texmap/BitmapTexturePool.h
+    platform/graphics/texmap/ClipPath.h
     platform/graphics/texmap/ClipStack.h
+    platform/graphics/texmap/FloatPlane3D.h
+    platform/graphics/texmap/FloatPolygon3D.h
     platform/graphics/texmap/GraphicsContextGLTextureMapperANGLE.h
     platform/graphics/texmap/GraphicsLayerContentsDisplayDelegateTextureMapper.h
     platform/graphics/texmap/GraphicsLayerTextureMapper.h
@@ -30,7 +38,9 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/texmap/TextureMapperFlags.h
     platform/graphics/texmap/TextureMapperFPSCounter.h
     platform/graphics/texmap/TextureMapperGLHeaders.h
+    platform/graphics/texmap/TextureMapperGPUBuffer.h
     platform/graphics/texmap/TextureMapperLayer.h
+    platform/graphics/texmap/TextureMapperLayer3DRenderingContext.h
     platform/graphics/texmap/TextureMapperPlatformLayer.h
     platform/graphics/texmap/TextureMapperPlatformLayerProxy.h
     platform/graphics/texmap/TextureMapperSolidColorLayer.h
@@ -40,9 +50,21 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
 if (USE_COORDINATED_GRAPHICS)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+        "${WEBCORE_DIR}/page/scrolling/coordinated"
         "${WEBCORE_DIR}/platform/graphics/texmap/coordinated"
     )
     list(APPEND WebCore_SOURCES
+        page/scrolling/coordinated/ScrollingCoordinatorCoordinated.cpp
+        page/scrolling/coordinated/ScrollingStateNodeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeFixedNodeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeFrameScrollingNodeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeOverflowScrollProxyNodeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeOverflowScrollingNodeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreePositionedNodeCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeScrollingNodeDelegateCoordinated.cpp
+        page/scrolling/coordinated/ScrollingTreeStickyNodeCoordinated.cpp
+
         platform/graphics/texmap/GraphicsLayerAsyncContentsDisplayDelegateTextureMapper.cpp
         platform/graphics/texmap/TextureMapperPlatformLayerProxy.cpp
 
@@ -50,24 +72,27 @@ if (USE_COORDINATED_GRAPHICS)
         platform/graphics/texmap/coordinated/CoordinatedBackingStore.cpp
         platform/graphics/texmap/coordinated/CoordinatedBackingStoreProxy.cpp
         platform/graphics/texmap/coordinated/CoordinatedBackingStoreTile.cpp
-        platform/graphics/texmap/coordinated/CoordinatedGraphicsLayer.cpp
         platform/graphics/texmap/coordinated/CoordinatedImageBackingStore.cpp
+        platform/graphics/texmap/coordinated/CoordinatedPlatformLayer.cpp
         platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferExternalOES.cpp
         platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferHolePunch.cpp
         platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferNativeImage.cpp
         platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferRGB.cpp
         platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBufferYUV.cpp
         platform/graphics/texmap/coordinated/CoordinatedTileBuffer.cpp
+        platform/graphics/texmap/coordinated/GraphicsContextGLTextureMapperANGLECoordinated.cpp
+        platform/graphics/texmap/coordinated/GraphicsLayerCoordinated.cpp
     )
     list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
         platform/graphics/texmap/coordinated/CoordinatedAnimatedBackingStoreClient.h
         platform/graphics/texmap/coordinated/CoordinatedBackingStore.h
         platform/graphics/texmap/coordinated/CoordinatedBackingStoreProxy.h
         platform/graphics/texmap/coordinated/CoordinatedBackingStoreTile.h
-        platform/graphics/texmap/coordinated/CoordinatedGraphicsLayer.h
         platform/graphics/texmap/coordinated/CoordinatedImageBackingStore.h
+        platform/graphics/texmap/coordinated/CoordinatedPlatformLayer.h
         platform/graphics/texmap/coordinated/CoordinatedPlatformLayerBuffer.h
         platform/graphics/texmap/coordinated/CoordinatedTileBuffer.h
+        platform/graphics/texmap/coordinated/GraphicsLayerCoordinated.h
     )
 
     if (USE_GSTREAMER)
@@ -86,12 +111,16 @@ if (USE_COORDINATED_GRAPHICS)
     endif ()
 
     if (USE_CAIRO)
-        list(APPEND WebCore_SOURCES
-            platform/graphics/texmap/coordinated/CoordinatedGraphicsLayerCairo.cpp
+        list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+            platform/graphics/cairo/CairoPaintingEngine.h
         )
-    elseif (USE_SKIA)
+
         list(APPEND WebCore_SOURCES
-            platform/graphics/texmap/coordinated/CoordinatedGraphicsLayerSkia.cpp
+            platform/graphics/cairo/CairoOperationRecorder.cpp
+            platform/graphics/cairo/CairoPaintingContext.cpp
+            platform/graphics/cairo/CairoPaintingEngine.cpp
+            platform/graphics/cairo/CairoPaintingEngineBasic.cpp
+            platform/graphics/cairo/CairoPaintingEngineThreaded.cpp
         )
     endif ()
 else ()
@@ -106,47 +135,6 @@ else ()
         platform/graphics/texmap/TextureMapperTile.h
         platform/graphics/texmap/TextureMapperTiledBackingStore.h
     )
-endif ()
-
-if (USE_NICOSIA)
-    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-        "${WEBCORE_DIR}/page/scrolling/nicosia"
-        "${WEBCORE_DIR}/platform/graphics/nicosia"
-        "${WEBCORE_DIR}/platform/graphics/nicosia/texmap"
-    )
-    list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
-        "platform/SourcesNicosia.txt"
-    )
-    list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-        page/scrolling/nicosia/ScrollingTreeFixedNodeNicosia.h
-        page/scrolling/nicosia/ScrollingTreeStickyNodeNicosia.h
-
-        platform/graphics/nicosia/NicosiaCompositionLayer.h
-        platform/graphics/nicosia/NicosiaPlatformLayer.h
-        platform/graphics/nicosia/NicosiaScene.h
-        platform/graphics/nicosia/NicosiaSceneIntegration.h
-    )
-
-    if (USE_CAIRO)
-        list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-            "${WEBCORE_DIR}/platform/graphics/nicosia/cairo"
-        )
-        list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-            platform/graphics/nicosia/NicosiaPaintingEngine.h
-        )
-
-        # Currently NicosiaPaintingContext.cpp will cause a compilation error
-        # when building without USE_CAIRO so these are not in unified sources
-        list(APPEND WebCore_SOURCES
-            platform/graphics/nicosia/NicosiaPaintingContext.cpp
-            platform/graphics/nicosia/NicosiaPaintingEngine.cpp
-            platform/graphics/nicosia/NicosiaPaintingEngineBasic.cpp
-            platform/graphics/nicosia/NicosiaPaintingEngineThreaded.cpp
-
-            platform/graphics/nicosia/cairo/NicosiaCairoOperationRecorder.cpp
-            platform/graphics/nicosia/cairo/NicosiaPaintingContextCairo.cpp
-        )
-    endif ()
 endif ()
 
 if (USE_GRAPHICS_LAYER_WC)

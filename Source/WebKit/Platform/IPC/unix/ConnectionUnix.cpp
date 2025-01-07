@@ -37,6 +37,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <wtf/Assertions.h>
+#include <wtf/MallocSpan.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -62,7 +63,7 @@
 #endif
 #endif // SOCK_SEQPACKET
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // Unix port
 
 namespace IPC {
 
@@ -103,22 +104,22 @@ int Connection::socketDescriptor() const
 #if USE(GLIB)
     return g_socket_get_fd(m_socket.get());
 #else
-    return m_socketDescriptor;
+    return m_socketDescriptor.value();
 #endif
 }
 
-void Connection::platformInitialize(Identifier identifier)
+void Connection::platformInitialize(Identifier&& identifier)
 {
 #if USE(GLIB)
     GUniqueOutPtr<GError> error;
-    m_socket = adoptGRef(g_socket_new_from_fd(identifier.handle, &error.outPtr()));
+    m_socket = adoptGRef(g_socket_new_from_fd(identifier.handle.release(), &error.outPtr()));
     if (!m_socket) {
         // Note: g_socket_new_from_fd() takes ownership of the fd only on success, so if this error
         // were not fatal, we would need to close it here.
         g_error("Failed to adopt IPC::Connection socket: %s", error->message);
     }
 #else
-    m_socketDescriptor = identifier.handle;
+    m_socketDescriptor = WTFMove(identifier.handle);
 #endif
     m_readBuffer.reserveInitialCapacity(messageMaxSize);
     m_fileDescriptors.reserveInitialCapacity(attachmentMaxAmount);
@@ -127,12 +128,10 @@ void Connection::platformInitialize(Identifier identifier)
 void Connection::platformInvalidate()
 {
 #if USE(GLIB)
-    // In the GLib platform the socket descriptor is owned by GSocket.
     m_socket = nullptr;
 #else
-    if (m_socketDescriptor != -1)
-        closeWithRetry(m_socketDescriptor);
-    m_socketDescriptor = -1;
+    if (m_socketDescriptor.value() != -1)
+        closeWithRetry(m_socketDescriptor.release());
 #endif
 
     if (!m_isConnected)
@@ -259,10 +258,10 @@ static ssize_t readBytesFromSocket(int socketDescriptor, Vector<uint8_t>& buffer
     struct iovec iov[1];
     memset(&iov, 0, sizeof(iov));
 
-    message.msg_controllen = CMSG_SPACE(sizeof(int) * attachmentMaxAmount);
-    MallocPtr<char> attachmentDescriptorBuffer = MallocPtr<char>::malloc(sizeof(char) * message.msg_controllen);
-    memset(attachmentDescriptorBuffer.get(), 0, sizeof(char) * message.msg_controllen);
-    message.msg_control = attachmentDescriptorBuffer.get();
+    auto attachmentDescriptorBuffer = MallocSpan<char>::zeroedMalloc(CMSG_SPACE(sizeof(int) * attachmentMaxAmount));
+    auto attachmentDescriptorSpan = attachmentDescriptorBuffer.mutableSpan();
+    message.msg_control = attachmentDescriptorSpan.data();
+    message.msg_controllen = attachmentDescriptorSpan.size();
 
     size_t previousBufferSize = buffer.size();
     buffer.grow(buffer.capacity());
@@ -462,7 +461,7 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
     iov[0].iov_len = sizeof(messageInfo);
 
     Vector<AttachmentInfo> attachmentInfo;
-    MallocPtr<char> attachmentFDBuffer;
+    MallocSpan<char> attachmentFDBuffer;
 
     auto& attachments = outputMessage.attachments();
     if (!attachments.isEmpty()) {
@@ -474,11 +473,10 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
             });
 
         if (attachmentFDBufferLength) {
-            attachmentFDBuffer = MallocPtr<char>::malloc(sizeof(char) * CMSG_SPACE(sizeof(int) * attachmentFDBufferLength));
-
-            message.msg_control = attachmentFDBuffer.get();
-            message.msg_controllen = CMSG_SPACE(sizeof(int) * attachmentFDBufferLength);
-            memset(message.msg_control, 0, message.msg_controllen);
+            attachmentFDBuffer = MallocSpan<char>::zeroedMalloc(CMSG_SPACE(sizeof(int) * attachmentFDBufferLength));
+            auto span = attachmentFDBuffer.mutableSpan();
+            message.msg_control = span.data();
+            message.msg_controllen = span.size();
 
             struct cmsghdr* cmsg = CMSG_FIRSTHDR(&message);
             cmsg->cmsg_level = SOL_SOCKET;
@@ -589,7 +587,7 @@ SocketPair createPlatformConnection(unsigned options)
 
         setPasscredIfNeeded();
 
-        return { sockets[0], sockets[1] };
+        return { { sockets[0], UnixFileDescriptor::Adopt }, { sockets[1], UnixFileDescriptor::Adopt } };
     }
 #endif
 
@@ -602,13 +600,13 @@ SocketPair createPlatformConnection(unsigned options)
 
     setPasscredIfNeeded();
 
-    return { sockets[0], sockets[1] };
+    return { { sockets[0], UnixFileDescriptor::Adopt }, { sockets[1], UnixFileDescriptor::Adopt } };
 }
 
 std::optional<Connection::ConnectionIdentifierPair> Connection::createConnectionIdentifierPair()
 {
     SocketPair socketPair = createPlatformConnection();
-    return ConnectionIdentifierPair { Identifier { UnixFileDescriptor { socketPair.server,  UnixFileDescriptor::Adopt } }, UnixFileDescriptor { socketPair.client, UnixFileDescriptor::Adopt } };
+    return { { Identifier { WTFMove(socketPair.server) }, ConnectionHandle { WTFMove(socketPair.client) } } };
 }
 
 #if USE(GLIB) && OS(LINUX)

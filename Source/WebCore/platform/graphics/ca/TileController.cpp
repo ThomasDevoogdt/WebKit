@@ -51,6 +51,8 @@
 #include "TileControllerMemoryHandlerIOS.h"
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(TileController);
@@ -706,7 +708,7 @@ void TileController::willRevalidateTiles(TileGrid& tileGrid, TileRevalidationTyp
         m_client->willRevalidateTiles(*this, tileGrid.identifier(), revalidationType);
 }
 
-void TileController::didRevalidateTiles(TileGrid& tileGrid, TileRevalidationType revalidationType, const HashSet<TileIndex>& tilesNeedingDisplay)
+void TileController::didRevalidateTiles(TileGrid& tileGrid, TileRevalidationType revalidationType, const UncheckedKeyHashSet<TileIndex>& tilesNeedingDisplay)
 {
     m_boundsAtLastRevalidate = bounds();
 
@@ -900,5 +902,7 @@ void TileController::logFilledVisibleFreshTile(unsigned blankPixelCount)
 }
 
 } // namespace WebCore
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // USE(CG)

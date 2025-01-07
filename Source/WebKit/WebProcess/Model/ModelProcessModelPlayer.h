@@ -44,6 +44,9 @@ public:
     static Ref<ModelProcessModelPlayer> create(WebCore::ModelPlayerIdentifier, WebPage&, WebCore::ModelPlayerClient&);
     virtual ~ModelProcessModelPlayer();
 
+    void ref() const final { WebCore::ModelPlayer::ref(); }
+    void deref() const final { WebCore::ModelPlayer::deref(); }
+
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     std::optional<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier() { return m_layerHostingContextIdentifier; };
@@ -64,7 +67,7 @@ private:
     void didFinishLoading(const WebCore::FloatPoint3D&, const WebCore::FloatPoint3D&);
     void didUpdateEntityTransform(const WebCore::TransformationMatrix&);
     void didUpdateAnimationPlaybackState(bool isPaused, double playbackRate, Seconds duration, Seconds currentTime, MonotonicTime clockTimestamp);
-    void didFinishEnvironmentMapLoading();
+    void didFinishEnvironmentMapLoading(bool succeeded);
 
     // WebCore::ModelPlayer overrides.
     WebCore::ModelPlayerIdentifier identifier() const final { return m_id; }
@@ -100,6 +103,7 @@ private:
     Seconds currentTime() const final;
     void setCurrentTime(Seconds, CompletionHandler<void()>&&) final;
     void setEnvironmentMap(Ref<WebCore::SharedBuffer>&& data) final;
+    void setHasPortal(bool) final;
 
     WebCore::ModelPlayerIdentifier m_id;
     WeakPtr<WebPage> m_page;
@@ -107,6 +111,7 @@ private:
 
     std::optional<WebCore::LayerHostingContextIdentifier> m_layerHostingContextIdentifier;
 
+    bool m_hasPortal { true };
     bool m_autoplay { false };
     bool m_loop { false };
     double m_requestedPlaybackRate { 1.0 };

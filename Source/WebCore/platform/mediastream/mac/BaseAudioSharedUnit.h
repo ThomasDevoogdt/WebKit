@@ -58,7 +58,7 @@ public:
 
     void startProducingData();
     void stopProducingData();
-    void reconfigure();
+    WEBCORE_EXPORT void reconfigure();
     virtual bool isProducingData() const = 0;
 
     virtual void delaySamples(Seconds) { }
@@ -84,12 +84,11 @@ public:
     void clearClients();
 
     virtual bool hasAudioUnit() const = 0;
-    void setCaptureDevice(String&&, uint32_t);
+    void setCaptureDevice(String&&, uint32_t, bool isDefault);
 
     virtual LongCapabilityRange sampleRateCapacities() const = 0;
     virtual int actualSampleRate() const { return sampleRate(); }
 
-    void whenAudioCaptureUnitIsNotRunning(Function<void()>&&);
     bool isRenderingAudio() const { return m_isRenderingAudio; }
     bool hasClients() const { return !m_clients.isEmptyIgnoringNullReferences(); }
 
@@ -137,6 +136,8 @@ protected:
     void disableVoiceActivityThrottleTimerForTesting() { m_voiceActivityThrottleTimer.stop(); }
     void stopRunning();
 
+    bool isCapturingWithDefaultMicrophone() const { return m_isCapturingWithDefaultMicrophone; }
+
 private:
     OSStatus startUnit();
     bool shouldContinueRunning() const { return m_producingCount || m_isRenderingAudio || hasClients(); }
@@ -165,7 +166,6 @@ private:
 
     bool m_isCapturingWithDefaultMicrophone { false };
     bool m_isProducingMicrophoneSamples { true };
-    Vector<Function<void()>> m_whenNotRunningCallbacks;
     Function<void()> m_voiceActivityCallback;
     Timer m_voiceActivityThrottleTimer;
 };

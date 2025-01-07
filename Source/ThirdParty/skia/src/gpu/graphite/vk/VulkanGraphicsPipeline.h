@@ -69,8 +69,11 @@ public:
 
     static sk_sp<VulkanGraphicsPipeline> Make(VulkanResourceProvider*,
                                               const RuntimeEffectDictionary*,
+                                              const UniqueKey&,
                                               const GraphicsPipelineDesc&,
-                                              const RenderPassDesc&);
+                                              const RenderPassDesc&,
+                                              SkEnumBitMask<PipelineCreationFlags>,
+                                              uint32_t compilationID);
 
     static sk_sp<VulkanGraphicsPipeline> MakeLoadMSAAPipeline(
             const VulkanSharedContext*,

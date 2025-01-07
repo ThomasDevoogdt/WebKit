@@ -42,9 +42,10 @@ class WebResourceLoadScheduler;
 
 WebResourceLoadScheduler& webResourceLoadScheduler();
 
-class WebResourceLoadScheduler final : public WebCore::LoaderStrategy {
+class WebResourceLoadScheduler final : public WebCore::LoaderStrategy, public CanMakeCheckedPtr<WebResourceLoadScheduler> {
     WTF_MAKE_TZONE_ALLOCATED(WebResourceLoadScheduler);
     WTF_MAKE_NONCOPYABLE(WebResourceLoadScheduler);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebResourceLoadScheduler);
 public:
     WebResourceLoadScheduler();
 
@@ -121,7 +122,7 @@ private:
     CheckedPtr<HostInformation> hostForURL(const URL&, CreateHostPolicy = FindOnly);
     void servePendingRequests(CheckedRef<HostInformation>&&, WebCore::ResourceLoadPriority);
 
-    typedef UncheckedKeyHashMap<String, std::unique_ptr<HostInformation>, StringHash> HostMap;
+    typedef HashMap<String, std::unique_ptr<HostInformation>, StringHash> HostMap;
     HostMap m_hosts;
     UniqueRef<HostInformation> m_nonHTTPProtocolHost;
         

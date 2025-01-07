@@ -25,9 +25,6 @@
 // on systems without case-sensitive file systems.
 
 #include <wtf/Compiler.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 #include <wtf/text/IntegerToStringConversion.h>
 #include <wtf/text/StringImpl.h>
 
@@ -38,6 +35,8 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #if OS(WINDOWS)
 #include <wtf/text/win/WCharStringExtras.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WTF {
 
@@ -209,8 +208,8 @@ public:
 
     // Returns an uninitialized string. The characters needs to be written
     // into the buffer returned in data before the returned string is used.
-    static String createUninitialized(unsigned length, UChar*& data) { return StringImpl::createUninitialized(length, data); }
-    static String createUninitialized(unsigned length, LChar*& data) { return StringImpl::createUninitialized(length, data); }
+    static String createUninitialized(unsigned length, std::span<UChar>& data) { return StringImpl::createUninitialized(length, data); }
+    static String createUninitialized(unsigned length, std::span<LChar>& data) { return StringImpl::createUninitialized(length, data); }
 
     using SplitFunctor = WTF::Function<void(StringView)>;
 
@@ -362,8 +361,8 @@ static_assert(sizeof(String) == sizeof(StaticString), "String and StaticString m
 extern WTF_EXPORT_PRIVATE const StaticString nullStringData;
 extern WTF_EXPORT_PRIVATE const StaticString emptyStringData;
 
-inline const String& nullString() { return *reinterpret_cast<const String*>(&nullStringData); }
-inline const String& emptyString() { return *reinterpret_cast<const String*>(&emptyStringData); }
+inline const String& nullString() { SUPPRESS_MEMORY_UNSAFE_CAST return *reinterpret_cast<const String*>(&nullStringData); }
+inline const String& emptyString() { SUPPRESS_MEMORY_UNSAFE_CAST return *reinterpret_cast<const String*>(&emptyStringData); }
 
 template<typename> struct DefaultHash;
 template<> struct DefaultHash<String>;
@@ -473,7 +472,7 @@ WTF_EXPORT_PRIVATE String makeStringByJoining(std::span<const String> strings, c
 inline std::optional<UCharDirection> String::defaultWritingDirection() const
 {
     if (m_impl)
-        return m_impl->defaultWritingDirection();
+        SUPPRESS_UNCOUNTED_ARG return m_impl->defaultWritingDirection();
     return std::nullopt;
 }
 
@@ -491,7 +490,7 @@ inline String String::substring(unsigned position, unsigned length) const
     if (!position && length >= m_impl->length())
         return *this;
 
-    return m_impl->substring(position, length);
+    SUPPRESS_UNCOUNTED_ARG return m_impl->substring(position, length);
 }
 
 template<typename Func>
@@ -508,7 +507,7 @@ inline String::operator NSString *() const
 {
     if (!m_impl)
         return @"";
-    return *m_impl;
+    SUPPRESS_UNCOUNTED_ARG return *m_impl;
 }
 
 inline NSString * nsStringNilIfEmpty(const String& string)
@@ -535,7 +534,7 @@ inline bool codePointCompareLessThan(const String& a, const String& b)
 template<typename Predicate>
 String String::removeCharacters(const Predicate& findMatch) const
 {
-    return m_impl ? m_impl->removeCharacters(findMatch) : String { };
+    SUPPRESS_UNCOUNTED_ARG return m_impl ? m_impl->removeCharacters(findMatch) : String { };
 }
 
 inline bool equalLettersIgnoringASCIICase(const String& string, ASCIILiteral literal)
@@ -563,13 +562,13 @@ inline namespace StringLiterals {
 #ifndef __swift__
 // Swift will import this as global and then all literals will be WTF.String
 // instead of Swift.String
-inline String operator"" _str(const char* characters, size_t)
+inline String operator""_str(const char* characters, size_t)
 {
     return ASCIILiteral::fromLiteralUnsafe(characters);
 }
 
 // FIXME: rdar://136156228
-inline String operator"" _str(const UChar* characters, size_t length)
+inline String operator""_str(const UChar* characters, size_t length)
 {
     return String({ characters, length });
 }

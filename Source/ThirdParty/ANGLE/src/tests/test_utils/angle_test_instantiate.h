@@ -133,10 +133,10 @@ struct CombinedPrintToStringParamName
 #    define ANGLE_TEST_PLATFORMS_ES32_SYSTEM_EGL ES32_EGL(),
 #endif
 
-#define ANGLE_ALL_TEST_PLATFORMS_ES1                                                   \
-    ANGLE_TEST_PLATFORMS_ES1_SYSTEM_EGL                                                \
-    ES1_D3D11(), ES1_OPENGL(), ES1_OPENGLES(), ES1_VULKAN(), ES1_VULKAN_SWIFTSHADER(), \
-        ES1_VULKAN().enable(Feature::AsyncCommandQueue),                               \
+#define ANGLE_ALL_TEST_PLATFORMS_ES1                                               \
+    ANGLE_TEST_PLATFORMS_ES1_SYSTEM_EGL                                            \
+    ES1_D3D11(), ES1_METAL(), ES1_OPENGL(), ES1_OPENGLES(), ES1_VULKAN(),          \
+        ES1_VULKAN_SWIFTSHADER(), ES1_VULKAN().enable(Feature::AsyncCommandQueue), \
         ES1_VULKAN().enable(Feature::EnableParallelCompileAndLink)
 
 #define ANGLE_ALL_TEST_PLATFORMS_ES2                                                               \
@@ -252,6 +252,13 @@ struct CombinedPrintToStringParamName
                                                    ANGLE_ALL_TEST_PLATFORMS_ES3,                \
                                                    ANGLE_ALL_TEST_PLATFORMS_ES31, __VA_ARGS__}; \
     INSTANTIATE_TEST_SUITE_P(, testName, ANGLE_INSTANTIATE_TEST_PLATFORMS(testName),            \
+                             testing::PrintToStringParamName())
+
+#define ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31_AND_ES32(testName, ...)                        \
+    const PlatformParameters testName##params[] = {                                                \
+        ANGLE_ALL_TEST_PLATFORMS_ES2, ANGLE_ALL_TEST_PLATFORMS_ES3, ANGLE_ALL_TEST_PLATFORMS_ES31, \
+        ANGLE_ALL_TEST_PLATFORMS_ES32, __VA_ARGS__};                                               \
+    INSTANTIATE_TEST_SUITE_P(, testName, ANGLE_INSTANTIATE_TEST_PLATFORMS(testName),               \
                              testing::PrintToStringParamName())
 
 #define ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31_AND_NULL(testName)                             \

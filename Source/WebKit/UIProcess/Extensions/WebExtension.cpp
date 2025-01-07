@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2024 Igalia S.L. All rights reserved.
+ * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,19 +29,45 @@
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
+#include "Logging.h"
+
+#include "WebExtensionConstants.h"
 #include "WebExtensionPermission.h"
 #include "WebExtensionUtilities.h"
+#include <WebCore/LocalizedStrings.h>
+#include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/TextResourceDecoder.h>
+#include <wtf/FileSystem.h>
+#include <wtf/Language.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringToIntegerConversion.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
+using namespace WebCore;
+
+static constexpr auto defaultLocaleManifestKey = "default_locale"_s;
+
+static constexpr auto iconsManifestKey = "icons"_s;
+
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
 static constexpr auto iconVariantsManifestKey = "icon_variants"_s;
+static constexpr auto colorSchemesManifestKey = "color_schemes"_s;
+static constexpr auto lightManifestKey = "light"_s;
+static constexpr auto darkManifestKey = "dark"_s;
+static constexpr auto anyManifestKey = "any"_s;
 #endif
 
 static constexpr auto actionManifestKey = "action"_s;
 static constexpr auto browserActionManifestKey = "browser_action"_s;
 static constexpr auto pageActionManifestKey = "page_action"_s;
+
+static constexpr auto defaultIconManifestKey = "default_icon"_s;
+static constexpr auto defaultTitleManifestKey = "default_title"_s;
+static constexpr auto defaultPopupManifestKey = "default_popup"_s;
 
 static constexpr auto manifestVersionManifestKey = "manifest_version"_s;
 
@@ -108,6 +135,16 @@ static constexpr auto webAccessibleResourcesManifestKey = "web_accessible_resour
 static constexpr auto webAccessibleResourcesResourcesManifestKey = "resources"_s;
 static constexpr auto webAccessibleResourcesMatchesManifestKey = "matches"_s;
 
+static constexpr auto commandsManifestKey = "commands"_s;
+static constexpr auto commandsSuggestedKeyManifestKey = "suggested_key"_s;
+static constexpr auto commandsDescriptionKeyManifestKey = "description"_s;
+
+static constexpr auto declarativeNetRequestManifestKey = "declarative_net_request"_s;
+static constexpr auto declarativeNetRequestRulesManifestKey = "rule_resources"_s;
+static constexpr auto declarativeNetRequestRulesetIDManifestKey = "id"_s;
+static constexpr auto declarativeNetRequestRuleEnabledManifestKey = "enabled"_s;
+static constexpr auto declarativeNetRequestRulePathManifestKey = "path"_s;
+
 #if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
 static constexpr auto sidebarActionManifestKey = "sidebar_action"_s;
 static constexpr auto sidePanelManifestKey = "side_panel"_s;
@@ -116,13 +153,81 @@ static constexpr auto sidebarActionPathManifestKey = "default_panel"_s;
 static constexpr auto sidePanelPathManifestKey = "default_path"_s;
 #endif // ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
 
-bool WebExtension::manifestParsedSuccessfully()
+static const size_t maximumNumberOfShortcutCommands = 4;
+
+WebExtension::WebExtension(Resources&& resources)
+    : m_manifestJSON(JSON::Value::null())
+    , m_resources(WTFMove(resources))
+{
+}
+
+bool WebExtension::parseManifest(StringView manifestString)
+{
+    RefPtr manifestValue = JSON::Value::parseJSON(manifestString);
+    if (!manifestValue) {
+        recordError(createError(Error::InvalidManifest));
+        return false;
+    }
+
+    RefPtr manifestObject = manifestValue->asObject();
+    if (!manifestObject) {
+        recordError(createError(Error::InvalidManifest));
+        return false;
+    }
+
+    // Set to the unlocalized manifest for now so calls to manifestParsedSuccessfully() during this will be true.
+    // This is needed for WebExtensionLocalization to properly get the defaultLocale() while we are mid-parse.
+    m_manifestJSON = *manifestObject;
+
+    if (auto defaultLocale = manifestObject->getString(defaultLocaleManifestKey); !defaultLocale.isNull()) {
+        auto parsedLocale = parseLocale(manifestObject->getString(defaultLocaleManifestKey));
+        if (!parsedLocale.languageCode.isEmpty()) {
+            if (supportedLocales().contains(defaultLocale))
+                m_defaultLocale = defaultLocale;
+            else
+                recordError(createError(Error::InvalidDefaultLocale, WEB_UI_STRING("Unable to find `default_locale` in “_locales” folder.", "Error description for missing default_locale")));
+        } else
+            recordError(createError(Error::InvalidDefaultLocale));
+    }
+
+    Ref localization = WebExtensionLocalization::create(*this);
+    m_localization = localization.copyRef();
+
+    RefPtr localizedManifestObject = localization->localizedJSONforJSON(manifestObject);
+    if (!localizedManifestObject) {
+        m_manifestJSON = JSON::Value::null();
+        recordError(createError(Error::InvalidManifest));
+        return false;
+    }
+
+    m_manifestJSON = localizedManifestObject.releaseNonNull();
+
+    return true;
+}
+
+RefPtr<const JSON::Object> WebExtension::manifestObject()
 {
     if (m_parsedManifest)
-        return !!m_manifestJSON->asObject();
+        return m_manifestJSON->asObject();
 
-    // If we haven't parsed yet, trigger a parse by calling the getter.
-    return !!manifest() && !!manifestObject();
+    m_parsedManifest = true;
+
+    RefPtr<API::Error> error;
+    auto manifestString = resourceStringForPath("manifest.json"_s, error);
+    if (error) {
+        recordErrorIfNeeded(error);
+        return nullptr;
+    }
+
+    if (!parseManifest(manifestString))
+        return nullptr;
+
+    return m_manifestJSON->asObject();
+}
+
+bool WebExtension::manifestParsedSuccessfully()
+{
+    return !!manifestObject();
 }
 
 double WebExtension::manifestVersion()
@@ -136,6 +241,31 @@ double WebExtension::manifestVersion()
         return *value;
 
     return 0;
+}
+
+RefPtr<API::Data> WebExtension::serializeManifest()
+{
+    Ref manifestJSON = m_manifestJSON;
+    if (!manifestJSON)
+        return nullptr;
+
+    return API::Data::create(manifestJSON->toJSONString().utf8().span());
+}
+
+RefPtr<API::Data> WebExtension::serializeLocalization()
+{
+    if (!m_localization || !m_localization->localizationJSON())
+        return nullptr;
+
+    return API::Data::create(m_localization->localizationJSON()->toJSONString().utf8().span());
+}
+
+RefPtr<WebExtensionLocalization> WebExtension::localization()
+{
+    if (!manifestParsedSuccessfully())
+        return nullptr;
+
+    return m_localization;
 }
 
 bool WebExtension::hasRequestedPermission(String permission)
@@ -290,6 +420,19 @@ URL WebExtension::resourceFileURLForPath(const String& originalPath)
     return result;
 }
 
+String WebExtension::resourceMIMETypeForPath(const String& path)
+{
+    auto dataPrefix = "data:"_s;
+    if (path.startsWith(dataPrefix)) {
+        auto mimeTypePosition = path.find(';');
+        if (mimeTypePosition != notFound)
+            return path.substring(dataPrefix.length(), mimeTypePosition - dataPrefix.length());
+        return defaultMIMEType();
+    }
+
+    return MIMETypeRegistry::mimeTypeForPath(path);
+}
+
 String WebExtension::resourceStringForPath(const String& originalPath, RefPtr<API::Error>& outError, CacheResult cacheResult, SuppressNotFoundErrors suppressErrors)
 {
     ASSERT(originalPath);
@@ -335,9 +478,28 @@ static int toAPI(WebExtension::Error error)
         return static_cast<int>(WebExtension::APIError::InvalidBackgroundPersistence);
     case WebExtension::Error::InvalidResourceCodeSignature:
         return static_cast<int>(WebExtension::APIError::InvalidResourceCodeSignature);
-    default:
+    case WebExtension::Error::InvalidArchive:
+        return static_cast<int>(WebExtension::APIError::InvalidArchive);
+    case WebExtension::Error::InvalidAction:
+    case WebExtension::Error::InvalidActionIcon:
+    case WebExtension::Error::InvalidBackgroundContent:
+    case WebExtension::Error::InvalidCommands:
+    case WebExtension::Error::InvalidContentScripts:
+    case WebExtension::Error::InvalidContentSecurityPolicy:
+    case WebExtension::Error::InvalidDefaultLocale:
+    case WebExtension::Error::InvalidDescription:
+    case WebExtension::Error::InvalidExternallyConnectable:
+    case WebExtension::Error::InvalidIcon:
+    case WebExtension::Error::InvalidName:
+    case WebExtension::Error::InvalidOptionsPage:
+    case WebExtension::Error::InvalidURLOverrides:
+    case WebExtension::Error::InvalidVersion:
+    case WebExtension::Error::InvalidWebAccessibleResources:
         return static_cast<int>(WebExtension::APIError::InvalidManifestEntry);
     }
+
+    ASSERT_NOT_REACHED();
+    return static_cast<int>(WebExtension::APIError::Unknown);
 }
 
 Ref<API::Error> WebExtension::createError(Error error, const String& customLocalizedDescription, RefPtr<API::Error> underlyingError)
@@ -374,17 +536,8 @@ Ref<API::Error> WebExtension::createError(Error error, const String& customLocal
 
     case Error::InvalidActionIcon: {
 #if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
-        RefPtr<JSON::Value> actionManifest;
-        if (supportsManifestVersion(3))
-            actionManifest = manifestObject()->getValue(actionManifestKey);
-        else {
-            actionManifest = manifestObject()->getValue(browserActionManifestKey);
-            if (!actionManifest)
-                actionManifest = manifestObject()->getValue(pageActionManifestKey);
-        }
-
-        if (actionManifest) {
-            if (auto actionObject = actionManifest->asObject(); actionObject->getValue(iconVariantsManifestKey)) {
+        if (RefPtr actionObject = m_actionObject) {
+            if (actionObject->getValue(iconVariantsManifestKey)) {
                 if (supportsManifestVersion(3))
                     localizedDescription = WEB_UI_STRING("Empty or invalid `icon_variants` for the `action` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for icon_variants in action only");
                 else
@@ -425,6 +578,10 @@ Ref<API::Error> WebExtension::createError(Error error, const String& customLocal
             localizedDescription = WEB_UI_FORMAT_STRING("Unable to parse `declarativeNetRequest` rules: %s", "WKWebExtensionErrorInvalidDeclarativeNetRequest description, because of a JSON error", underlyingError->localizedDescription().utf8().data());
         else
             localizedDescription = WEB_UI_STRING("Unable to parse `declarativeNetRequest` rules because of an unexpected error.", "WKWebExtensionErrorInvalidDeclarativeNetRequest description");
+        break;
+
+    case Error::InvalidDefaultLocale:
+        localizedDescription = WEB_UI_STRING("Empty or invalid `default_locale` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for default_locale");
         break;
 
     case Error::InvalidDescription:
@@ -474,6 +631,10 @@ Ref<API::Error> WebExtension::createError(Error error, const String& customLocal
         localizedDescription = WEB_UI_STRING("Invalid `persistent` manifest entry.", "WKWebExtensionErrorInvalidBackgroundPersistence description");
         break;
 
+    case Error::InvalidArchive:
+        localizedDescription = WEB_UI_STRING("Invalid or corrupt extension archive.", "WKWebExtensionErrorInvalidArchive description");
+        break;
+
     case Error::InvalidResourceCodeSignature:
         ASSERT(customLocalizedDescription);
         break;
@@ -500,6 +661,62 @@ Vector<Ref<API::Error>> WebExtension::errors()
     populateExternallyConnectableIfNeeded();
 
     return m_errors;
+}
+
+const Vector<String>& WebExtension::supportedLocales()
+{
+    if (!m_supportedLocales.isEmpty())
+        return m_supportedLocales;
+
+    auto localesString = "_locales/"_s;
+    auto localeDirectoryPath = resourceFileURLForPath(localesString).fileSystemPath();
+    if (!localeDirectoryPath.isEmpty()) {
+        m_supportedLocales = FileSystem::listDirectory(localeDirectoryPath);
+        return m_supportedLocales;
+    }
+
+    // For tests that don't have a file system location, check the resource cache.
+    auto prefixLength = localesString.length();
+    for (const auto& resourceEntry : m_resources) {
+        auto path = resourceEntry.key;
+        if (!path.startsWith(localesString))
+            continue;
+
+        auto localeEnd = path.find('/', prefixLength);
+        if (localeEnd == notFound)
+            continue;
+
+        auto locale = path.substring(prefixLength, localeEnd - prefixLength);
+        if (!m_supportedLocales.contains(locale))
+            m_supportedLocales.append(locale);
+    }
+
+    return m_supportedLocales;
+}
+
+const String& WebExtension::defaultLocale()
+{
+    if (!manifestParsedSuccessfully())
+        return nullString();
+
+    return m_defaultLocale;
+}
+
+String WebExtension::bestMatchLocale()
+{
+    const auto& supportedLocales = this->supportedLocales();
+    if (supportedLocales.isEmpty())
+        return nullString();
+
+    if (supportedLocales.size() == 1)
+        return supportedLocales.first();
+
+    bool exactMatch = false;
+    auto bestMatchIndex = indexOfBestMatchingLanguageInList(defaultLanguage(ShouldMinimizeLanguages::No), supportedLocales, exactMatch);
+    if (bestMatchIndex != notFound)
+        return supportedLocales[bestMatchIndex];
+
+    return defaultLocale();
 }
 
 const String& WebExtension::displayName()
@@ -1449,6 +1666,695 @@ void WebExtension::populatePermissionsPropertiesIfNeeded()
             }
         }
     }
+}
+
+void WebExtension::populateActionPropertiesIfNeeded()
+{
+    if (m_parsedManifestActionProperties)
+        return;
+
+    m_parsedManifestActionProperties = true;
+
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return;
+
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/action
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_action
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/page_action
+
+    RefPtr<JSON::Object> actionObject;
+    if (supportsManifestVersion(3))
+        actionObject = manifestObject->getObject(actionManifestKey);
+    else {
+        actionObject = manifestObject->getObject(browserActionManifestKey);
+        if (!actionObject)
+            actionObject = manifestObject->getObject(pageActionManifestKey);
+    }
+
+    if (!actionObject)
+        return;
+
+    // Look for the "default_icon" as a string, which is useful for SVG icons. Only supported by Firefox currently.
+    if (auto defaultIconPath = actionObject->getString(defaultIconManifestKey); !defaultIconPath.isEmpty()) {
+        RefPtr<API::Error> resourceError;
+        m_defaultActionIcon = iconForPath(defaultIconPath, resourceError);
+
+        if (!m_defaultActionIcon) {
+            recordErrorIfNeeded(resourceError);
+
+            String localizedErrorDescription;
+            if (supportsManifestVersion(3))
+                localizedErrorDescription = WEB_UI_STRING("Failed to load image for `default_icon` in the `action` manifest entry.", "WKWebExtensionErrorInvalidActionIcon description for failing to load single image for action");
+            else
+                localizedErrorDescription = WEB_UI_STRING("Failed to load image for `default_icon` in the `browser_action` or `page_action` manifest entry.", "WKWebExtensionErrorInvalidActionIcon description for failing to load single image for browser_action or page_action");
+
+            recordError(createError(Error::InvalidActionIcon, localizedErrorDescription));
+        }
+    }
+
+    m_displayActionLabel = actionObject->getString(defaultTitleManifestKey);
+    m_actionPopupPath = actionObject->getString(defaultPopupManifestKey);
+
+    m_actionObject = actionObject;
+}
+
+const String& WebExtension::displayActionLabel()
+{
+    populateActionPropertiesIfNeeded();
+    return m_displayActionLabel;
+}
+
+const String& WebExtension::actionPopupPath()
+{
+    populateActionPropertiesIfNeeded();
+    return m_actionPopupPath;
+}
+
+bool WebExtension::hasAction()
+{
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return false;
+
+    return supportsManifestVersion(3) && manifestObject->getValue(actionManifestKey);
+}
+
+bool WebExtension::hasBrowserAction()
+{
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return false;
+
+    return !supportsManifestVersion(3) && manifestObject->getValue(browserActionManifestKey);
+}
+
+bool WebExtension::hasPageAction()
+{
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return false;
+
+    return !supportsManifestVersion(3) && manifestObject->getValue(pageActionManifestKey);
+}
+
+RefPtr<WebCore::Icon> WebExtension::icon(WebCore::FloatSize size)
+{
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return nullptr;
+
+#if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+    if (manifestObject->getValue(iconVariantsManifestKey)) {
+        String localizedErrorDescription = WEB_UI_STRING("Failed to load images in `icon_variants` manifest entry.", "WKWebExtensionErrorInvalidIcon description for failing to load image variants");
+        return bestIconVariantForManifestKey(*manifestObject, iconVariantsManifestKey, size, m_iconsCache, Error::InvalidIcon, localizedErrorDescription);
+    }
+#endif
+
+    String localizedErrorDescription = WEB_UI_STRING("Failed to load images in `icons` manifest entry.", "WKWebExtensionErrorInvalidIcon description for failing to load images");
+    return bestIconForManifestKey(*manifestObject, iconsManifestKey, size, m_iconsCache, Error::InvalidIcon, localizedErrorDescription);
+}
+
+RefPtr<WebCore::Icon> WebExtension::actionIcon(WebCore::FloatSize size)
+{
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return nullptr;
+
+    populateActionPropertiesIfNeeded();
+
+    if (m_defaultActionIcon)
+        return m_defaultActionIcon;
+
+    if (RefPtr actionObject = m_actionObject) {
+#if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+        if (actionObject->getValue(iconVariantsManifestKey)) {
+            String localizedErrorDescription = WEB_UI_STRING("Failed to load images in `icon_variants` for the `action` manifest entry.", "WKWebExtensionErrorInvalidActionIcon description for failing to load image variants for action");
+            if (RefPtr result = bestIconVariantForManifestKey(*actionObject, iconVariantsManifestKey, size, m_actionIconsCache, Error::InvalidActionIcon, localizedErrorDescription))
+                return result;
+            return icon(size);
+        }
+#endif
+
+        String localizedErrorDescription;
+        if (supportsManifestVersion(3))
+            localizedErrorDescription = WEB_UI_STRING("Failed to load images in `default_icon` for the `action` manifest entry.", "WKWebExtensionErrorInvalidActionIcon description for failing to load images for action only");
+        else
+            localizedErrorDescription = WEB_UI_STRING("Failed to load images in `default_icon` for the `browser_action` or `page_action` manifest entry.", "WKWebExtensionErrorInvalidActionIcon description for failing to load images for browser_action or page_action");
+
+        if (RefPtr result = bestIconForManifestKey(*actionObject, defaultIconManifestKey, size, m_actionIconsCache, Error::InvalidActionIcon, localizedErrorDescription))
+            return result;
+        }
+
+    return icon(size);
+}
+
+size_t WebExtension::bestIconSize(const JSON::Object& iconsObject, size_t idealPixelSize)
+{
+    if (!iconsObject.size())
+        return 0;
+
+#if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+    // Check if the "any" size exists (typically a vector image), and prefer it.
+    if (iconsObject.getValue(anyManifestKey)) {
+        // Return max to ensure it takes precedence over all other sizes.
+        return std::numeric_limits<size_t>::max();
+    }
+#endif
+
+    // Check if the ideal size exists, if so return it.
+    auto idealSizeString = String::number(idealPixelSize);
+    if (iconsObject.getValue(idealSizeString))
+        return idealPixelSize;
+
+    Vector<size_t> sizeValues;
+    for (auto key : iconsObject.keys()) {
+        // Filter the values to only include numeric strings representing sizes. This will exclude non-numeric string
+        // values such as "any", "color_schemes", and any other strings that cannot be converted to a positive integer.
+        auto integerValue = parseInteger<size_t>(key);
+        if (integerValue && integerValue > 0)
+            sizeValues.append(*integerValue);
+    }
+
+    if (!sizeValues.size())
+        return 0;
+
+    // Sort the remaining keys and find the next largest size.
+    std::sort(sizeValues.begin(), sizeValues.end());
+
+    size_t bestSize = 0;
+    for (auto size : sizeValues) {
+        bestSize = size;
+        if (bestSize >= idealPixelSize)
+            break;
+    }
+
+    return bestSize;
+}
+
+String WebExtension::pathForBestImage(const JSON::Object& iconsObject, size_t idealPixelSize)
+{
+    auto bestSize = bestIconSize(iconsObject, idealPixelSize);
+    if (!bestSize)
+        return nullString();
+
+#if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+    if (bestSize == std::numeric_limits<size_t>::max())
+        return iconsObject.getString(anyManifestKey);
+#endif
+
+    return iconsObject.getString(String::number(bestSize));
+}
+
+RefPtr<WebCore::Icon> WebExtension::bestIconForManifestKey(const JSON::Object& object, const String& manifestKey, WebCore::FloatSize idealSize, IconsCache& cacheLocation, Error error, const String& customLocalizedDescription)
+{
+    auto currentScales = availableScreenScales();
+    if (auto cachedScales = cacheLocation.getOptional("scales"_s)) {
+        auto scales = std::get_if<Vector<double>>(&*cachedScales);
+        if (!scales || *scales != currentScales)
+            cacheLocation.set("scales"_s, IconCacheEntry(currentScales));
+    } else
+        cacheLocation.set("scales"_s, IconCacheEntry(currentScales));
+
+    auto cacheKey = idealSize.toJSONString();
+    if (auto cacheResult = cacheLocation.getOptional(cacheKey))
+        return *std::get_if<RefPtr<WebCore::Icon>>(&*cacheResult);
+
+    RefPtr iconObject = object.getObject(manifestKey);
+    if (!iconObject)
+        return nullptr;
+
+    RefPtr result = bestIcon(iconObject, idealSize, [&](Ref<API::Error> error) {
+        recordError(error);
+    });
+
+    if (!result) {
+        if (iconObject->size()) {
+            // Record an error if the object had values, meaning the likely failure is the images were missing on disk or bad format.
+            recordError(createError(error, customLocalizedDescription));
+        } else if (!iconObject->size() || object.getValue(manifestKey)) {
+            // Record an error if the key had object that was empty, or the key had a value of the wrong type.
+            recordError(createError(error));
+        }
+
+        return nullptr;
+    }
+
+    cacheLocation.set(cacheKey, IconCacheEntry(result));
+
+    return result;
+}
+
+#if ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+static OptionSet<WebExtension::ColorScheme> toColorSchemes(RefPtr<JSON::Value> value)
+{
+    using ColorScheme = WebExtension::ColorScheme;
+
+    if (!value) {
+        // A null or invalid value counts as all color schemes.
+        return { ColorScheme::Light, ColorScheme::Dark };
+    }
+
+    OptionSet<ColorScheme> result;
+
+    RefPtr array = value->asArray();
+    if (!array)
+        return { ColorScheme::Light, ColorScheme::Dark };
+
+    for (Ref value : *array) {
+        if (value->asString() == lightManifestKey)
+            result.add(ColorScheme::Light);
+        if (value->asString() == darkManifestKey)
+            result.add(ColorScheme::Dark);
+    }
+
+    return result;
+}
+
+RefPtr<JSON::Object> WebExtension::bestIconVariantJSONObject(RefPtr<JSON::Array> variants, size_t idealPixelSize, ColorScheme idealColorScheme)
+{
+    if (!variants || !variants->length())
+        return nullptr;
+
+    if (variants->length() == 1)
+        return variants->get(0)->asObject();
+
+    RefPtr<JSON::Object> bestVariant;
+    RefPtr<JSON::Object> fallbackVariant;
+    bool foundIdealFallbackVariant = false;
+
+    size_t bestSize = 0;
+    size_t fallbackSize = 0;
+
+    // Pick the first variant matching color scheme and/or size.
+    for (Ref variant : *variants) {
+        if (!variant)
+            continue;
+
+        RefPtr variantObject = variant->asObject();
+        auto colorSchemes = toColorSchemes(variantObject ? variantObject->getValue(colorSchemesManifestKey) : nullptr);
+        auto currentBestSize = bestIconSize(*variantObject, idealPixelSize);
+
+        if (colorSchemes.contains(idealColorScheme)) {
+            if (currentBestSize >= idealPixelSize) {
+                // Found the best variant, return it.
+                return variantObject;
+            }
+
+            if (currentBestSize > bestSize) {
+                // Found a larger ideal variant.
+                bestSize = currentBestSize;
+                bestVariant = variantObject;
+            }
+        } else if (!foundIdealFallbackVariant && currentBestSize >= idealPixelSize) {
+            // Found an ideal fallback variant, based only on size.
+            fallbackSize = currentBestSize;
+            fallbackVariant = variantObject;
+            foundIdealFallbackVariant = true;
+        } else if (!foundIdealFallbackVariant && currentBestSize > fallbackSize) {
+            // Found a smaller fallback variant.
+            fallbackSize = currentBestSize;
+            fallbackVariant = variantObject;
+        }
+    }
+
+    return bestVariant ?: fallbackVariant;
+}
+
+RefPtr<WebCore::Icon> WebExtension::bestIconVariantForManifestKey(const JSON::Object& object, const String& manifestKey, WebCore::FloatSize idealSize, IconsCache& cacheLocation, Error error, const String& customLocalizedDescription)
+{
+    auto currentScales = availableScreenScales();
+    if (auto cachedScales = cacheLocation.getOptional("scales"_s)) {
+        auto scales = std::get_if<Vector<double>>(&*cachedScales);
+        if (!scales || *scales != currentScales)
+            cacheLocation.set("scales"_s, IconCacheEntry(currentScales));
+    } else
+        cacheLocation.set("scales"_s, IconCacheEntry(currentScales));
+
+    auto cacheKey = idealSize.toJSONString();
+    if (auto cacheResult = cacheLocation.getOptional(cacheKey))
+        return *std::get_if<RefPtr<WebCore::Icon>>(&*cacheResult);
+
+    RefPtr iconArray = object.getArray(manifestKey);
+    RefPtr result = bestIconVariant(iconArray, idealSize, [&](Ref<API::Error> error) {
+        recordError(error);
+    });
+
+    if (!result) {
+        if (iconArray->length()) {
+            // Record an error if the array had values, meaning the likely failure is the images were missing on disk or bad format.
+            recordError(createError(error, customLocalizedDescription));
+        } else if (!iconArray->length() || object.getValue(manifestKey)) {
+            // Record an error if the key had an array that was empty, or the key had a value of the wrong type.
+            recordError(createError(error));
+        }
+
+        return nullptr;
+    }
+
+    cacheLocation.set(cacheKey, IconCacheEntry(result));
+
+    return result;
+}
+#endif // ENABLE(WK_WEB_EXTENSIONS_ICON_VARIANTS)
+
+const WebExtension::CommandsVector& WebExtension::commands()
+{
+    populateCommandsIfNeeded();
+    return m_commands;
+}
+
+bool WebExtension::hasCommands()
+{
+    populateCommandsIfNeeded();
+    return !m_commands.isEmpty();
+}
+
+using ModifierFlags = WebExtension::ModifierFlags;
+
+static bool parseCommandShortcut(const String& shortcut, OptionSet<ModifierFlags>& modifierFlags, String& key)
+{
+    modifierFlags = { };
+    key = emptyString();
+
+    // An empty shortcut is allowed.
+    if (shortcut.isEmpty())
+        return true;
+
+    static NeverDestroyed<HashMap<String, ModifierFlags>> modifierMap = HashMap<String, ModifierFlags> {
+        { "Ctrl"_s, ModifierFlags::Command },
+        { "Command"_s, ModifierFlags::Command },
+        { "Alt"_s, ModifierFlags::Option },
+        { "MacCtrl"_s, ModifierFlags::Control },
+        { "Shift"_s, ModifierFlags::Shift }
+    };
+
+    static NeverDestroyed<HashMap<String, String>> specialKeyMap = HashMap<String, String> {
+        { "Comma"_s, ","_s },
+        { "Period"_s, "."_s },
+        { "Space"_s, " "_s },
+        { "F1"_s, String::fromUTF8("\uF704") },
+        { "F2"_s, String::fromUTF8("\uF705") },
+        { "F3"_s, String::fromUTF8("\uF706") },
+        { "F4"_s, String::fromUTF8("\uF707") },
+        { "F5"_s, String::fromUTF8("\uF708") },
+        { "F6"_s, String::fromUTF8("\uF709") },
+        { "F7"_s, String::fromUTF8("\uF70A") },
+        { "F8"_s, String::fromUTF8("\uF70B") },
+        { "F9"_s, String::fromUTF8("\uF70C") },
+        { "F10"_s, String::fromUTF8("\uF70D") },
+        { "F11"_s, String::fromUTF8("\uF70E") },
+        { "F12"_s, String::fromUTF8("\uF70F") },
+        { "Insert"_s, String::fromUTF8("\uF727") },
+        { "Delete"_s, String::fromUTF8("\uF728") },
+        { "Home"_s, String::fromUTF8("\uF729") },
+        { "End"_s, String::fromUTF8("\uF72B") },
+        { "PageUp"_s, String::fromUTF8("\uF72C") },
+        { "PageDown"_s, String::fromUTF8("\uF72D") },
+        { "Up"_s, String::fromUTF8("\uF700") },
+        { "Down"_s, String::fromUTF8("\uF701") },
+        { "Left"_s, String::fromUTF8("\uF702") },
+        { "Right"_s, String::fromUTF8("\uF703") }
+    };
+
+    auto parts = shortcut.split('+');
+
+    // Reject shortcuts with fewer than two or more than three components.
+    if (parts.size() < 2 || parts.size() > 3)
+        return false;
+
+    key = parts.takeLast();
+
+    // Keys should not be present in the modifier map.
+    if (modifierMap.get().contains(key))
+        return false;
+
+    if (key.length() == 1) {
+        // Single-character keys must be alphanumeric.
+        if (!isASCIIAlphanumeric(key[0]))
+            return false;
+
+        key = key.convertToASCIILowercase();
+    } else {
+        auto entry = specialKeyMap.get().find(key);
+
+        // Non-alphanumeric keys must be in the special key map.
+        if (entry == specialKeyMap.get().end())
+            return false;
+
+        key = entry->value;
+    }
+
+    for (auto& part : parts) {
+        // Modifiers must exist in the modifier map.
+        if (!modifierMap.get().contains(part))
+            return false;
+
+        modifierFlags.add(modifierMap.get().get(part));
+    }
+
+    // At least one valid modifier is required.
+    if (!modifierFlags)
+        return false;
+
+    return true;
+}
+
+void WebExtension::populateCommandsIfNeeded()
+{
+    if (m_parsedManifestCommands)
+        return;
+
+    m_parsedManifestCommands = true;
+
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return;
+
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/commands
+
+    RefPtr commandsObject = manifestObject->getObject(commandsManifestKey);
+    if (!commandsObject && manifestObject->getValue(commandsManifestKey)) {
+        recordError(createError(Error::InvalidCommands));
+        return;
+    }
+
+    bool hasActionCommand = false;
+
+    if (commandsObject) {
+        size_t commandsWithShortcuts = 0;
+        std::optional<String> error;
+
+        for (auto commandIdentifier : commandsObject->keys()) {
+            if (commandIdentifier.isEmpty()) {
+                error = WEB_UI_STRING("Empty or invalid identifier in the `commands` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for invalid command identifier");
+                continue;
+            }
+
+            RefPtr commandObject = commandsObject->getObject(commandIdentifier);
+            if (!commandObject || !commandObject->size()) {
+                error = WEB_UI_STRING("Empty or invalid command in the `commands` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for invalid command");
+                continue;
+            }
+
+            CommandData commandData;
+            commandData.identifier = commandIdentifier;
+            commandData.activationKey = emptyString();
+            commandData.modifierFlags = { };
+
+            bool isActionCommand = false;
+            if (supportsManifestVersion(3) && commandData.identifier == "_execute_action"_s)
+                isActionCommand = true;
+            else if (!supportsManifestVersion(3) && (commandData.identifier == "_execute_browser_action"_s || commandData.identifier == "_execute_page_action"_s))
+                isActionCommand = true;
+
+            if (isActionCommand && !hasActionCommand)
+                hasActionCommand = true;
+
+            // Descriptions are required for standard commands, but are optional for action commands.
+            auto description = commandObject->getString(commandsDescriptionKeyManifestKey);
+            if (description.isEmpty() && !isActionCommand) {
+                error = WEB_UI_STRING("Empty or invalid `description` in the `commands` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for invalid command description");
+                continue;
+            }
+
+            if (isActionCommand && description.isEmpty()) {
+                description = displayActionLabel();
+                if (description.isEmpty())
+                    description = displayShortName();
+            }
+
+            commandData.description = description;
+
+            if (RefPtr suggestedKeyObject = commandObject->getObject(commandsSuggestedKeyManifestKey)) {
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
+                const auto macPlatform = "mac"_s;
+                const auto iosPlatform = "ios"_s;
+#elif PLATFORM(GTK) || PLATFORM(WPE)
+                const auto linuxPlatform = "linux"_s;
+#endif
+                const auto defaultPlatform = "default"_s;
+
+                String platformShortcut;
+#if PLATFORM(MAC)
+                platformShortcut = !suggestedKeyObject->getString(macPlatform).isEmpty() ? suggestedKeyObject->getString(macPlatform) : suggestedKeyObject->getString(iosPlatform);
+#elif PLATFORM(IOS_FAMILY)
+                platformShortcut = !suggestedKeyObject->getString(iosPlatform).isEmpty() ? suggestedKeyObject->getString(iosPlatform) : suggestedKeyObject->getString(macPlatform);
+#elif PLATFORM(GTK) || PLATFORM(WPE)
+                platformShortcut = suggestedKeyObject->getString(linuxPlatform);
+#endif
+                if (platformShortcut.isEmpty())
+                    platformShortcut = suggestedKeyObject->getString(defaultPlatform);
+
+                if (!parseCommandShortcut(platformShortcut, commandData.modifierFlags, commandData.activationKey)) {
+                    error = WEB_UI_STRING("Invalid `suggested_key` in the `commands` manifest entry.", "WKWebExtensionErrorInvalidManifestEntry description for invalid command shortcut");
+                    continue;
+                }
+
+                if (!commandData.activationKey.isEmpty() && ++commandsWithShortcuts > maximumNumberOfShortcutCommands) {
+                    error = WEB_UI_STRING("Too many shortcuts specified for `commands`, only 4 shortcuts are allowed.", "WKWebExtensionErrorInvalidManifestEntry description for too many command shortcuts");
+                    commandData.activationKey = emptyString();
+                    commandData.modifierFlags = { };
+                }
+            }
+
+            m_commands.append(WTFMove(commandData));
+        }
+
+        if (error)
+            recordError(createError(Error::InvalidCommands, error.value()));
+    }
+
+    if (!hasActionCommand) {
+        String commandIdentifier;
+        if (hasAction())
+            commandIdentifier = "_execute_action"_s;
+        else if (hasBrowserAction())
+            commandIdentifier = "_execute_browser_action"_s;
+        else if (hasPageAction())
+            commandIdentifier = "_execute_page_action"_s;
+
+        if (!commandIdentifier.isEmpty())
+            m_commands.append({ commandIdentifier, displayActionLabel(), emptyString(), { } });
+    }
+}
+
+std::optional<WebExtension::DeclarativeNetRequestRulesetData> WebExtension::parseDeclarativeNetRequestRulesetObject(const JSON::Object& rulesetObject, RefPtr<API::Error>& error)
+{
+    auto rulesetID = rulesetObject.getString(declarativeNetRequestRulesetIDManifestKey);
+    if (rulesetID.isEmpty()) {
+        error = createError(Error::InvalidDeclarativeNetRequest, WEB_UI_STRING("Empty or invalid `id` in `declarative_net_request` manifest entry.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for empty or invalid id in declarative_net_request manifest entry"));
+        return { };
+    }
+
+    auto jsonPath = rulesetObject.getString(declarativeNetRequestRulePathManifestKey);
+    if (jsonPath.isEmpty()) {
+        error = createError(WebExtension::Error::InvalidDeclarativeNetRequest, WEB_UI_STRING("Empty or invalid `path` in `declarative_net_request` manifest entry.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for empty or invalid path in declarative_net_request manifest entry"));
+        return { };
+    }
+
+    auto enabledBool = rulesetObject.getBoolean(declarativeNetRequestRuleEnabledManifestKey);
+    if (!enabledBool) {
+        error = createError(WebExtension::Error::InvalidDeclarativeNetRequest, WEB_UI_STRING("Missing or invalid `enabled` boolean for the `declarative_net_request` manifest entry.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for missing enabled boolean"));
+        return { };
+    }
+
+    DeclarativeNetRequestRulesetData rulesetData = {
+        rulesetID,
+        *enabledBool,
+        jsonPath
+    };
+
+    return std::optional { WTFMove(rulesetData) };
+}
+
+void WebExtension::populateDeclarativeNetRequestPropertiesIfNeeded()
+{
+    if (m_parsedManifestDeclarativeNetRequestRulesets)
+        return;
+
+    m_parsedManifestDeclarativeNetRequestRulesets = true;
+
+    RefPtr manifestObject = this->manifestObject();
+    if (!manifestObject)
+        return;
+
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/declarative_net_request
+
+    if (!supportedPermissions().contains(WebExtensionPermission::declarativeNetRequest()) && !supportedPermissions().contains(WebExtensionPermission::declarativeNetRequestWithHostAccess())) {
+        recordError(createError(Error::InvalidDeclarativeNetRequest, WEB_UI_STRING("Manifest has no `declarativeNetRequest` permission.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for missing declarativeNetRequest permission")));
+        return;
+    }
+
+    RefPtr declarativeNetRequestManifestObject = manifestObject->getObject(declarativeNetRequestManifestKey);
+    if (!declarativeNetRequestManifestObject) {
+        if (manifestObject->getValue(declarativeNetRequestManifestKey))
+            recordError(createError(Error::InvalidDeclarativeNetRequest));
+        return;
+    }
+
+    RefPtr declarativeNetRequestRulesets = declarativeNetRequestManifestObject->getArray(declarativeNetRequestRulesManifestKey);
+    if (!declarativeNetRequestRulesets) {
+        if (manifestObject->getValue(declarativeNetRequestManifestKey))
+            recordError(createError(Error::InvalidDeclarativeNetRequest));
+        return;
+    }
+
+    if (declarativeNetRequestRulesets->length() > webExtensionDeclarativeNetRequestMaximumNumberOfStaticRulesets)
+        recordError(createError(Error::InvalidDeclarativeNetRequest, WEB_UI_STRING("Exceeded maximum number of `declarative_net_request` rulesets. Ignoring extra rulesets.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for too many rulesets")));
+
+    size_t rulesetCount = 0, enabledRulesetCount = 0;
+    bool recordedTooManyRulesetsManifestError = false;
+    HashSet<String> seenRulesetIDs;
+    for (Ref value : *declarativeNetRequestRulesets) {
+        if (rulesetCount >= webExtensionDeclarativeNetRequestMaximumNumberOfStaticRulesets)
+            continue;
+
+        RefPtr object = value->asObject();
+        if (!object)
+            continue;
+
+        RefPtr<API::Error> error;
+        auto optionalRuleset = parseDeclarativeNetRequestRulesetObject(*object, error);
+        if (!optionalRuleset) {
+            if (error)
+                recordError(createError(Error::InvalidDeclarativeNetRequest, { }, error));
+            continue;
+        }
+
+        auto& ruleset = optionalRuleset.value();
+        if (seenRulesetIDs.contains(ruleset.rulesetID)) {
+            recordError(createError(Error::InvalidDeclarativeNetRequest, WEB_UI_FORMAT_STRING("`declarative_net_request` ruleset with id \"%s\" is invalid. Ruleset id must be unique.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for duplicate ruleset id", ruleset.rulesetID.utf8().data())));
+            continue;
+        }
+
+        if (ruleset.enabled && ++enabledRulesetCount > webExtensionDeclarativeNetRequestMaximumNumberOfEnabledRulesets && !recordedTooManyRulesetsManifestError) {
+            recordError(createError(Error::InvalidDeclarativeNetRequest, WEB_UI_FORMAT_STRING("Exceeded maximum number of enabled `declarative_net_request` static rulesets. The first %lu will be applied, the remaining will be ignored.", "WKWebExtensionErrorInvalidDeclarativeNetRequestEntry description for too many enabled static rulesets", webExtensionDeclarativeNetRequestMaximumNumberOfEnabledRulesets)));
+            recordedTooManyRulesetsManifestError = true;
+            continue;
+        }
+
+        seenRulesetIDs.add(ruleset.rulesetID);
+        ++rulesetCount;
+
+        m_declarativeNetRequestRulesets.append(WTFMove(ruleset));
+    }
+}
+
+const WebExtension::DeclarativeNetRequestRulesetVector& WebExtension::declarativeNetRequestRulesets()
+{
+    populateDeclarativeNetRequestPropertiesIfNeeded();
+    return m_declarativeNetRequestRulesets;
+}
+
+std::optional<WebExtension::DeclarativeNetRequestRulesetData> WebExtension::declarativeNetRequestRuleset(const String& identifier)
+{
+    for (auto& ruleset : declarativeNetRequestRulesets()) {
+        if (ruleset.rulesetID == identifier)
+            return ruleset;
+    }
+
+    return std::nullopt;
 }
 
 } // namespace WebKit

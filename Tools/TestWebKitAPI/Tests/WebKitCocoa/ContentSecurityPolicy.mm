@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "ContentSecurityPolicyTestHelpers.h"
 #import "HTTPServer.h"
 #import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
@@ -32,7 +33,7 @@
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
 
-TEST(WKWebView, DISABLED_SetOverrideContentSecurityPolicyWithEmptyStringForPageWithCSP)
+TEST(WKWebView, SetOverrideContentSecurityPolicyWithEmptyStringForPageWithCSP)
 {
     @autoreleasepool {
         RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
@@ -42,10 +43,7 @@ TEST(WKWebView, DISABLED_SetOverrideContentSecurityPolicyWithEmptyStringForPageW
         NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"page-with-csp" withExtension:@"html"]];
         [webView loadRequest:request];
 
-        [webView waitForMessage:@"MainFrame: A"];
-        [webView waitForMessage:@"MainFrame: B"];
-        [webView waitForMessage:@"Subframe: A"];
-        [webView waitForMessage:@"Subframe: B"];
+        [webView waitForMessages:@[@"MainFrame: A", @"MainFrame: B", @"Subframe: A", @"Subframe: B"]];
     }
 }
 
@@ -59,8 +57,7 @@ TEST(WKWebView, SetOverrideContentSecurityPolicyForPageWithCSP)
         NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"page-with-csp" withExtension:@"html"]];
         [webView loadRequest:request];
 
-        [webView waitForMessage:@"MainFrame: B"];
-        [webView waitForMessage:@"Subframe: B"];
+        [webView waitForMessages:@[@"MainFrame: B", @"Subframe: B"]];
     }
 }
 
@@ -74,8 +71,7 @@ TEST(WKWebView, SetOverrideContentSecurityPolicyForPageWithoutCSP)
         NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"page-without-csp" withExtension:@"html"]];
         [webView loadRequest:request];
 
-        [webView waitForMessage:@"MainFrame: B"];
-        [webView waitForMessage:@"Subframe: B"];
+        [webView waitForMessages:@[@"MainFrame: B", @"Subframe: B"]];
     }
 }
 
@@ -130,4 +126,14 @@ TEST(ContentSecurityPolicy, InvalidRequireTrustedTypesFor)
     auto webView = adoptNS([WKWebView new]);
     [webView loadRequest:server.request()];
     [webView _test_waitForDidFinishNavigation];
+}
+
+// FIXME when rdar://141835031 is resolved.
+#if PLATFORM(IOS)
+TEST(ContentSecurityPolicy, DISABLED_LoadPDFWithSandboxCSPDirective)
+#else
+TEST(ContentSecurityPolicy, LoadPDFWithSandboxCSPDirective)
+#endif
+{
+    TestWebKitAPI::runLoadPDFWithSandboxCSPDirectiveTest([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
 }

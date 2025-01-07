@@ -85,7 +85,7 @@ private:
 
     WKBundleRef m_bundle;
     ExtensionRecord m_extensionRecords[6];
-    UncheckedKeyHashMap<WKBundleDOMWindowExtensionRef, int> m_extensionToRecordMap;
+    HashMap<WKBundleDOMWindowExtensionRef, int> m_extensionToRecordMap;
     bool m_finishedOneMainFrameLoad;
 };
 
@@ -151,7 +151,7 @@ void DOMWindowExtensionBasic::didCreatePage(WKBundleRef bundle, WKBundlePageRef 
     WKBundlePageAddUserScriptInWorld(page, source.get(), WKBundleScriptWorldCreateWorld(), kWKInjectAtDocumentStart, kWKInjectInAllFrames);
     
     WKBundlePageLoaderClientV1 pageLoaderClient;
-    memset(&pageLoaderClient, 0, sizeof(pageLoaderClient));
+    zeroBytes(pageLoaderClient);
     
     pageLoaderClient.base.version = 1;
     pageLoaderClient.base.clientInfo = this;
@@ -166,8 +166,8 @@ void DOMWindowExtensionBasic::didCreatePage(WKBundleRef bundle, WKBundlePageRef 
 
 void DOMWindowExtensionBasic::willDestroyPage(WKBundleRef, WKBundlePageRef)
 {
-    UncheckedKeyHashMap<WKBundleDOMWindowExtensionRef, int>::iterator it = m_extensionToRecordMap.begin();
-    UncheckedKeyHashMap<WKBundleDOMWindowExtensionRef, int>::iterator end = m_extensionToRecordMap.end();
+    HashMap<WKBundleDOMWindowExtensionRef, int>::iterator it = m_extensionToRecordMap.begin();
+    HashMap<WKBundleDOMWindowExtensionRef, int>::iterator end = m_extensionToRecordMap.end();
     for (; it != end; ++it) {
         updateExtensionStateRecord(it->key, Removed);
         WKRelease(it->key);

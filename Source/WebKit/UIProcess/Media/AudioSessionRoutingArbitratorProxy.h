@@ -41,6 +41,7 @@
 namespace WebKit {
 
 class WebProcessProxy;
+struct SharedPreferencesForWebProcess;
 
 class AudioSessionRoutingArbitratorProxy
     : public IPC::MessageReceiver {
@@ -66,9 +67,10 @@ public:
 
     ArbitrationStatus arbitrationStatus() const { return m_arbitrationStatus; }
     WallTime arbitrationUpdateTime() const { return m_arbitrationUpdateTime; }
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
-    void ref() const;
-    void deref() const;
+    void ref() const final;
+    void deref() const final;
 
 protected:
     Logger& logger();

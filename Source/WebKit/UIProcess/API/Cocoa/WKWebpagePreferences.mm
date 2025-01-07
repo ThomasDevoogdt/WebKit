@@ -208,7 +208,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (void)_setContentRuleListsEnabled:(BOOL)enabled exceptions:(NSSet<NSString *> *)identifiers
 {
-    HashSet<String> exceptions;
+    UncheckedKeyHashSet<String> exceptions;
     exceptions.reserveInitialCapacity(identifiers.count);
     for (NSString *identifier in identifiers)
         exceptions.add(identifier);
@@ -219,7 +219,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (void)_setActiveContentRuleListActionPatterns:(NSDictionary<NSString *, NSSet<NSString *> *> *)patterns
 {
-    __block UncheckedKeyHashMap<String, Vector<String>> map;
+    __block HashMap<String, Vector<String>> map;
     [patterns enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSSet<NSString *> *value, BOOL *) {
         Vector<String> vector;
         vector.reserveInitialCapacity(value.count);
@@ -397,7 +397,7 @@ static _WKWebsiteDeviceOrientationAndMotionAccessPolicy toWKWebsiteDeviceOrienta
 {
     Vector<WebCore::CustomHeaderFields> vector(fields.count, [fields](size_t i) {
         _WKCustomHeaderFields *element = fields[i];
-        return static_cast<API::CustomHeaderFields&>([element _apiObject]).coreFields();
+        return downcast<API::CustomHeaderFields>([element _apiObject]).coreFields();
     });
     _websitePolicies->setCustomHeaderFields(WTFMove(vector));
 }
@@ -708,7 +708,7 @@ static _WKWebsiteDeviceOrientationAndMotionAccessPolicy toWKWebsiteDeviceOrienta
         WebCore::TargetedElementSelectors selectorsForElement;
         selectorsForElement.reserveInitialCapacity(nsSelectorsForElement.count);
         for (NSSet<NSString *> *nsSelectors in nsSelectorsForElement) {
-            HashSet<String> selectors;
+            UncheckedKeyHashSet<String> selectors;
             selectors.reserveInitialCapacity(nsSelectors.count);
             for (NSString *selector in nsSelectors)
                 selectors.add(selector);

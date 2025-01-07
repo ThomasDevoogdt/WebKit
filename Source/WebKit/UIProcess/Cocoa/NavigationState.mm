@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,6 +40,7 @@
 #import "Logging.h"
 #import "NavigationActionData.h"
 #import "PageLoadState.h"
+#import "ProcessTerminationReason.h"
 #import "SOAuthorizationCoordinator.h"
 #import "WKBackForwardListInternal.h"
 #import "WKBackForwardListItemInternal.h"
@@ -122,8 +123,8 @@ static WeakHashMap<WebPageProxy, WeakPtr<NavigationState>>& navigationStates()
 }
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigationState);
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(NavigationStateHistoryClient, NavigationState::HistoryClient);
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(NavigationStateNavigationClient, NavigationState::NavigationClient);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigationState::HistoryClient);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigationState::NavigationClient);
 
 NavigationState::NavigationState(WKWebView *webView)
     : m_webView(webView)
@@ -246,9 +247,7 @@ void NavigationState::setNavigationDelegate(id<WKNavigationDelegate> delegate)
     m_navigationDelegateMethods.webViewDidRequestPasswordForQuickLookDocument = [delegate respondsToSelector:@selector(_webViewDidRequestPasswordForQuickLookDocument:)];
     m_navigationDelegateMethods.webViewDidStopRequestingPasswordForQuickLookDocument = [delegate respondsToSelector:@selector(_webViewDidStopRequestingPasswordForQuickLookDocument:)];
 #endif
-#if PLATFORM(MAC)
     m_navigationDelegateMethods.webViewBackForwardListItemAddedRemoved = [delegate respondsToSelector:@selector(_webView:backForwardListItemAdded:removed:)];
-#endif
     m_navigationDelegateMethods.webViewWillGoToBackForwardListItemInBackForwardCache = [delegate respondsToSelector:@selector(_webView:willGoToBackForwardListItem:inPageCache:)];
 #if HAVE(APP_SSO)
     m_navigationDelegateMethods.webViewDecidePolicyForSOAuthorizationLoadWithCurrentPolicyForExtensionCompletionHandler = [delegate respondsToSelector:@selector(_webView:decidePolicyForSOAuthorizationLoadWithCurrentPolicy:forExtension:completionHandler:)];
@@ -378,7 +377,6 @@ NavigationState::NavigationClient::~NavigationClient()
 {
 }
 
-#if PLATFORM(MAC)
 bool NavigationState::NavigationClient::didChangeBackForwardList(WebPageProxy&, WebBackForwardListItem* added, const Vector<Ref<WebBackForwardListItem>>& removed)
 {
     if (!m_navigationState)
@@ -400,7 +398,6 @@ bool NavigationState::NavigationClient::didChangeBackForwardList(WebPageProxy&, 
     [static_cast<id<WKNavigationDelegatePrivate>>(navigationDelegate) _webView:m_navigationState->webView().get() backForwardListItemAdded:wrapper(added) removed:removedItems.get()];
     return true;
 }
-#endif
 
 bool NavigationState::NavigationClient::willGoToBackForwardListItem(WebPageProxy&, WebBackForwardListItem& item, bool inBackForwardCache)
 {
@@ -1213,6 +1210,7 @@ static _WKProcessTerminationReason wkProcessTerminationReason(ProcessTermination
     case ProcessTerminationReason::RequestedByGPUProcess:
     case ProcessTerminationReason::RequestedByModelProcess:
     case ProcessTerminationReason::Crash:
+    case ProcessTerminationReason::NonMainFrameWebContentProcessCrash:
         return _WKProcessTerminationReasonCrash;
     case ProcessTerminationReason::GPUProcessCrashedTooManyTimes:
     case ProcessTerminationReason::ModelProcessCrashedTooManyTimes:

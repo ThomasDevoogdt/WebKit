@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2007 David Smith (catfish.man@gmail.com)
- * Copyright (C) 2003-2015, 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -39,7 +39,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(RenderTreeBuilderMultiColumn, RenderTreeBuilder::MultiColumn);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTreeBuilder::MultiColumn);
 
 static RenderMultiColumnSet* findSetRendering(const RenderMultiColumnFlow& fragmentedFlow, const RenderObject& renderer)
 {
@@ -161,7 +161,7 @@ void RenderTreeBuilder::MultiColumn::createFragmentedFlow(RenderBlockFlow& flow)
     // If this soon-to-be multicolumn flow is already part of a multicolumn context, we need to move back the descendant spanners
     // to their original position before moving subtrees around.
     if (auto* enclosingflow = dynamicDowncast<RenderMultiColumnFlow>(flow.enclosingFragmentedFlow()))
-        restoreColumnSpannersForContainer(flow, *enclosingflow);
+        restoreColumnSpannersForContainer(*enclosingflow, flow);
 
     auto newFragmentedFlow = WebCore::createRenderer<RenderMultiColumnFlow>(flow.document(), RenderStyle::createAnonymousStyleWithDisplay(flow.style(), DisplayType::Block));
     newFragmentedFlow->initializeStyle();
@@ -183,15 +183,15 @@ void RenderTreeBuilder::MultiColumn::createFragmentedFlow(RenderBlockFlow& flow)
 
 static bool gRestoringColumnSpannersForContainer = false;
 
-void RenderTreeBuilder::MultiColumn::restoreColumnSpannersForContainer(const RenderElement& container, RenderMultiColumnFlow& multiColumnFlow)
+void RenderTreeBuilder::MultiColumn::restoreColumnSpannersForContainer(RenderMultiColumnFlow& multiColumnFlow, const RenderElement& container)
 {
     auto& spanners = multiColumnFlow.spannerMap();
     Vector<RenderMultiColumnSpannerPlaceholder*> placeholdersToRestore;
     for (auto& spannerAndPlaceholder : spanners) {
-        auto& placeholder = *spannerAndPlaceholder.value;
-        if (!placeholder.isDescendantOf(&container))
+        auto& placeholder = spannerAndPlaceholder.value;
+        if (!placeholder || !placeholder->isDescendantOf(&container))
             continue;
-        placeholdersToRestore.append(&placeholder);
+        placeholdersToRestore.append(placeholder.get());
     }
     for (auto* placeholder : placeholdersToRestore) {
         auto* spanner = placeholder->spanner();

@@ -46,6 +46,8 @@
 #endif
 #import <pal/cf/AudioToolboxSoftLink.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WebCore {
 
 #if ENABLE(VORBIS) || ENABLE(OPUS)
@@ -179,7 +181,7 @@ constexpr int32_t opusConfigToBandwidth(uint8_t config)
 }
 #endif
 
-bool parseOpusTOCData(const SharedBuffer& frameData, OpusCookieContents& cookie)
+bool parseOpusTOCData(std::span<const uint8_t> frameData, OpusCookieContents& cookie)
 {
 #if ENABLE(OPUS)
     if (frameData.size() < 1)
@@ -252,7 +254,7 @@ bool parseOpusTOCData(const SharedBuffer& frameData, OpusCookieContents& cookie)
 #endif
 }
 
-bool parseOpusPrivateData(std::span<const uint8_t> codecPrivateData, SharedBuffer& frameData, OpusCookieContents& cookie)
+std::optional<OpusCookieContents> parseOpusPrivateData(std::span<const uint8_t> codecPrivateData, std::span<const uint8_t> frameData)
 {
 #if ENABLE(OPUS)
     // https://tools.ietf.org/html/rfc7845
@@ -289,7 +291,9 @@ bool parseOpusPrivateData(std::span<const uint8_t> codecPrivateData, SharedBuffe
     //     This is an 8-octet (64-bit) field that allows codec
     //     identification and is human readable.
     if (strncmp("OpusHead", byteCast<char>(codecPrivateData.data()), 8))
-        return false;
+        return { };
+
+    OpusCookieContents cookie;
 
     // 2. Version (8 bits, unsigned):
     cookie.version = codecPrivateData[8];
@@ -309,20 +313,19 @@ bool parseOpusPrivateData(std::span<const uint8_t> codecPrivateData, SharedBuffe
     // 7. Channel Mapping Family (8 bits, unsigned):
     cookie.mappingFamily = codecPrivateData[18];
 
-    if (!parseOpusTOCData(frameData, cookie))
-        return false;
+    if (frameData.size() && !parseOpusTOCData(frameData, cookie))
+        return { };
 
 #if HAVE(AUDIOFORMATPROPERTY_VARIABLEPACKET_SUPPORTED)
     cookie.cookieData = SharedBuffer::create(codecPrivateData);
 #endif
 
-    return true;
+    return cookie;
 
 #else
     UNUSED_PARAM(codecPrivateData);
     UNUSED_PARAM(frameData);
-    UNUSED_PARAM(cookie);
-    return false;
+    return { };
 #endif
 }
 
@@ -412,7 +415,7 @@ constexpr auto span8(const char(&p)[N])
     return std::span<const uint8_t, N - 1>(byteCast<uint8_t>(&p[0]), N - 1);
 }
 
-Vector<uint8_t> createOpusPrivateData(const AudioStreamBasicDescription& description)
+Vector<uint8_t> createOpusPrivateData(const AudioStreamBasicDescription& description, uint16_t preSkip)
 {
     Vector<uint8_t> magicCookie;
     magicCookie.reserveInitialCapacity(19);
@@ -423,8 +426,7 @@ Vector<uint8_t> createOpusPrivateData(const AudioStreamBasicDescription& descrip
     ASSERT(description.mChannelsPerFrame <= 2);
     magicCookie.append(description.mChannelsPerFrame);
     // Set pre-skip
-    uint16_t skip = 0;
-    magicCookie.append(std::span { reinterpret_cast<uint8_t*>(&skip), sizeof(uint16_t) });
+    magicCookie.append(std::span { reinterpret_cast<uint8_t*>(&preSkip), sizeof(uint16_t) });
     // Set original input sample rate in Hz.
     uint32_t sampleRate = description.mSampleRate;
     magicCookie.append(std::span { reinterpret_cast<uint8_t*>(&sampleRate), sizeof(uint32_t) });
@@ -546,5 +548,7 @@ RefPtr<AudioInfo> createVorbisAudioInfo(std::span<const uint8_t> privateData)
 }
 
 } // namespace WebCore
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // PLATFORM(COCOA)

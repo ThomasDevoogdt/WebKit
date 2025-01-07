@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,6 +44,7 @@
 #include "WebOpenPanelResultListenerProxy.h"
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
+#include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/InspectorBackendDispatcher.h>
 #include <JavaScriptCore/InspectorFrontendRouter.h>
 #include <WebCore/MIMETypeRegistry.h>
@@ -439,20 +440,16 @@ Inspector::Protocol::ErrorStringOr<void> WebAutomationSession::closeBrowsingCont
     if (!page)
         SYNC_FAIL_WITH_PREDEFINED_ERROR(WindowNotFound);
 
-#if PLATFORM(WIN) // FIXME: also PLATFORM(PLAYSTATION) should be added
-    // We don't have to close page/window/application, but want to disconnect to automation frontend.
-    terminate();
-#else
     page->closePage();
-#endif
-
     return { };
 }
 
 Inspector::Protocol::ErrorStringOr<void> WebAutomationSession::deleteSession()
 {
+#if ENABLE(REMOTE_INSPECTOR)
     if (!isPaired())
         SYNC_FAIL_WITH_PREDEFINED_ERROR(InternalError);
+#endif
 
     terminate();
     return { };
@@ -614,7 +611,7 @@ void WebAutomationSession::waitForNavigationToCompleteOnFrame(WebFrameProxy& fra
     }
 }
 
-void WebAutomationSession::respondToPendingPageNavigationCallbacksWithTimeout(UncheckedKeyHashMap<WebPageProxyIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
+void WebAutomationSession::respondToPendingPageNavigationCallbacksWithTimeout(HashMap<WebPageProxyIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
 {
     auto timeoutError = STRING_FOR_PREDEFINED_ERROR_NAME(Timeout);
     for (auto id : copyToVector(map.keys())) {
@@ -634,7 +631,7 @@ static WebPageProxy* findPageForFrameID(const WebProcessPool& processPool, Frame
     return nullptr;
 }
 
-void WebAutomationSession::respondToPendingFrameNavigationCallbacksWithTimeout(UncheckedKeyHashMap<FrameIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
+void WebAutomationSession::respondToPendingFrameNavigationCallbacksWithTimeout(HashMap<FrameIdentifier, RefPtr<Inspector::BackendDispatcher::CallbackBase>>& map)
 {
     auto timeoutError = STRING_FOR_PREDEFINED_ERROR_NAME(Timeout);
     for (auto id : copyToVector(map.keys())) {
@@ -688,7 +685,8 @@ void WebAutomationSession::exitFullscreenWindowForPage(WebPageProxy& page, WTF::
 {
 #if ENABLE(FULLSCREEN_API)
     ASSERT(!m_windowStateTransitionCallback);
-    if (!page.fullScreenManager() || !page.fullScreenManager()->isFullScreen()) {
+    RefPtr fullScreenManager = page.fullScreenManager();
+    if (!fullScreenManager || !fullScreenManager->isFullScreen()) {
         completionHandler();
         return;
     }
@@ -703,7 +701,7 @@ void WebAutomationSession::exitFullscreenWindowForPage(WebPageProxy& page, WTF::
         completionHandler();
     } };
     
-    page.fullScreenManager()->requestExitFullScreen();
+    fullScreenManager->requestExitFullScreen();
 #else
     completionHandler();
 #endif
@@ -1057,19 +1055,16 @@ void WebAutomationSession::evaluateJavaScriptFunction(const Inspector::Protocol:
     uint64_t callbackID = m_nextEvaluateJavaScriptCallbackID++;
     m_evaluateJavaScriptFunctionCallbacks.set(callbackID, WTFMove(callback));
 
-    page->sendToProcessContainingFrame(frameID, Messages::WebAutomationSessionProxy::EvaluateJavaScriptFunction(page->webPageIDInMainFrameProcess(), frameID, function, argumentsVector, expectsImplicitCallbackArgument.value_or(false), forceUserGesture.value_or(false), WTFMove(callbackTimeout), callbackID));
-}
+    page->sendWithAsyncReplyToProcessContainingFrameWithoutDestinationIdentifier(frameID, Messages::WebAutomationSessionProxy::EvaluateJavaScriptFunction(page->webPageIDInMainFrameProcess(), frameID, function, argumentsVector, expectsImplicitCallbackArgument.value_or(false), forceUserGesture.value_or(false), WTFMove(callbackTimeout)), CompletionHandler<void(String&&, String&&)> { [protectedThis = Ref { *this }, callbackID] (String&& result, String&& errorType) {
+        auto callback = protectedThis->m_evaluateJavaScriptFunctionCallbacks.take(callbackID);
+        if (!callback)
+            return;
 
-void WebAutomationSession::didEvaluateJavaScriptFunction(uint64_t callbackID, const String& result, const String& errorType)
-{
-    auto callback = m_evaluateJavaScriptFunctionCallbacks.take(callbackID);
-    if (!callback)
-        return;
-
-    if (!errorType.isEmpty())
-        callback->sendFailure(STRING_FOR_PREDEFINED_ERROR_MESSAGE_AND_DETAILS(errorType, result));
-    else
-        callback->sendSuccess(result);
+        if (!errorType.isEmpty())
+            callback->sendFailure(STRING_FOR_PREDEFINED_ERROR_MESSAGE_AND_DETAILS(errorType, result));
+        else
+            callback->sendSuccess(result);
+    } });
 }
 
 void WebAutomationSession::resolveChildFrameHandle(const Inspector::Protocol::Automation::BrowsingContextHandle& browsingContextHandle, const Inspector::Protocol::Automation::FrameHandle& frameHandle, std::optional<int>&& optionalOrdinal, const String& optionalName, const Inspector::Protocol::Automation::NodeHandle& optionalNodeHandle, Ref<ResolveChildFrameHandleCallback>&& callback)
@@ -1771,6 +1766,44 @@ Inspector::Protocol::ErrorStringOr<void> WebAutomationSession::setVirtualAuthent
     SYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(NotImplemented, "This method is not yet implemented."_s);
 }
 
+#if ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER)
+void WebAutomationSession::loadWebExtension(const Inspector::Protocol::Automation::WebExtensionResourceOptions resourceHint, const String& resource, Ref<LoadWebExtensionCallback>&& callback)
+{
+    ASSERT(m_client);
+    if (!m_client)
+        ASYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(InternalError, "The remote session could not load the web extension."_s);
+
+    uint16_t options = 0;
+    if (resourceHint == Inspector::Protocol::Automation::WebExtensionResourceOptions::Path)
+        options |= API::AutomationSessionWebExtensionResourceOptionsPath;
+    else if (resourceHint == Inspector::Protocol::Automation::WebExtensionResourceOptions::ArchivePath)
+        options |= API::AutomationSessionWebExtensionResourceOptionsArchivePath;
+    else
+        options |= API::AutomationSessionWebExtensionResourceOptionsBase64;
+
+    m_client->loadWebExtensionWithOptions(*this, static_cast<API::AutomationSessionWebExtensionResourceOptions>(options), resource, [protectedThis = Ref { *this }, callback = WTFMove(callback)](const String& extensionId) {
+        if (!extensionId)
+            ASYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(UnableToLoadExtension, "Failed to load web extension."_s);
+        else
+            callback->sendSuccess(extensionId);
+    });
+}
+
+void WebAutomationSession::unloadWebExtension(const String& identifier, Ref<UnloadWebExtensionCallback>&& callback)
+{
+    ASSERT(m_client);
+    if (!m_client)
+        ASYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(InternalError, "The remote session could not unload the web extension."_s);
+
+    m_client->unloadWebExtension(*this, identifier, [protectedThis = Ref { *this }, callback = WTFMove(callback)](const bool success) {
+        if (success)
+            callback->sendSuccess();
+        else
+            ASYNC_FAIL_WITH_PREDEFINED_ERROR_AND_DETAILS(NoSuchExtension, "Failed to unload web extension because it could not be found."_s);
+    });
+}
+#endif
+
 Inspector::Protocol::ErrorStringOr<void> WebAutomationSession::generateTestReport(const String& browsingContextHandle, const String& message, const String& group)
 {
     auto page = webPageProxyForHandle(browsingContextHandle);
@@ -2469,6 +2502,19 @@ void WebAutomationSession::takeScreenshot(const Inspector::Protocol::Automation:
     bool scrollIntoViewIfNeeded = optionalScrollIntoViewIfNeeded ? *optionalScrollIntoViewIfNeeded : false;
     bool clipToViewport = optionalClipToViewport ? *optionalClipToViewport : false;
 
+    auto ipcCompletionHandler = [callback] {
+        return CompletionHandler<void(std::optional<ShareableBitmap::Handle>&&, String&&)> { [callback] (std::optional<ShareableBitmap::Handle>&& imageDataHandle, String&& errorType) {
+            if (!errorType.isEmpty())
+                return callback->sendFailure(STRING_FOR_PREDEFINED_ERROR_MESSAGE(errorType));
+            if (!imageDataHandle)
+                ASYNC_FAIL_WITH_PREDEFINED_ERROR(InternalError);
+            std::optional<String> base64EncodedData = platformGetBase64EncodedPNGData(WTFMove(*imageDataHandle));
+            if (!base64EncodedData)
+                ASYNC_FAIL_WITH_PREDEFINED_ERROR(InternalError);
+            callback->sendSuccess(base64EncodedData.value());
+        } };
+    };
+
 #if PLATFORM(COCOA)
     // FIXME: <webkit.org/b/242215> We can currently only get viewport snapshots from the UIProcess, so fall back to
     // taking a snapshot in the WebProcess if we need to snapshot a specific element. This has the side effect of not
@@ -2478,13 +2524,8 @@ void WebAutomationSession::takeScreenshot(const Inspector::Protocol::Automation:
     // snapshot of the entire viewport without the window's rounded corners being excluded. So we trade off those corner
     // pixels for accurate pixels in the rest of the viewport which help us verify features like CSS transforms are
     // actually behaving correctly.
-    if (!nodeHandle.isEmpty()) {
-        uint64_t callbackID = m_nextScreenshotCallbackID++;
-        m_screenshotCallbacks.set(callbackID, WTFMove(callback));
-
-        page->sendToProcessContainingFrame(frameID, Messages::WebAutomationSessionProxy::TakeScreenshot(page->webPageIDInMainFrameProcess(), frameID, nodeHandle, scrollIntoViewIfNeeded, clipToViewport, callbackID));
-        return;
-    }
+    if (!nodeHandle.isEmpty())
+        return page->sendWithAsyncReplyToProcessContainingFrameWithoutDestinationIdentifier(frameID, Messages::WebAutomationSessionProxy::TakeScreenshot(page->webPageIDInMainFrameProcess(), frameID, nodeHandle, scrollIntoViewIfNeeded, clipToViewport), ipcCompletionHandler());
 #endif
 #if PLATFORM(GTK) || PLATFORM(COCOA)
     Function<void(WebPageProxy&, std::optional<WebCore::IntRect>&&, Ref<TakeScreenshotCallback>&&)> takeViewSnapsot = [](WebPageProxy& page, std::optional<WebCore::IntRect>&& rect, Ref<TakeScreenshotCallback>&& callback) {
@@ -2517,32 +2558,8 @@ void WebAutomationSession::takeScreenshot(const Inspector::Protocol::Automation:
 
     page->sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebAutomationSessionProxy::SnapshotRectForScreenshot(page->webPageIDInMainFrameProcess(), frameID, nodeHandle, scrollIntoViewIfNeeded, clipToViewport), WTFMove(completionHandler));
 #else
-    uint64_t callbackID = m_nextScreenshotCallbackID++;
-    m_screenshotCallbacks.set(callbackID, WTFMove(callback));
-
-    page->sendToProcessContainingFrame(frameID, Messages::WebAutomationSessionProxy::TakeScreenshot(page->webPageIDInMainFrameProcess(), frameID, nodeHandle, scrollIntoViewIfNeeded, clipToViewport, callbackID));
+    page->sendWithAsyncReplyToProcessContainingFrameWithoutDestinationIdentifier(frameID, Messages::WebAutomationSessionProxy::TakeScreenshot(page->webPageIDInMainFrameProcess(), frameID, nodeHandle, scrollIntoViewIfNeeded, clipToViewport), ipcCompletionHandler());
 #endif
-}
-
-void WebAutomationSession::didTakeScreenshot(uint64_t callbackID, std::optional<ShareableBitmap::Handle>&& imageDataHandle, const String& errorType)
-{
-    auto callback = m_screenshotCallbacks.take(callbackID);
-    if (!callback)
-        return;
-
-    if (!errorType.isEmpty()) {
-        callback->sendFailure(STRING_FOR_PREDEFINED_ERROR_MESSAGE(errorType));
-        return;
-    }
-
-    if (!imageDataHandle)
-        return;
-
-    std::optional<String> base64EncodedData = platformGetBase64EncodedPNGData(WTFMove(*imageDataHandle));
-    if (!base64EncodedData)
-        ASYNC_FAIL_WITH_PREDEFINED_ERROR(InternalError);
-
-    callback->sendSuccess(base64EncodedData.value());
 }
 
 Ref<Inspector::FrontendRouter> WebAutomationSession::protectedFrontendRouter() const
@@ -2558,6 +2575,47 @@ Ref<Inspector::BackendDispatcher> WebAutomationSession::protectedBackendDispatch
 Ref<WebAutomationSession::Debuggable> WebAutomationSession::protectedDebuggable() const
 {
     return m_debuggable;
+}
+
+static String logEntryLevelForMessage(const JSC::MessageType& messageType, const MessageLevel& messageLevel)
+{
+    if (messageType == JSC::MessageType::Assert || messageLevel == JSC::MessageLevel::Error)
+        return "error"_s;
+    if (messageType == JSC::MessageType::Trace || messageLevel == JSC::MessageLevel::Debug)
+        return "debug"_s;
+    if (messageLevel == MessageLevel::Warning)
+        return "warn"_s;
+    return "info"_s;
+}
+
+static String logEntryMethodNameForMessage(const JSC::MessageType& messageType, const MessageLevel& messageLevel)
+{
+    if (messageType == JSC::MessageType::Assert)
+        return "assert"_s;
+    if (messageType == JSC::MessageType::Trace)
+        return "trace"_s;
+    if (messageLevel == JSC::MessageLevel::Warning)
+        return "warn"_s;
+    if (messageLevel == JSC::MessageLevel::Error)
+        return "error"_s;
+    if (messageLevel == JSC::MessageLevel::Debug)
+        return "debug"_s;
+    return "log"_s;
+}
+
+void WebAutomationSession::logEntryAdded(const JSC::MessageSource& messageSource, const JSC::MessageLevel& messageLevel, const String& messageText, const JSC::MessageType& messageType, const WallTime& timestamp)
+{
+    // FIXME Support getting source information
+    // https://bugs.webkit.org/show_bug.cgi?id=282978
+    String sourceString;
+
+    auto level = logEntryLevelForMessage(messageType, messageLevel);
+    auto method = logEntryMethodNameForMessage(messageType, messageLevel);
+    auto type = "console"_s;
+
+    // FIXME Get browsing context handle and source info
+    // https://bugs.webkit.org/show_bug.cgi?id=282981
+    m_domainNotifier->logEntryAdded(level, sourceString, messageText, timestamp.secondsSinceEpoch().milliseconds(), type, method);
 }
 
 #if !PLATFORM(COCOA) && !USE(CAIRO) && !USE(SKIA)

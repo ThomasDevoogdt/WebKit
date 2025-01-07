@@ -51,6 +51,9 @@ public:
     using BackendCallback = CompletionHandler<void(WebCore::ContentExtensions::ContentExtensionsBackend&)>;
     void contentExtensionsBackend(UserContentControllerIdentifier, BackendCallback&&);
 
+    void ref() const;
+    void deref() const;
+
 private:
     void addContentRuleLists(UserContentControllerIdentifier, Vector<std::pair<WebCompiledContentRuleListData, URL>>&&);
     void removeContentRuleList(UserContentControllerIdentifier, const String& name);
@@ -59,8 +62,8 @@ private:
 
     Ref<NetworkProcess> protectedNetworkProcess() const;
 
-    UncheckedKeyHashMap<UserContentControllerIdentifier, std::unique_ptr<WebCore::ContentExtensions::ContentExtensionsBackend>> m_contentExtensionBackends;
-    UncheckedKeyHashMap<UserContentControllerIdentifier, Vector<BackendCallback>> m_pendingCallbacks;
+    HashMap<UserContentControllerIdentifier, std::unique_ptr<WebCore::ContentExtensions::ContentExtensionsBackend>> m_contentExtensionBackends;
+    HashMap<UserContentControllerIdentifier, Vector<BackendCallback>> m_pendingCallbacks;
     WeakRef<NetworkProcess> m_networkProcess;
 };
 

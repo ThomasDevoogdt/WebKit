@@ -54,6 +54,7 @@
 #include "RTCConfiguration.h"
 #include "RTCController.h"
 #include "RTCDataChannel.h"
+#include "RTCDataChannelEvent.h"
 #include "RTCDtlsTransport.h"
 #include "RTCDtlsTransportBackend.h"
 #include "RTCIceCandidate.h"
@@ -98,10 +99,10 @@ ExceptionOr<Ref<RTCPeerConnection>> RTCPeerConnection::create(Document& document
         return exception.releaseException();
 
     if (!peerConnection->isClosed()) {
-        if (auto* page = document.page()) {
+        if (RefPtr page = document.protectedPage()) {
             peerConnection->registerToController(page->rtcController());
 #if USE(LIBWEBRTC) && (!LOG_DISABLED || !RELEASE_LOG_DISABLED)
-            if (!page->sessionID().isEphemeral()) {
+            if (page->isAlwaysOnLoggingAllowed()) {
                 WTFLogLevel level = LogWebRTC.level;
                 if (level != WTFLogLevel::Debug && document.settings().webRTCMediaPipelineAdditionalLoggingEnabled())
                     level = WTFLogLevel::Info;
@@ -779,6 +780,7 @@ bool RTCPeerConnection::virtualHasPendingActivity() const
 
 void RTCPeerConnection::addInternalTransceiver(Ref<RTCRtpTransceiver>&& transceiver)
 {
+    ALWAYS_LOG(LOGIDENTIFIER, "Adding internal transceiver with mid "_s, transceiver->mid());
     transceiver->setConnection(*this);
     m_transceiverSet.append(WTFMove(transceiver));
 }
@@ -978,6 +980,19 @@ void RTCPeerConnection::dispatchEvent(Event& event)
     EventTarget::dispatchEvent(event);
 }
 
+void RTCPeerConnection::dispatchDataChannelEvent(UniqueRef<RTCDataChannelHandler>&& channelHandler, String&& label, RTCDataChannelInit&& channelInit)
+{
+    queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [this, label = WTFMove(label), channelHandler = WTFMove(channelHandler), channelInit = WTFMove(channelInit)]() mutable {
+        if (isClosed())
+            return;
+
+        auto channel = RTCDataChannel::create(*document(), channelHandler.moveToUniquePtr(), WTFMove(label), WTFMove(channelInit), RTCDataChannelState::Open);
+        ALWAYS_LOG(LOGIDENTIFIER, makeString("Dispatching data-channel event for channel "_s, channel->label()));
+        dispatchEvent(RTCDataChannelEvent::create(eventNames().datachannelEvent, Event::CanBubble::No, Event::IsCancelable::No, Ref { channel }));
+        channel->fireOpenEventIfNeeded();
+    });
+}
+
 static inline ExceptionOr<PeerConnectionBackend::CertificateInformation> certificateTypeFromAlgorithmIdentifier(JSC::JSGlobalObject& lexicalGlobalObject, RTCPeerConnection::AlgorithmIdentifier&& algorithmIdentifier)
 {
     if (std::holds_alternative<String>(algorithmIdentifier))
@@ -1007,7 +1022,7 @@ static inline ExceptionOr<PeerConnectionBackend::CertificateInformation> certifi
             int publicExponent = 0;
             int value = 1;
             for (unsigned counter = 0; counter < parameters.publicExponent->byteLength(); ++counter) {
-                publicExponent += parameters.publicExponent->data()[counter] * value;
+                publicExponent += parameters.publicExponent->typedSpan()[counter] * value;
                 value <<= 8;
             }
 

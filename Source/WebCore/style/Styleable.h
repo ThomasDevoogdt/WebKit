@@ -85,6 +85,7 @@ struct Styleable {
     bool hasRunningAcceleratedAnimations() const;
 
     bool capturedInViewTransition() const;
+    void setCapturedInViewTransition(AtomString);
 
     KeyframeEffectStack* keyframeEffectStack() const
     {
@@ -101,7 +102,7 @@ struct Styleable {
         return element.hasKeyframeEffects(pseudoElementIdentifier);
     }
 
-    OptionSet<AnimationImpact> applyKeyframeEffects(RenderStyle& targetStyle, HashSet<AnimatableCSSProperty>& affectedProperties, const RenderStyle* previousLastStyleChangeEventStyle, const Style::ResolutionContext& resolutionContext) const
+    OptionSet<AnimationImpact> applyKeyframeEffects(RenderStyle& targetStyle, UncheckedKeyHashSet<AnimatableCSSProperty>& affectedProperties, const RenderStyle* previousLastStyleChangeEventStyle, const Style::ResolutionContext& resolutionContext) const
     {
         return element.ensureKeyframeEffectStack(pseudoElementIdentifier).applyKeyframeEffects(targetStyle, affectedProperties, previousLastStyleChangeEventStyle, resolutionContext);
     }

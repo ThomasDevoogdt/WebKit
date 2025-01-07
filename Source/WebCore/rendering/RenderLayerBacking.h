@@ -193,18 +193,22 @@ public:
     // Returns true if changed.
     bool updateCompositedBounds();
     
-    void updateAllowsBackingStoreDetaching(const LayoutRect& absoluteBounds);
+    void updateAllowsBackingStoreDetaching(bool allowDetachingForFixed);
 
 #if ENABLE(ASYNC_SCROLLING)
     bool maintainsEventRegion() const;
     void updateEventRegion();
     
     bool needsEventRegionUpdate() const { return m_needsEventRegionUpdate; }
-    void setNeedsEventRegionUpdate(bool needsUpdate = true) { m_needsEventRegionUpdate = needsUpdate; }
+    void setNeedsEventRegionUpdate(bool needsUpdate = true);
 #endif
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
     void clearInteractionRegions();
+#endif
+
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    void updateSeparatedProperties();
 #endif
 
     void updateAfterWidgetResize();
@@ -239,6 +243,7 @@ public:
     void didChangePlatformLayerForLayer(const GraphicsLayer*) override;
     bool getCurrentTransform(const GraphicsLayer*, TransformationMatrix&) const override;
 
+    bool isFlushingLayers() const override;
     bool isTrackingRepaints() const override;
     bool shouldSkipLayerInDump(const GraphicsLayer*, OptionSet<LayerTreeAsTextOptions>) const override;
     bool shouldDumpPropertyForLayer(const GraphicsLayer*, ASCIILiteral propertyName, OptionSet<LayerTreeAsTextOptions>) const override;
@@ -364,6 +369,9 @@ private:
     void updateVideoGravity(const RenderStyle&);
 #endif
     void updateContentsScalingFilters(const RenderStyle&);
+#if HAVE(CORE_MATERIAL)
+    void updateAppleVisualEffect(const RenderStyle&);
+#endif
 
     // Return the opacity value that this layer should use for compositing.
     float compositingOpacity(float rendererOpacity) const;

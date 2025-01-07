@@ -8,8 +8,10 @@
 #include "src/codec/SkPngCodecBase.h"
 
 #include <cstddef>
+#include <tuple>
 #include <utility>
 
+#include "include/codec/SkCodec.h"
 #include "include/codec/SkEncodedImageFormat.h"
 #include "include/core/SkAlphaType.h"
 #include "include/core/SkColor.h"
@@ -131,17 +133,20 @@ SkCodec::Result SkPngCodecBase::initializeXforms(const SkImageInfo& dstInfo,
 
     if (skipFormatConversion && !options.fSubset) {
         fXformMode = kColorOnly_XformMode;
-        goto Success;
-    }
+    } else {
+        if (SkEncodedInfo::kPalette_Color == this->getEncodedInfo().color()) {
+            if (!this->createColorTable(dstInfo)) {
+                return kInvalidInput;
+            }
+        }
 
-    if (SkEncodedInfo::kPalette_Color == this->getEncodedInfo().color()) {
-        if (!this->createColorTable(dstInfo)) {
-            return kInvalidInput;
+        Result result =
+                this->initializeSwizzler(dstInfo, options, skipFormatConversion, frameWidth);
+        if (result != kSuccess) {
+            return result;
         }
     }
 
-    this->initializeSwizzler(dstInfo, options, skipFormatConversion, frameWidth);
-Success:
     this->allocateStorage(dstInfo);
 
     // We can't call `initializeXformParams` here, because `swizzleWidth` may
@@ -179,10 +184,10 @@ void SkPngCodecBase::allocateStorage(const SkImageInfo& dstInfo) {
     }
 }
 
-void SkPngCodecBase::initializeSwizzler(const SkImageInfo& dstInfo,
-                                        const Options& options,
-                                        bool skipFormatConversion,
-                                        int frameWidth) {
+SkCodec::Result SkPngCodecBase::initializeSwizzler(const SkImageInfo& dstInfo,
+                                                   const Options& options,
+                                                   bool skipFormatConversion,
+                                                   int frameWidth) {
     SkImageInfo swizzlerInfo = dstInfo;
     Options swizzlerOptions = options;
     fXformMode = kSwizzleOnly_XformMode;
@@ -233,11 +238,12 @@ void SkPngCodecBase::initializeSwizzler(const SkImageInfo& dstInfo,
         }
         fSwizzler = SkSwizzler::MakeSimple(srcBPP, swizzlerInfo, swizzlerOptions, frameRectPtr);
     } else {
-        const SkPMColor* colors = get_color_ptr(fColorTable.get());
+        const SkPMColor* colors = SkCodecPriv::GetColorPtr(fColorTable.get());
         fSwizzler = SkSwizzler::Make(
                 this->getEncodedInfo(), colors, swizzlerInfo, swizzlerOptions, frameRectPtr);
     }
-    SkASSERT(fSwizzler);
+
+    return !!fSwizzler ? kSuccess : kUnimplemented;
 }
 
 SkSampler* SkPngCodecBase::getSampler(bool createIfNecessary) {
@@ -245,7 +251,12 @@ SkSampler* SkPngCodecBase::getSampler(bool createIfNecessary) {
         return fSwizzler.get();
     }
 
-    this->initializeSwizzler(this->dstInfo(), this->options(), true, this->dstInfo().width());
+    // Ok to ignore `initializeSwizzler`'s result, because if it fails, then
+    // `fSwizzler` will be `nullptr` and we want to return `nullptr` upon
+    // failure.
+    std::ignore = this->initializeSwizzler(
+            this->dstInfo(), this->options(), true, this->dstInfo().width());
+
     return fSwizzler.get();
 }
 
@@ -297,7 +308,8 @@ bool SkPngCodecBase::createColorTable(const SkImageInfo& dstInfo) {
 
         // Choose which function to use to create the color table. If the final destination's
         // colortype is unpremultiplied, the color table will store unpremultiplied colors.
-        PackColorProc proc = choose_pack_color_proc(premultiply, tableColorType);
+        SkCodecPriv::PackColorProc proc =
+                SkCodecPriv::ChoosePackColorProc(premultiply, tableColorType);
 
         for (size_t i = 0; i < numColorsWithAlpha; i++) {
             // We don't have a function in SkOpts that combines a set of alphas with a set
@@ -316,7 +328,7 @@ bool SkPngCodecBase::createColorTable(const SkImageInfo& dstInfo) {
         static_assert(offsetof(PaletteColorEntry, green) == 1);
         static_assert(offsetof(PaletteColorEntry, blue) == 2);
 
-        if (is_rgba(tableColorType)) {
+        if (SkCodecPriv::IsRGBA(tableColorType)) {
             SkOpts::RGB_to_RGB1(colorTable + numColorsWithAlpha,
                                 (const uint8_t*)palette,
                                 numColors - numColorsWithAlpha);

@@ -31,8 +31,6 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 namespace WebCore {
 
 template <typename T>
@@ -165,12 +163,12 @@ class ProcessQualifiedStringTypeAdapter {
 public:
     unsigned length() const { return lengthOfIntegerAsString(m_processIdentifier) + lengthOfIntegerAsString(m_objectIdentifier) + 1; }
     bool is8Bit() const { return true; }
-    template<typename CharacterType> void writeTo(CharacterType* destination) const
+    template<typename CharacterType> void writeTo(std::span<CharacterType> destination) const
     {
         auto processIdentifierLength = lengthOfIntegerAsString(m_processIdentifier);
         writeIntegerToBuffer(m_processIdentifier, destination);
-        *(destination + processIdentifierLength) = '-';
-        writeIntegerToBuffer(m_objectIdentifier, destination + processIdentifierLength + 1);
+        destination[processIdentifierLength] = '-';
+        writeIntegerToBuffer(m_objectIdentifier, destination.subspan(processIdentifierLength + 1));
     }
 protected:
     explicit ProcessQualifiedStringTypeAdapter(uint64_t processIdentifier, uint64_t objectIdentifier)
@@ -190,5 +188,3 @@ public:
 };
 
 } // namespace WTF
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

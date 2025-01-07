@@ -584,9 +584,6 @@ FlexLayout::PositionAndMarginsList FlexLayout::handleMainAxisAlignment(LayoutUni
         };
         setFallbackValuesIfApplicable();
 
-        // If the property's axis is not parallel with either left<->right axis, this value behaves as start (https://drafts.csswg.org/css-align/#positional-values)
-        justifyContentPosition = !FlexFormattingUtils::isMainAxisParallelWithInlineAxis(flexContainer()) && justifyContentPosition == ContentPosition::Right ? ContentPosition::Start : justifyContentPosition;
-
         auto justifyContent = [&] {
             // 2. Align the items along the main-axis per justify-content.
             auto initialOffset = [&] {
@@ -605,8 +602,7 @@ FlexLayout::PositionAndMarginsList FlexLayout::handleMainAxisAlignment(LayoutUni
                     }
                 }
 
-                switch (justifyContentPosition) {
-                // logical alignments
+                switch (FlexFormattingUtils::logicalJustifyContentPosition(flexContainer(), justifyContentPosition)) {
                 case ContentPosition::Normal:
                 case ContentPosition::FlexStart:
                     return LayoutUnit { };
@@ -614,13 +610,10 @@ FlexLayout::PositionAndMarginsList FlexLayout::handleMainAxisAlignment(LayoutUni
                     return availableMainSpaceForLineContent - lineContentOuterMainSize;
                 case ContentPosition::Center:
                     return availableMainSpaceForLineContent / 2 - lineContentOuterMainSize / 2;
-                // non-logical alignments
-                case ContentPosition::Left:
                 case ContentPosition::Start:
                     if (FlexFormattingUtils::isMainReversedToContentDirection(flexContainer()))
                         return availableMainSpaceForLineContent - lineContentOuterMainSize;
                     return LayoutUnit { };
-                case ContentPosition::Right:
                 case ContentPosition::End:
                     if (FlexFormattingUtils::isMainReversedToContentDirection(flexContainer()))
                         return LayoutUnit { };

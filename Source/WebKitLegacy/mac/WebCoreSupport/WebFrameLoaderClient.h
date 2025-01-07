@@ -139,7 +139,6 @@ private:
     void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
     void updateSandboxFlags(WebCore::SandboxFlags) { }
     void updateOpener(const WebCore::Frame&) { }
-    void broadcastMainFrameURLChangeToOtherProcesses(const URL&) final { }
     void cancelPolicyCheck() final;
 
     void dispatchUnableToImplementPolicy(const WebCore::ResourceError&) final;
@@ -263,6 +262,8 @@ private:
     void finishedLoadingIcon(WebCore::FragmentedSharedBuffer*);
 
     void dispatchLoadEventToOwnerElementInAnotherProcess() final { };
+
+    RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier) const final;
 
 #if !PLATFORM(IOS_FAMILY)
     bool m_loadingIcon { false };

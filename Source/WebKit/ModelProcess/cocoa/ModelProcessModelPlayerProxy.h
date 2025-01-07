@@ -68,6 +68,9 @@ public:
     static Ref<ModelProcessModelPlayerProxy> create(ModelProcessModelPlayerManagerProxy&, WebCore::ModelPlayerIdentifier, Ref<IPC::Connection>&&);
     ~ModelProcessModelPlayerProxy();
 
+    void ref() const final { WebCore::ModelPlayer::ref(); }
+    void deref() const final { WebCore::ModelPlayer::deref(); }
+
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
     static bool transformSupported(const simd_float4x4& transform);
@@ -79,6 +82,7 @@ public:
     void updateBackgroundColor();
     void updateTransform();
     void updateOpacity();
+    void updatePortalAndClipping();
     void startAnimating();
     void animationPlaybackStateDidUpdate();
 
@@ -127,6 +131,7 @@ public:
     Seconds currentTime() const final;
     void setCurrentTime(Seconds, CompletionHandler<void()>&&) final;
     void setEnvironmentMap(Ref<WebCore::SharedBuffer>&& data) final;
+    void setHasPortal(bool) final;
 
 private:
     ModelProcessModelPlayerProxy(ModelProcessModelPlayerManagerProxy&, WebCore::ModelPlayerIdentifier, Ref<IPC::Connection>&&);
@@ -158,7 +163,8 @@ private:
     bool m_loop { false };
     double m_playbackRate { 1.0 };
 
-    RefPtr<WebCore::SharedBuffer> m_environmentMapData;
+    RefPtr<WebCore::SharedBuffer> m_transientEnvironmentMapData;
+    bool m_hasPortal { true };
 };
 
 } // namespace WebKit

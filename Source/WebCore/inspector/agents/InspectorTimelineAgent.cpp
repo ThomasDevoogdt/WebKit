@@ -35,6 +35,7 @@
 
 #include "Event.h"
 #include "FrameSnapshotting.h"
+#include "ImageBuffer.h"
 #include "InspectorAnimationAgent.h"
 #include "InspectorCPUProfilerAgent.h"
 #include "InspectorClient.h"
@@ -675,14 +676,14 @@ void InspectorTimelineAgent::captureScreenshot()
     SetForScope isTakingScreenshot(m_isCapturingScreenshot, true);
 
     auto snapshotStartTime = timestamp();
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_inspectedPage.mainFrame());
+    RefPtr localMainFrame = m_inspectedPage.localMainFrame();
     if (!localMainFrame)
         return;
 
     auto viewportRect = localMainFrame->view()->unobscuredContentRect();
     if (auto snapshot = snapshotFrameRect(*localMainFrame, viewportRect, { { }, ImageBufferPixelFormat::BGRA8, DestinationColorSpace::SRGB() })) {
         auto snapshotRecord = TimelineRecordFactory::createScreenshotData(snapshot->toDataURL("image/png"_s));
-        pushCurrentRecord(WTFMove(snapshotRecord), TimelineRecordType::Screenshot, false, localMainFrame, snapshotStartTime);
+        pushCurrentRecord(WTFMove(snapshotRecord), TimelineRecordType::Screenshot, false, localMainFrame.get(), snapshotStartTime);
         didCompleteCurrentRecord(TimelineRecordType::Screenshot);
     }
 }

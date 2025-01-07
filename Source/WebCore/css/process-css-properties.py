@@ -372,20 +372,20 @@ class LogicalPropertyGroup:
 
     logical_property_group_resolvers = {
         "logical": {
-            # Order matches LogicalBoxAxis enum in Source/WebCore/platform/text/WritingMode.h.
+            # Order matches LogicalBoxAxis enum in Source/WebCore/platform/BoxSides.h.
             "axis": ["inline", "block"],
-            # Order matches LogicalBoxSide enum in Source/WebCore/platform/text/WritingMode.h.
+            # Order matches LogicalBoxSide enum in Source/WebCore/platform/BoxSides.h.
             "side": ["block-start", "inline-end", "block-end", "inline-start"],
-            # Order matches LogicalBoxCorner enum in Source/WebCore/platform/text/WritingMode.h.
+            # Order matches LogicalBoxCorner enum in Source/WebCore/platform/BoxSides.h.
             "corner": ["start-start", "start-end", "end-start", "end-end"],
         },
         "physical": {
-            # Order matches BoxAxis enum in Source/WebCore/platform/text/WritingMode.h.
+            # Order matches BoxAxis enum in Source/WebCore/platform/BoxSides.h.
             "axis": ["horizontal", "vertical"],
-            # Order matches BoxSide enum in Source/WebCore/platform/text/WritingMode.h.
+            # Order matches BoxSide enum in Source/WebCore/platform/BoxSides.h.
             "side": ["top", "right", "bottom", "left"],
-            # Order matches BoxCorner enum in Source/WebCore/platform/text/WritingMode.h.
-            "corner": ["top-left", "top-right", "bottom-right", "bottom-left"],
+            # Order matches BoxCorner enum in Source/WebCore/platform/BoxSides.h.
+            "corner": ["top-left", "top-right", "bottom-left", "bottom-right"],
         },
     }
 
@@ -457,6 +457,7 @@ class StylePropertyCodeGenProperties:
         Schema.Entry("conditional-converter", allowed_types=[str]),
         Schema.Entry("converter", allowed_types=[str]),
         Schema.Entry("custom", allowed_types=[str]),
+        Schema.Entry("disables-native-appearance", allowed_types=[bool], default_value=False),
         Schema.Entry("enable-if", allowed_types=[str]),
         Schema.Entry("fast-path-inherited", allowed_types=[bool], default_value=False),
         Schema.Entry("fill-layer-property", allowed_types=[bool], default_value=False),
@@ -2438,6 +2439,7 @@ class GenerateCSSPropertyNames:
         self.generation_context.generate_includes(
             to=to,
             headers=[
+                "BoxSides.h",
                 "CSSProperty.h",
                 "Settings.h",
             ],
@@ -2451,6 +2453,7 @@ class GenerateCSSPropertyNames:
 
         to.write_block("""
             IGNORE_WARNINGS_BEGIN("implicit-fallthrough")
+            WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
             // Older versions of gperf like to use the `register` keyword.
             #define register
@@ -2489,6 +2492,7 @@ class GenerateCSSPropertyNames:
             namespace="WebCore"
         )
 
+        to.write("WTF_ALLOW_UNSAFE_BUFFER_USAGE_END")
         to.write("IGNORE_WARNINGS_END")
 
     def _generate_gperf_declarations(self, *, to):
@@ -2581,7 +2585,6 @@ class GenerateCSSPropertyNames:
         to.write(f"{signature}")
         to.write(f"{{")
         with to.indent():
-            to.write(f"auto textflow = makeTextFlow(writingMode, direction);")
             to.write(f"switch (id) {{")
 
             for group_name, property_group in sorted(self.properties_and_descriptors.style_properties.logical_property_groups.items(), key=lambda x: x[0]):
@@ -2598,7 +2601,7 @@ class GenerateCSSPropertyNames:
                     to.write(f"case {property.id}: {{")
                     with to.indent():
                         to.write(f"static constexpr CSSPropertyID properties[{len(properties)}] = {{ {', '.join(properties)} }};")
-                        to.write(f"return properties[static_cast<size_t>(map{source_as_id}{kind_as_id}To{destination_as_id}{kind_as_id}(textflow, {resolver_enum}))];")
+                        to.write(f"return properties[static_cast<size_t>(map{kind_as_id}{source_as_id}To{destination_as_id}(writingMode, {resolver_enum}))];")
                     to.write(f"}}")
 
             to.write(f"default:")
@@ -2857,6 +2860,12 @@ class GenerateCSSPropertyNames:
 
             self.generation_context.generate_property_id_switch_function_bool(
                 to=writer,
+                signature="bool CSSProperty::disablesNativeAppearance(CSSPropertyID id)",
+                iterable=(p for p in self.properties_and_descriptors.style_properties.all if p.codegen_properties.disables_native_appearance)
+            )
+
+            self.generation_context.generate_property_id_switch_function_bool(
+                to=writer,
                 signature="bool CSSProperty::isDirectionAwareProperty(CSSPropertyID id)",
                 iterable=self.properties_and_descriptors.style_properties.all_direction_aware_properties
             )
@@ -2873,7 +2882,7 @@ class GenerateCSSPropertyNames:
 
             self._generate_physical_logical_conversion_function(
                 to=writer,
-                signature="CSSPropertyID CSSProperty::resolveDirectionAwareProperty(CSSPropertyID id, TextDirection direction, WritingMode writingMode)",
+                signature="CSSPropertyID CSSProperty::resolveDirectionAwareProperty(CSSPropertyID id, WritingMode writingMode)",
                 source="logical",
                 destination="physical",
                 resolver_enum_prefix="LogicalBox"
@@ -2881,7 +2890,7 @@ class GenerateCSSPropertyNames:
 
             self._generate_physical_logical_conversion_function(
                 to=writer,
-                signature="CSSPropertyID CSSProperty::unresolvePhysicalProperty(CSSPropertyID id, TextDirection direction, WritingMode writingMode)",
+                signature="CSSPropertyID CSSProperty::unresolvePhysicalProperty(CSSPropertyID id, WritingMode writingMode)",
                 source="physical",
                 destination="logical",
                 resolver_enum_prefix="Box"
@@ -3282,7 +3291,7 @@ class GenerateStyleBuilderGenerated:
 
     def _generate_color_property_initial_value_setter(self, to, property):
         if property.codegen_properties.initial == "currentColor":
-            initial_function = "StyleColor::currentColor"
+            initial_function = "Style::Color::currentColor"
         else:
             initial_function = "RenderStyle::" + property.codegen_properties.initial
         to.write(f"if (builderState.applyPropertyToRegularStyle())")
@@ -3298,9 +3307,9 @@ class GenerateStyleBuilderGenerated:
 
     def _generate_color_property_value_setter(self, to, property, value):
         to.write(f"if (builderState.applyPropertyToRegularStyle())")
-        to.write(f"    builderState.style().{property.codegen_properties.setter}(builderState.colorFromPrimitiveValue({value}, ForVisitedLink::No));")
+        to.write(f"    builderState.style().{property.codegen_properties.setter}(builderState.createStyleColor({value}, ForVisitedLink::No));")
         to.write(f"if (builderState.applyPropertyToVisitedLinkStyle())")
-        to.write(f"    builderState.style().setVisitedLink{property.name_for_methods}(builderState.colorFromPrimitiveValue({value}, ForVisitedLink::Yes));")
+        to.write(f"    builderState.style().setVisitedLink{property.name_for_methods}(builderState.createStyleColor({value}, ForVisitedLink::Yes));")
 
     # Animation property setters.
 
@@ -3513,7 +3522,7 @@ class GenerateStyleBuilderGenerated:
                 elif property.codegen_properties.conditional_converter:
                     return f"WTFMove(convertedValue.value())"
                 elif property.codegen_properties.color_property and not property.codegen_properties.visited_link_color_support:
-                    return f"builderState.colorFromPrimitiveValue(downcast<CSSPrimitiveValue>(value), ForVisitedLink::No)"
+                    return f"builderState.createStyleColor(value, ForVisitedLink::No)"
                 else:
                     return "fromCSSValueDeducingType(builderState, value)"
 
@@ -3930,30 +3939,60 @@ class GenerateCSSPropertyParsing:
                     "CSSPropertyParser.h",
                     "CSSPropertyParserConsumer+Align.h",
                     "CSSPropertyParserConsumer+Angle.h",
+                    "CSSPropertyParserConsumer+Animations.h",
+                    "CSSPropertyParserConsumer+Attr.h",
+                    "CSSPropertyParserConsumer+Background.h",
+                    "CSSPropertyParserConsumer+Box.h",
                     "CSSPropertyParserConsumer+Color.h",
+                    "CSSPropertyParserConsumer+ColorAdjust.h",
+                    "CSSPropertyParserConsumer+Conditional.h",
+                    "CSSPropertyParserConsumer+Contain.h",
+                    "CSSPropertyParserConsumer+Content.h",
                     "CSSPropertyParserConsumer+CounterStyles.h",
+                    "CSSPropertyParserConsumer+Display.h",
+                    "CSSPropertyParserConsumer+Easing.h",
                     "CSSPropertyParserConsumer+Filter.h",
                     "CSSPropertyParserConsumer+Font.h",
                     "CSSPropertyParserConsumer+Grid.h",
                     "CSSPropertyParserConsumer+Ident.h",
-                    "CSSPropertyParserConsumer+Integer.h",
                     "CSSPropertyParserConsumer+Image.h",
+                    "CSSPropertyParserConsumer+Inline.h",
+                    "CSSPropertyParserConsumer+Inset.h",
+                    "CSSPropertyParserConsumer+Integer.h",
                     "CSSPropertyParserConsumer+Length.h",
                     "CSSPropertyParserConsumer+LengthPercentage.h",
                     "CSSPropertyParserConsumer+List.h",
                     "CSSPropertyParserConsumer+Lists.h",
+                    "CSSPropertyParserConsumer+Masking.h",
+                    "CSSPropertyParserConsumer+Motion.h",
                     "CSSPropertyParserConsumer+Number.h",
+                    "CSSPropertyParserConsumer+Overflow.h",
+                    "CSSPropertyParserConsumer+Page.h",
                     "CSSPropertyParserConsumer+Percentage.h",
+                    "CSSPropertyParserConsumer+PointerEvents.h",
                     "CSSPropertyParserConsumer+Position.h",
+                    "CSSPropertyParserConsumer+PositionTry.h",
                     "CSSPropertyParserConsumer+Primitives.h",
                     "CSSPropertyParserConsumer+Resolution.h",
+                    "CSSPropertyParserConsumer+Ruby.h",
+                    "CSSPropertyParserConsumer+SVG.h",
+                    "CSSPropertyParserConsumer+ScrollSnap.h",
+                    "CSSPropertyParserConsumer+Scrollbars.h",
+                    "CSSPropertyParserConsumer+Shapes.h",
+                    "CSSPropertyParserConsumer+Sizing.h",
+                    "CSSPropertyParserConsumer+Speech.h",
                     "CSSPropertyParserConsumer+String.h",
+                    "CSSPropertyParserConsumer+Syntax.h",
+                    "CSSPropertyParserConsumer+Text.h",
+                    "CSSPropertyParserConsumer+TextDecoration.h",
                     "CSSPropertyParserConsumer+Time.h",
                     "CSSPropertyParserConsumer+Timeline.h",
-                    "CSSPropertyParserConsumer+TimingFunction.h",
                     "CSSPropertyParserConsumer+Transform.h",
+                    "CSSPropertyParserConsumer+Transitions.h",
+                    "CSSPropertyParserConsumer+UI.h",
                     "CSSPropertyParserConsumer+URL.h",
                     "CSSPropertyParserConsumer+ViewTransition.h",
+                    "CSSPropertyParserConsumer+WillChange.h",
                     "CSSValuePool.h",
                     "DeprecatedGlobalSettings.h",
                 ]

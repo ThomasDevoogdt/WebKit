@@ -111,7 +111,8 @@ private:
     void keyboardAccessoryBarPrevious() override;
     bool isShowingKeyboard() const override;
     bool hasInputSession() const override;
-    void applyAutocorrection(JSStringRef newString, JSStringRef oldString, JSValueRef) override;
+    void selectWordForReplacement() override;
+    void applyAutocorrection(JSStringRef newString, JSStringRef oldString, JSValueRef, bool) override;
     double minimumZoomScale() const override;
     double maximumZoomScale() const override;
     std::optional<bool> stableStateOverride() const override;
@@ -148,6 +149,7 @@ private:
     void toggleCapsLock(JSValueRef) override;
     unsigned keyboardWillHideCount() const override;
     bool keyboardIsAutomaticallyShifted() const override;
+    unsigned keyboardUpdateForChangedSelectionCount() const final;
     bool isAnimatingDragCancel() const override;
     JSRetainPtr<JSStringRef> selectionCaretBackgroundColor() const override;
     JSObjectRef tapHighlightViewRect() const override;
@@ -185,6 +187,8 @@ private:
 
     void presentFindNavigator() override;
     void dismissFindNavigator() override;
+
+    JSRetainPtr<JSStringRef> frontmostViewAtPoint(int, int) final;
 
     void waitForModalTransitionToFinish() const;
     void waitForSingleTapToReset() const;

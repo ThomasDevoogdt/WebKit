@@ -266,6 +266,11 @@ TextStream& operator<<(TextStream& ts, PlatformCALayer::LayerType layerType)
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
         ts << "backdrop-layer";
         break;
+#if HAVE(CORE_MATERIAL)
+    case PlatformCALayer::LayerType::LayerTypeMaterialLayer:
+        ts << "material-layer";
+        break;
+#endif
     case PlatformCALayer::LayerType::LayerTypeAVPlayerLayer:
         ts << "av-player-layer";
         break;
@@ -284,6 +289,11 @@ TextStream& operator<<(TextStream& ts, PlatformCALayer::LayerType layerType)
 #if ENABLE(MODEL_ELEMENT)
     case PlatformCALayer::LayerType::LayerTypeModelLayer:
         ts << "model-layer";
+        break;
+#endif
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    case PlatformCALayer::LayerType::LayerTypeSeparatedImageLayer:
+        ts << "separated-image-layer";
         break;
 #endif
     case PlatformCALayer::LayerType::LayerTypeHost:

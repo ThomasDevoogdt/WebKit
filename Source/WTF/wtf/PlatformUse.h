@@ -307,8 +307,7 @@
 
 #if !defined(USE_TZONE_MALLOC)
 #if (CPU(ARM64) || CPU(X86_64)) && OS(DARWIN) && (__SIZEOF_POINTER__ == 8)
-// Building with TZONE_MALLOC currently disabled for all platforms.
-#define USE_TZONE_MALLOC 0
+#define USE_TZONE_MALLOC 1
 #else
 #define USE_TZONE_MALLOC 0
 #endif
@@ -431,4 +430,9 @@
     && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140400) \
     || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR)))
 #define USE_MODERN_AVCONTENTKEYSESSION 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MAX_ALLOWED < 180400
+    // We can delete this when rdar://problem/104370451 is fixed.
+#define USE_HSBC_MOBILE_SITE_FOR_IPAD 1
 #endif

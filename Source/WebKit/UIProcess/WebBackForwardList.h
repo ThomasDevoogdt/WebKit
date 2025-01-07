@@ -84,11 +84,14 @@ public:
     BackForwardListState backForwardListState(WTF::Function<bool (WebBackForwardListItem&)>&&) const;
     void restoreFromState(BackForwardListState);
 
-    Vector<Ref<FrameState>> itemStates() const;
-    Vector<Ref<FrameState>> filteredItemStates(Function<bool(WebBackForwardListItem&)>&&) const;
+    void setItemsAsRestoredFromSession();
+    void setItemsAsRestoredFromSessionIf(Function<bool(WebBackForwardListItem&)>&&);
 
     void goToProvisionalItem(WebBackForwardListItem&);
     void clearProvisionalItem(WebBackForwardListFrameItem&);
+    void commitProvisionalItem(WebBackForwardListFrameItem&);
+
+    Ref<FrameState> completeFrameStateForNavigation(Ref<FrameState>&&);
 
 #if !LOG_DISABLED
     String loggingString();

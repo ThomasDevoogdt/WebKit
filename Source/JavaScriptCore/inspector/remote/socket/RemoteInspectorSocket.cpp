@@ -267,9 +267,9 @@ String RemoteInspector::backendCommands() const
 
 // RemoteInspectorConnectionClient handlers
 
-UncheckedKeyHashMap<String, RemoteInspectorConnectionClient::CallHandler>& RemoteInspector::dispatchMap()
+HashMap<String, RemoteInspectorConnectionClient::CallHandler>& RemoteInspector::dispatchMap()
 {
-    static NeverDestroyed<UncheckedKeyHashMap<String, CallHandler>> methods = UncheckedKeyHashMap<String, CallHandler>({
+    static NeverDestroyed<HashMap<String, CallHandler>> methods = HashMap<String, CallHandler>({
         { "SetupInspectorClient"_s, static_cast<CallHandler>(&RemoteInspector::setupInspectorClient) },
         { "Setup"_s, static_cast<CallHandler>(&RemoteInspector::setupTarget) },
         { "FrontendDidClose"_s, static_cast<CallHandler>(&RemoteInspector::frontendDidClose) },
@@ -355,8 +355,21 @@ void RemoteInspector::startAutomationSession(const Event& event)
     if (!event.message)
         return;
 
-    String sessionID = *event.message;
-    requestAutomationSession(WTFMove(sessionID), { });
+    auto parsedMessageValue = JSON::Value::parseJSON(*event.message);
+    if (!parsedMessageValue)
+        return;
+
+    auto parsedMessageObject = parsedMessageValue->asObject();
+    auto sessionID = parsedMessageObject->getString("sessionID"_s);
+    if (!sessionID)
+        return;
+
+    RemoteInspector::Client::SessionCapabilities capabilities { };
+    auto capabilitiesObject = parsedMessageObject->getObject("capabilities"_s);
+    if (capabilitiesObject)
+        capabilities.acceptInsecureCertificates = capabilitiesObject->getBoolean("acceptInsecureCerts"_s).value_or(false);
+
+    requestAutomationSession(WTFMove(sessionID), capabilities);
 
     auto sendEvent = JSON::Object::create();
     sendEvent->setString("event"_s, "StartAutomationSession_Return"_s);

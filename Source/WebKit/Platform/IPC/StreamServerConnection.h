@@ -79,6 +79,9 @@ public:
     static RefPtr<StreamServerConnection> tryCreate(Handle&&, const StreamServerConnectionParameters&);
     ~StreamServerConnection() final;
 
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
     void startReceivingMessages(StreamMessageReceiver&, ReceiverName, uint64_t destinationID);
     // Stops the message receipt. Note: already received messages might still be delivered.
     void stopReceivingMessages(ReceiverName, uint64_t destinationID);
@@ -91,6 +94,7 @@ public:
         HasMoreMessages
     };
     DispatchResult dispatchStreamMessages(size_t messageLimit);
+    void markCurrentlyDispatchedMessageAsInvalid();
 
     void open(StreamConnectionWorkQueue&);
     void invalidate();
@@ -139,10 +143,11 @@ private:
     bool m_isProcessingStreamMessage { false };
     std::unique_ptr<IPC::Encoder> m_syncReplyToDispatch;
     Lock m_receiversLock;
-    using ReceiversMap = UncheckedKeyHashMap<std::pair<uint8_t, uint64_t>, Ref<StreamMessageReceiver>>;
+    using ReceiversMap = HashMap<std::pair<uint8_t, uint64_t>, Ref<StreamMessageReceiver>>;
     ReceiversMap m_receivers WTF_GUARDED_BY_LOCK(m_receiversLock);
     uint64_t m_currentDestinationID { 0 };
     Semaphore m_clientWaitSemaphore;
+    bool m_didReceiveInvalidMessage { false };
 
     friend class StreamConnectionWorkQueue;
 };
@@ -160,11 +165,11 @@ void StreamServerConnection::sendSyncReply(Connection::SyncRequestID syncRequest
         if (m_isProcessingStreamMessage) {
             auto span = m_buffer.acquireAll();
             {
-                StreamConnectionEncoder messageEncoder { MessageName::SyncMessageReply, span.data(), span.size() };
+                StreamConnectionEncoder messageEncoder { MessageName::SyncMessageReply, span };
                 if ((messageEncoder << ... << arguments))
                     return;
             }
-            StreamConnectionEncoder outOfStreamEncoder { MessageName::ProcessOutOfStreamMessage, span.data(), span.size() };
+            StreamConnectionEncoder outOfStreamEncoder { MessageName::ProcessOutOfStreamMessage, span };
         }
     }
     auto encoder = makeUniqueRef<Encoder>(MessageName::SyncMessageReply, syncRequestID.toUInt64());

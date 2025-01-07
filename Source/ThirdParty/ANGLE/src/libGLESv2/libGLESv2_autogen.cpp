@@ -3973,7 +3973,11 @@ void GL_APIENTRY glReleaseTexturesANGLE(GLuint numTextures, const GLuint *textur
 
 // GL_ARB_sync
 
+// GL_ARM_rgba8
+
 // GL_ARM_shader_framebuffer_fetch
+
+// GL_ARM_shader_framebuffer_fetch_depth_stencil
 
 // GL_CHROMIUM_bind_uniform_location
 void GL_APIENTRY glBindUniformLocationCHROMIUM(GLuint program, GLint location, const GLchar *name)
@@ -4052,6 +4056,8 @@ void GL_APIENTRY glEGLImageTargetTextureStorageEXT(GLuint texture,
 {
     return GL_EGLImageTargetTextureStorageEXT(texture, image, attrib_list);
 }
+
+// GL_EXT_EGL_image_storage_compression
 
 // GL_EXT_YUV_target
 
@@ -5117,6 +5123,8 @@ void GL_APIENTRY glTexBufferRangeEXT(GLenum target,
 
 // GL_EXT_texture_norm16
 
+// GL_EXT_texture_query_lod
+
 // GL_EXT_texture_rg
 
 // GL_EXT_texture_sRGB_R8
@@ -5153,6 +5161,29 @@ void GL_APIENTRY glTexStorage3DEXT(GLenum target,
                                    GLsizei depth)
 {
     return GL_TexStorage3DEXT(target, levels, internalformat, width, height, depth);
+}
+
+// GL_EXT_texture_storage_compression
+void GL_APIENTRY glTexStorageAttribs2DEXT(GLenum target,
+                                          GLsizei levels,
+                                          GLenum internalformat,
+                                          GLsizei width,
+                                          GLsizei height,
+                                          const GLint *attrib_list)
+{
+    return GL_TexStorageAttribs2DEXT(target, levels, internalformat, width, height, attrib_list);
+}
+
+void GL_APIENTRY glTexStorageAttribs3DEXT(GLenum target,
+                                          GLsizei levels,
+                                          GLenum internalformat,
+                                          GLsizei width,
+                                          GLsizei height,
+                                          GLsizei depth,
+                                          const GLint *attrib_list)
+{
+    return GL_TexStorageAttribs3DEXT(target, levels, internalformat, width, height, depth,
+                                     attrib_list);
 }
 
 // GL_EXT_texture_type_2_10_10_10_REV
@@ -5405,6 +5436,12 @@ void GL_APIENTRY glEGLImageTargetTexture2DOES(GLenum target, GLeglImageOES image
 // GL_OES_EGL_image_external
 
 // GL_OES_EGL_image_external_essl3
+
+// GL_OES_blend_subtract
+void GL_APIENTRY glBlendEquationOES(GLenum mode)
+{
+    return GL_BlendEquationOES(mode);
+}
 
 // GL_OES_compressed_ETC1_RGB8_texture
 
@@ -5968,6 +6005,8 @@ void GL_APIENTRY glTexGenxvOES(GLenum coord, GLenum pname, const GLfixed *params
 // GL_OES_texture_half_float
 
 // GL_OES_texture_half_float_linear
+
+// GL_OES_texture_mirrored_repeat
 
 // GL_OES_texture_npot
 

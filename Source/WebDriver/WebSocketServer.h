@@ -32,6 +32,7 @@
 #include <vector>
 #include <wtf/HashMap.h>
 #include <wtf/JSONValues.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
@@ -91,10 +92,10 @@ public:
         // Optional connection, as the message might be generated without a connection object available (e.g. inside a method handler).
         // In this case, it gets associated to the connection when sending the message back to the client.
         Connection connection;
-        const char* data { nullptr };
-        size_t dataLength { 0 };
+        const CString payload;
 
-        static Message fail(CommandResult::ErrorCode, std::optional<Connection>, std::optional<String> errorMessage = std::nullopt, std::optional<String> commandId = std::nullopt);
+        static Message fail(CommandResult::ErrorCode, std::optional<Connection>, std::optional<String> errorMessage = std::nullopt, std::optional<int> commandId = std::nullopt);
+        static Message reply(const String& type, unsigned id, Ref<JSON::Value>&& result);
     };
 
     virtual bool acceptHandshake(HTTPRequestHandler::Request&&) = 0;
@@ -103,7 +104,7 @@ public:
 private:
 };
 
-class WebSocketServer : public RefCounted<WebSocketServer>, public CanMakeWeakPtr<WebSocketServer> {
+class WebSocketServer : public RefCountedAndCanMakeWeakPtr<WebSocketServer> {
 public:
     explicit WebSocketServer(WebSocketMessageHandler&, WebDriverService&);
     virtual ~WebSocketServer() = default;
@@ -128,6 +129,7 @@ public:
     String getResourceName(const String& sessionId);
     String getWebSocketURL(const RefPtr<WebSocketListener>, const String& sessionId);
     String getSessionID(const String& resource);
+    void sendMessage(const String& session, const String& message);
 
     // Non-spec method
     void removeResourceForSession(const String& sessionId);

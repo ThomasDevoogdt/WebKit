@@ -35,6 +35,7 @@
 #include <WebCore/LayerPool.h>
 #include <WebCore/PlatformCALayer.h>
 #include <wtf/CheckedPtr.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
@@ -47,7 +48,7 @@ class WebFrame;
 class WebPage;
 
 // FIXME: This class doesn't do much now. Roll into RemoteLayerTreeDrawingArea?
-class RemoteLayerTreeContext : public WebCore::GraphicsLayerFactory,  public RefCounted<RemoteLayerTreeContext>, public CanMakeWeakPtr<RemoteLayerTreeContext> {
+class RemoteLayerTreeContext : public RefCountedAndCanMakeWeakPtr<RemoteLayerTreeContext>, public WebCore::GraphicsLayerFactory {
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerTreeContext);
 public:
     static Ref<RemoteLayerTreeContext> create(WebPage& webpage)
@@ -115,13 +116,13 @@ private:
 
     WeakRef<WebPage> m_webPage;
 
-    UncheckedKeyHashMap<WebCore::PlatformLayerIdentifier, RemoteLayerTreeTransaction::LayerCreationProperties> m_createdLayers;
+    HashMap<WebCore::PlatformLayerIdentifier, RemoteLayerTreeTransaction::LayerCreationProperties> m_createdLayers;
     Vector<WebCore::PlatformLayerIdentifier> m_destroyedLayers;
 
-    UncheckedKeyHashMap<WebCore::PlatformLayerIdentifier, WeakPtr<PlatformCALayerRemote>> m_livePlatformLayers;
-    UncheckedKeyHashMap<WebCore::PlatformLayerIdentifier, WeakPtr<PlatformCALayerRemote>> m_layersWithAnimations;
+    HashMap<WebCore::PlatformLayerIdentifier, WeakPtr<PlatformCALayerRemote>> m_livePlatformLayers;
+    HashMap<WebCore::PlatformLayerIdentifier, WeakPtr<PlatformCALayerRemote>> m_layersWithAnimations;
 #if HAVE(AVKIT)
-    UncheckedKeyHashMap<WebCore::PlatformLayerIdentifier, PlaybackSessionContextIdentifier> m_videoLayers;
+    HashMap<WebCore::PlatformLayerIdentifier, PlaybackSessionContextIdentifier> m_videoLayers;
 #endif
 
     HashSet<WeakRef<GraphicsLayerCARemote>> m_liveGraphicsLayers;

@@ -45,6 +45,8 @@
 #include "WebAssemblyFunction.h"
 #include <wtf/text/MakeString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 const ClassInfo WebAssemblyModuleRecord::s_info = { "WebAssemblyModuleRecord"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WebAssemblyModuleRecord) };
@@ -203,7 +205,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
 
             JSWebAssemblyInstance* calleeInstance = nullptr;
             WasmToWasmImportableFunction::LoadLocation entrypointLoadLocation = nullptr;
-            const uintptr_t* boxedTargetCalleeLoadLocation = nullptr;
+            const uintptr_t* boxedWasmCalleeLoadLocation = &Wasm::NullWasmCallee;
             JSObject* function = jsCast<JSObject*>(value);
 
             // ii. If v is an Exported Function Exotic Object:
@@ -216,11 +218,12 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                     importedTypeIndex = wasmFunction->typeIndex();
                     calleeInstance = wasmFunction->instance();
                     entrypointLoadLocation = wasmFunction->entrypointLoadLocation();
-                    boxedTargetCalleeLoadLocation = wasmFunction->boxedWasmCalleeLoadLocation();
+                    boxedWasmCalleeLoadLocation = wasmFunction->boxedWasmCalleeLoadLocation();
                 } else {
                     importedTypeIndex = wasmWrapperFunction->typeIndex();
                     // b. Let closure be v.[[Closure]].
                     function = wasmWrapperFunction->function();
+                    boxedWasmCalleeLoadLocation = wasmWrapperFunction->boxedWasmCalleeLoadLocation();
                 }
                 Wasm::TypeIndex expectedTypeIndex = moduleInformation.importFunctionTypeIndices[import.kindIndex];
                 if (!Wasm::isSubtypeIndex(importedTypeIndex, expectedTypeIndex))
@@ -233,9 +236,10 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
             // Note: adding the JSCell to the instance list fulfills closure requirements b. above (the WebAssembly.Instance wil be kept alive) and v. below (the JSFunction).
 
             auto* info = m_instance->importFunctionInfo(import.kindIndex);
+            info->boxedWasmCalleeLoadLocation = boxedWasmCalleeLoadLocation;
             info->targetInstance.setMayBeNull(vm, m_instance.get(), calleeInstance);
-            info->wasmEntrypointLoadLocation = entrypointLoadLocation;
-            info->boxedTargetCalleeLoadLocation = boxedTargetCalleeLoadLocation;
+            info->entrypointLoadLocation = entrypointLoadLocation;
+            info->typeIndex = moduleInformation.importFunctionTypeIndices[import.kindIndex];
             m_instance->importFunction(import.kindIndex).set(vm, m_instance.get(), function);
             break;
         }
@@ -319,10 +323,10 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                         break;
                     }
                     case Wasm::TypeKind::F32:
-                        m_instance->setGlobal(import.kindIndex, bitwise_cast<uint32_t>(value.toFloat(globalObject)));
+                        m_instance->setGlobal(import.kindIndex, std::bit_cast<uint32_t>(value.toFloat(globalObject)));
                         break;
                     case Wasm::TypeKind::F64:
-                        m_instance->setGlobal(import.kindIndex, bitwise_cast<uint64_t>(value.asNumber()));
+                        m_instance->setGlobal(import.kindIndex, std::bit_cast<uint64_t>(value.asNumber()));
                         break;
                     case Wasm::TypeKind::V128:
                         return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "cannot be v128"_s)));
@@ -918,5 +922,7 @@ JSValue WebAssemblyModuleRecord::evaluate(JSGlobalObject* globalObject)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

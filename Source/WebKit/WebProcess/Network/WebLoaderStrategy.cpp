@@ -33,7 +33,6 @@
 #include "NetworkResourceLoadParameters.h"
 #include "RemoteWorkerFrameLoaderClient.h"
 #include "WebCompiledContentRuleList.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebErrors.h"
 #include "WebFrame.h"
 #include "WebLocalFrameLoaderClient.h"
@@ -81,7 +80,7 @@
 #include <WebCore/QuickLook.h>
 #endif
 
-#if ENABLE(WK_WEB_EXTENSIONS)
+#if ENABLE(WK_WEB_EXTENSIONS) && PLATFORM(COCOA)
 #include "WebExtensionControllerProxy.h"
 #endif
 
@@ -93,6 +92,7 @@
 #define WEBLOADERSTRATEGY_WITH_FRAMELOADER_RELEASE_LOG_STANDARD_PARAMETERS this, nullptr, &frameLoader, &frameLoader.frame(), trackingParameters.pageID ? trackingParameters.pageID->toUInt64() : 0, trackingParameters.frameID ? trackingParameters.frameID->object().toUInt64() : 0, trackingParameters.resourceID ? trackingParameters.resourceID->toUInt64() : 0
 
 #define WEBLOADERSTRATEGY_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, WEBLOADERSTRATEGY_RELEASE_LOG_STANDARD_TEMPLATE fmt, WEBLOADERSTRATEGY_RELEASE_LOG_STANDARD_PARAMETERS, ##__VA_ARGS__)
+#define WEBLOADERSTRATEGY_RELEASE_LOG_FORWARDABLE(fmt, ...) RELEASE_LOG_FORWARDABLE(Network, fmt, trackingParameters.pageID ? trackingParameters.pageID->toUInt64() : 0, trackingParameters.frameID ? trackingParameters.frameID->object().toUInt64() : 0, trackingParameters.resourceID ? trackingParameters.resourceID->toUInt64() : 0, ##__VA_ARGS__)
 #define WEBLOADERSTRATEGY_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(Network, WEBLOADERSTRATEGY_RELEASE_LOG_STANDARD_TEMPLATE fmt, WEBLOADERSTRATEGY_RELEASE_LOG_STANDARD_PARAMETERS, ##__VA_ARGS__)
 
 #define WEBLOADERSTRATEGY_WITH_FRAMELOADER_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, WEBLOADERSTRATEGY_RELEASE_LOG_STANDARD_TEMPLATE fmt, WEBLOADERSTRATEGY_WITH_FRAMELOADER_RELEASE_LOG_STANDARD_PARAMETERS, ##__VA_ARGS__)
@@ -103,20 +103,29 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebLoaderStrategy);
 
-WebLoaderStrategy::WebLoaderStrategy()
-    : m_internallyFailedLoadTimer(RunLoop::main(), this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
+WebLoaderStrategy::WebLoaderStrategy(WebProcess& webProcess)
+    : m_webProcess(webProcess)
+    , m_internallyFailedLoadTimer(RunLoop::main(), this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
 {
 }
 
-WebLoaderStrategy::~WebLoaderStrategy()
+WebLoaderStrategy::~WebLoaderStrategy() = default;
+
+void WebLoaderStrategy::ref() const
 {
+    m_webProcess->ref();
+}
+
+void WebLoaderStrategy::deref() const
+{
+    m_webProcess->deref();
 }
 
 void WebLoaderStrategy::loadResource(LocalFrame& frame, CachedResource& resource, ResourceRequest&& request, const ResourceLoaderOptions& options, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&& completionHandler)
 {
     if (resource.type() != CachedResource::Type::MainResource || !frame.isMainFrame()) {
-        if (auto* localMainFrame = dynamicDowncast<LocalFrame>(frame.mainFrame())) {
-            if (auto* document = localMainFrame->document()) {
+        if (RefPtr localMainFrame = frame.localMainFrame()) {
+            if (RefPtr document = localMainFrame->document()) {
                 if (document && document->loader())
                     request.setIsAppInitiated(document->loader()->lastNavigationWasAppInitiated());
             }
@@ -254,7 +263,7 @@ void WebLoaderStrategy::scheduleLoad(ResourceLoader& resourceLoader, CachedResou
         return;
     }
 
-    WEBLOADERSTRATEGY_RELEASE_LOG("scheduleLoad: URL will be scheduled with the NetworkProcess");
+    WEBLOADERSTRATEGY_RELEASE_LOG_FORWARDABLE(WEBLOADERSTRATEGY_SCHEDULELOAD);
     scheduleLoadFromNetworkProcess(resourceLoader, resourceLoader.request(), trackingParameters, shouldClearReferrerOnHTTPSToHTTPRedirect, maximumBufferingTime(resource));
 }
 
@@ -306,7 +315,7 @@ bool WebLoaderStrategy::tryLoadingUsingPDFJSHandler(ResourceLoader& resourceLoad
 
 static RefPtr<DocumentLoader> policySourceDocumentLoaderForFrame(const LocalFrame& frame, bool isMainFrameNavigation = false)
 {
-    RefPtr mainFrame = dynamicDowncast<LocalFrame>(frame.mainFrame());
+    RefPtr mainFrame = frame.localMainFrame();
     if (!mainFrame)
         return { };
 
@@ -340,6 +349,7 @@ static void addParametersShared(const LocalFrame* frame, NetworkResourceLoadPara
     if (auto* document = frame->document()) {
         parameters.crossOriginEmbedderPolicy = document->crossOriginEmbedderPolicy();
         parameters.isClearSiteDataHeaderEnabled = document->settings().clearSiteDataHTTPHeaderEnabled();
+        parameters.isClearSiteDataExecutionContextEnabled = document->settings().clearSiteDataExecutionContextsSupportEnabled();
     }
 
     if (auto* page = frame->page()) {
@@ -347,7 +357,7 @@ static void addParametersShared(const LocalFrame* frame, NetworkResourceLoadPara
         parameters.shouldRelaxThirdPartyCookieBlocking = page->shouldRelaxThirdPartyCookieBlocking();
         page->logMediaDiagnosticMessage(parameters.request.httpBody());
 
-#if ENABLE(WK_WEB_EXTENSIONS)
+#if ENABLE(WK_WEB_EXTENSIONS) && PLATFORM(COCOA)
         if (RefPtr webPage = WebPage::fromCorePage(*page)) {
             if (RefPtr extensionControllerProxy = webPage->webExtensionControllerProxy())
                 parameters.pageHasLoadedWebExtensions = extensionControllerProxy->hasLoadedContexts();
@@ -400,7 +410,7 @@ void WebLoaderStrategy::scheduleLoadFromNetworkProcess(ResourceLoader& resourceL
     loadParameters.webPageProxyID = trackingParameters.webPageProxyID;
     loadParameters.webPageID = trackingParameters.pageID;
     loadParameters.webFrameID = trackingParameters.frameID;
-    loadParameters.parentPID = presentingApplicationPID();
+    loadParameters.parentPID = legacyPresentingApplicationPID();
 #if HAVE(AUDIT_TOKEN)
     loadParameters.networkProcessAuditToken = WebProcess::singleton().ensureNetworkProcessConnection().networkProcessAuditToken();
 #endif
@@ -537,7 +547,7 @@ void WebLoaderStrategy::scheduleLoadFromNetworkProcess(ResourceLoader& resourceL
     std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume;
     if (loadParameters.isMainFrameNavigation)
         existingNetworkResourceLoadIdentifierToResume = std::exchange(m_existingNetworkResourceLoadIdentifierToResume, std::nullopt);
-    WEBLOADERSTRATEGY_RELEASE_LOG("scheduleLoad: Resource is being scheduled with the NetworkProcess (priority=%d, existingNetworkResourceLoadIdentifierToResume=%" PRIu64 ")", static_cast<int>(resourceLoader.request().priority()), existingNetworkResourceLoadIdentifierToResume ? existingNetworkResourceLoadIdentifierToResume->toUInt64() : 0);
+    WEBLOADERSTRATEGY_RELEASE_LOG_FORWARDABLE(WEBLOADERSTRATEGY_SCHEDULELOAD_RESOURCE_SCHEDULED_WITH_NETWORKPROCESS, static_cast<int>(resourceLoader.request().priority()), existingNetworkResourceLoadIdentifierToResume ? existingNetworkResourceLoadIdentifierToResume->toUInt64() : 0);
 
     if (WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::ScheduleResourceLoad(loadParameters, existingNetworkResourceLoadIdentifierToResume), 0) != IPC::Error::NoError) {
         WEBLOADERSTRATEGY_RELEASE_LOG_ERROR("scheduleLoad: Unable to schedule resource with the NetworkProcess (priority=%d)", static_cast<int>(resourceLoader.request().priority()));
@@ -751,7 +761,7 @@ void WebLoaderStrategy::loadResourceSynchronously(FrameLoader& frameLoader, WebC
     loadParameters.webPageProxyID = webPageProxyID;
     loadParameters.webPageID = pageID;
     loadParameters.webFrameID = frameID;
-    loadParameters.parentPID = presentingApplicationPID();
+    loadParameters.parentPID = legacyPresentingApplicationPID();
 #if HAVE(AUDIT_TOKEN)
     loadParameters.networkProcessAuditToken = WebProcess::singleton().ensureNetworkProcessConnection().networkProcessAuditToken();
 #endif
@@ -835,7 +845,7 @@ void WebLoaderStrategy::startPingLoad(LocalFrame& frame, ResourceRequest& reques
     loadParameters.request = request;
     loadParameters.sourceOrigin = &document->securityOrigin();
     loadParameters.topOrigin = &document->topOrigin();
-    loadParameters.parentPID = presentingApplicationPID();
+    loadParameters.parentPID = legacyPresentingApplicationPID();
 #if HAVE(AUDIT_TOKEN)
     loadParameters.networkProcessAuditToken = WebProcess::singleton().ensureNetworkProcessConnection().networkProcessAuditToken();
 #endif
@@ -923,7 +933,7 @@ void WebLoaderStrategy::preconnectTo(WebCore::ResourceRequest&& request, WebPage
     parameters.webPageProxyID = webPage.webPageProxyIdentifier();
     parameters.webPageID = webPage.identifier();
     parameters.webFrameID = webFrame.frameID();
-    parameters.parentPID = presentingApplicationPID();
+    parameters.parentPID = legacyPresentingApplicationPID();
 #if HAVE(AUDIT_TOKEN)
     parameters.networkProcessAuditToken = WebProcess::singleton().ensureNetworkProcessConnection().networkProcessAuditToken();
 #endif

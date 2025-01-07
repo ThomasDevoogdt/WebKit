@@ -24,28 +24,22 @@
 
 #pragma once
 
+#include "CSSPrimitiveNumericTypes+Canonicalization.h"
 #include "CSSPropertyParserConsumer+MetaConsumerDefinitions.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
 
 struct FrequencyValidator {
-    static constexpr bool isValid(CSSUnitType unitType, CSSPropertyParserOptions)
+    static constexpr std::optional<CSS::FrequencyUnit> validate(CSSUnitType unitType, CSSPropertyParserOptions)
     {
-        switch (unitType) {
-        case CSSUnitType::CSS_HZ:
-        case CSSUnitType::CSS_KHZ:
-            return true;
-
-        default:
-            return false;
-        }
+        return CSS::UnitTraits<CSS::FrequencyUnit>::validate(unitType);
     }
 
     template<auto R> static bool isValid(CSS::FrequencyRaw<R> raw, CSSPropertyParserOptions)
     {
         return isValidDimensionValue(raw, [&] {
-            auto canonicalValue = CSS::canonicalizeFrequency(raw.value, raw.type);
+            auto canonicalValue = CSS::canonicalize(raw);
             return canonicalValue >= raw.range.min && canonicalValue <= raw.range.max;
         });
     }

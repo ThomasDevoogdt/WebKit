@@ -78,6 +78,7 @@
 #import <wtf/HashSet.h>
 #import <wtf/ObjectIdentifier.h>
 #import <wtf/OptionSet.h>
+#import <wtf/Scope.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/text/WTFString.h>
@@ -235,7 +236,7 @@ typedef std::pair<WebKit::InteractionInformationRequest, InteractionInformationC
 namespace WebKit {
 
 enum SuppressSelectionAssistantReason : uint8_t {
-    EditableRootIsTransparentOrFullyClipped = 1 << 0,
+    SelectionIsTransparentOrFullyClipped = 1 << 0,
     FocusedElementIsTooSmall = 1 << 1,
     InteractionIsHappening = 1 << 2,
     ShowingFullscreenVideo = 1 << 3,
@@ -255,7 +256,7 @@ enum class TargetedPreviewPositioning : uint8_t {
 using InputViewUpdateDeferralSources = OptionSet<InputViewUpdateDeferralSource>;
 
 struct WKSelectionDrawingInfo {
-    enum class SelectionType { None, Plugin, Range };
+    enum class SelectionType : bool { None, Range };
     WKSelectionDrawingInfo();
     explicit WKSelectionDrawingInfo(const EditorState&);
     SelectionType type { SelectionType::None };
@@ -263,6 +264,7 @@ struct WKSelectionDrawingInfo {
     WebCore::Color caretColor;
     Vector<WebCore::SelectionGeometry> selectionGeometries;
     WebCore::IntRect selectionClipRect;
+    std::optional<WebCore::PlatformLayerIdentifier> enclosingLayerID;
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const WKSelectionDrawingInfo&);
@@ -435,7 +437,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<WKSTextAnimationManager> _textAnimationManager;
 #endif
 
-    std::unique_ptr<WebKit::SmartMagnificationController> _smartMagnificationController;
+    RefPtr<WebKit::SmartMagnificationController> _smartMagnificationController;
 
     WeakObjCPtr<id <UITextInputDelegate>> _inputDelegate;
 
@@ -618,7 +620,7 @@ struct ImageAnalysisContextMenuActionData {
 
 @end
 
-@interface WKContentView (WKInteraction) <UIGestureRecognizerDelegate, UITextInput, WKFormAccessoryViewDelegate, WKTouchEventsGestureRecognizerDelegate, WKActionSheetAssistantDelegate, WKFileUploadPanelDelegate, WKKeyboardScrollViewAnimatorDelegate, WKDeferringGestureRecognizerDelegate
+@interface WKContentView (WKInteraction) <UIGestureRecognizerDelegate, UITextInput, WKFormAccessoryViewDelegate, WKActionSheetAssistantDelegate, WKFileUploadPanelDelegate, WKKeyboardScrollViewAnimatorDelegate, WKDeferringGestureRecognizerDelegate
 #if HAVE(CONTACTSUI)
     , WKContactPickerDelegate
 #endif
@@ -649,7 +651,7 @@ struct ImageAnalysisContextMenuActionData {
 
 @property (nonatomic, readonly) CGPoint lastInteractionLocation;
 @property (nonatomic, readonly) BOOL isEditable;
-@property (nonatomic, readonly) BOOL shouldHideSelectionWhenScrolling;
+@property (nonatomic, readonly) BOOL shouldHideSelectionInFixedPositionWhenScrolling;
 @property (nonatomic, readonly) BOOL shouldIgnoreKeyboardWillHideNotification;
 @property (nonatomic, readonly) const WebKit::InteractionInformationAtPosition& positionInformation;
 @property (nonatomic, readonly) const WebKit::WKAutoCorrectionData& autocorrectionData;
@@ -670,6 +672,7 @@ struct ImageAnalysisContextMenuActionData {
 @property (nonatomic, readonly) UIView *unscaledView;
 @property (nonatomic, readonly) BOOL isPresentingEditMenu;
 @property (nonatomic, readonly) CGSize sizeForLegacyFormControlPickerViews;
+@property (nonatomic, readonly, getter=isPotentialTapInProgress) BOOL potentialTapInProgress;
 
 #if ENABLE(DATALIST_ELEMENT)
 @property (nonatomic, strong) UIView <WKFormControl> *dataListTextSuggestionsInputView;
@@ -737,10 +740,12 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)_handleSmartMagnificationInformationForPotentialTap:(WebKit::TapIdentifier)requestID renderRect:(const WebCore::FloatRect&)renderRect fitEntireRect:(BOOL)fitEntireRect viewportMinimumScale:(double)viewportMinimumScale viewportMaximumScale:(double)viewportMaximumScale nodeIsRootLevel:(BOOL)nodeIsRootLevel;
 - (void)_elementDidFocus:(const WebKit::FocusedElementInformation&)information userIsInteracting:(BOOL)userIsInteracting blurPreviousNode:(BOOL)blurPreviousNode activityStateChanges:(OptionSet<WebCore::ActivityState>)activityStateChanges userObject:(NSObject <NSSecureCoding> *)userObject;
 - (void)_updateInputContextAfterBlurringAndRefocusingElement;
+- (void)_didProgrammaticallyClearFocusedElement:(WebCore::ElementContext&&)context;
 - (void)_updateFocusedElementInformation:(const WebKit::FocusedElementInformation&)information;
 - (void)_elementDidBlur;
 - (void)_didUpdateInputMode:(WebCore::InputMode)mode;
 - (void)_didUpdateEditorState;
+- (void)_reconcileEnclosingScrollViewContentOffset:(WebKit::EditorState&)state;
 - (void)_hardwareKeyboardAvailabilityChanged;
 - (void)_selectionChanged;
 - (void)_updateChangedSelection;
@@ -909,8 +914,16 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (BOOL)_tryToHandlePressesEvent:(UIPressesEvent *)event;
 - (void)_closeCurrentTypingCommand;
 
+- (BOOL)_shouldIgnoreTouchEvent:(UIEvent *)event;
+- (void)_touchEventsRecognized;
+
+- (BOOL)_hasEnclosingScrollView:(UIView *)firstView matchingCriteria:(Function<BOOL(UIScrollView *)>&&)matchFunction;
+
+- (ScopeExit<Function<void()>>)makeTextSelectionViewsNonInteractiveForScope;
+
+- (BOOL)_shouldHideSelectionDuringOverflowScroll:(UIScrollView *)scrollView;
+
 @property (nonatomic, readonly) BOOL shouldUseAsyncInteractions;
-@property (nonatomic, readonly) BOOL selectionHonorsOverflowScrolling;
 
 @end
 

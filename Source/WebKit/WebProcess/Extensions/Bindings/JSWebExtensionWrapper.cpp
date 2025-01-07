@@ -29,14 +29,16 @@
 #if ENABLE(WK_WEB_EXTENSIONS)
 
 #include "JSWebExtensionWrappable.h"
+#include "WebFrame.h"
+#include "WebPage.h"
 #include <JavaScriptCore/JSObjectRef.h>
 #include <JavaScriptCore/JSWeakObjectMapRefPrivate.h>
 
 namespace WebKit {
 
-static UncheckedKeyHashMap<JSGlobalContextRef, JSWeakObjectMapRef>& wrapperCache()
+static HashMap<JSGlobalContextRef, JSWeakObjectMapRef>& wrapperCache()
 {
-    static NeverDestroyed<UncheckedKeyHashMap<JSGlobalContextRef, JSWeakObjectMapRef>> wrappers;
+    static NeverDestroyed<HashMap<JSGlobalContextRef, JSWeakObjectMapRef>> wrappers;
     return wrappers;
 }
 
@@ -126,6 +128,19 @@ void JSWebExtensionWrapper::finalize(JSObjectRef object)
         JSObjectSetPrivate(object, nullptr);
         wrappable->deref();
     }
+}
+
+RefPtr<WebFrame> toWebFrame(JSContextRef context)
+{
+    ASSERT(context);
+    return WebFrame::frameForContext(JSContextGetGlobalContext(context));
+}
+
+RefPtr<WebPage> toWebPage(JSContextRef context)
+{
+    ASSERT(context);
+    auto frame = toWebFrame(context);
+    return frame ? frame->page() : nullptr;
 }
 
 } // namespace WebKit

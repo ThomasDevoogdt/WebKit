@@ -373,14 +373,6 @@ static bool shouldInlinifyForRuby(const RenderStyle& style, const RenderStyle& p
     return hasRubyParent && !style.hasOutOfFlowPosition() && !style.isFloating();
 }
 
-static bool isRubyContainerOrInternalRubyBox(const RenderStyle& style)
-{
-    auto display = style.display();
-    return display == DisplayType::Ruby
-        || display == DisplayType::RubyAnnotation
-        || display == DisplayType::RubyBase;
-}
-
 static bool hasUnsupportedRubyDisplay(DisplayType display, const Element* element)
 {
     // Only allow ruby elements to have ruby display types for now.
@@ -458,7 +450,7 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
 
         // FIXME: Don't support this mutation for pseudo styles like first-letter or first-line, since it's not completely
         // clear how that should work.
-        if (style.display() == DisplayType::Inline && style.pseudoElementType() == PseudoId::None && style.writingMode() != m_parentStyle.writingMode())
+        if (style.display() == DisplayType::Inline && style.pseudoElementType() == PseudoId::None && style.writingMode().computedWritingMode() != m_parentStyle.writingMode().computedWritingMode())
             style.setEffectiveDisplay(DisplayType::InlineBlock);
 
         // After performing the display mutation, check table rows. We do not honor position:relative or position:sticky on
@@ -474,13 +466,13 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
         if (style.display() == DisplayType::TableColumn || style.display() == DisplayType::TableColumnGroup || style.display() == DisplayType::TableFooterGroup
             || style.display() == DisplayType::TableHeaderGroup || style.display() == DisplayType::TableRow || style.display() == DisplayType::TableRowGroup
             || style.display() == DisplayType::TableCell)
-            style.setWritingMode(m_parentStyle.writingMode());
+            style.setWritingMode(m_parentStyle.writingMode().computedWritingMode());
 
         if (style.isDisplayDeprecatedFlexibleBox()) {
             // FIXME: Since we don't support block-flow on flexible boxes yet, disallow setting
-            // of block-flow to anything other than WritingMode::HorizontalTb.
+            // of block-flow to anything other than StyleWritingMode::HorizontalTb.
             // https://bugs.webkit.org/show_bug.cgi?id=46418 - Flexible box support.
-            style.setWritingMode(WritingMode::HorizontalTb);
+            style.setWritingMode(StyleWritingMode::HorizontalTb);
         }
 
         if (m_parentBoxStyle.isDisplayDeprecatedFlexibleBox())
@@ -497,7 +489,7 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
         if (shouldInlinifyForRuby(style, m_parentBoxStyle))
             style.setEffectiveDisplay(equivalentInlineDisplay(style));
         // https://drafts.csswg.org/css-ruby-1/#bidi
-        if (isRubyContainerOrInternalRubyBox(style))
+        if (style.isRubyContainerOrInternalRubyBox())
             style.setUnicodeBidi(forceBidiIsolationForRuby(style.unicodeBidi()));
     }
 
@@ -556,6 +548,9 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
             || style.boxReflect()
             || style.hasFilter()
             || style.hasBackdropFilter()
+#if HAVE(CORE_MATERIAL)
+            || style.hasAppleVisualEffect()
+#endif
             || style.hasBlendMode()
             || style.hasIsolation()
             || style.position() == PositionType::Sticky
@@ -575,8 +570,9 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
         if (RefPtr input = dynamicDowncast<HTMLInputElement>(*element); input && input->isPasswordField())
             style.setTextSecurity(style.inputSecurity() == InputSecurity::Auto ? TextSecurity::Disc : TextSecurity::None);
 
-        // Disallow -webkit-user-modify on :pseudo and ::pseudo elements.
-        if (element->isInUserAgentShadowTree() && !element->userAgentPart().isNull())
+        // Disallow -webkit-user-modify on ::pseudo elements, except if that pseudo-element targets a slot,
+        // in which case we want the editability to be passed onto the slotted contents.
+        if (element->isInUserAgentShadowTree() && !element->userAgentPart().isNull() && !is<HTMLSlotElement>(element))
             style.setUserModify(UserModify::ReadOnly);
 
         if (is<HTMLMarqueeElement>(*element)) {
@@ -605,7 +601,7 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
     else
         style.setTextDecorationsInEffect(style.textDecorationLine());
 
-    bool overflowIsClipOrVisible = isOverflowClipOrVisible(style.overflowX()) && isOverflowClipOrVisible(style.overflowX());
+    bool overflowIsClipOrVisible = isOverflowClipOrVisible(style.overflowY()) && isOverflowClipOrVisible(style.overflowX());
 
     if (!overflowIsClipOrVisible && (style.display() == DisplayType::Table || style.display() == DisplayType::InlineTable)) {
         // Tables only support overflow:hidden and overflow:visible and ignore anything else,
@@ -699,6 +695,9 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
             || style.hasIsolation()
             || style.hasMask()
             || style.hasBackdropFilter()
+#if HAVE(CORE_MATERIAL)
+            || style.hasAppleVisualEffect()
+#endif
             || style.hasBlendMode()
             || !style.viewTransitionName().isNone();
         if (RefPtr element = m_element) {
@@ -759,9 +758,11 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
             adjustForTextAutosizing(style, *m_element);
 #endif
     }
-    if (isSkippedContentRoot(style, m_element.get()) && m_parentStyle.contentVisibility() != ContentVisibility::Hidden)
-        style.setUsedContentVisibility(style.contentVisibility());
 
+    if (m_parentStyle.contentVisibility() != ContentVisibility::Hidden) {
+        if (m_element && isSkippedContentRoot(style, *m_element))
+            style.setUsedContentVisibility(style.contentVisibility());
+    }
     if (style.contentVisibility() == ContentVisibility::Auto) {
         style.containIntrinsicWidthAddAuto();
         style.containIntrinsicHeightAddAuto();
@@ -923,6 +924,11 @@ void Adjuster::adjustForSiteSpecificQuirks(RenderStyle& style) const
     if (!m_element)
         return;
 
+    if (is<HTMLBodyElement>(*m_element) && m_document->quirks().needsBodyScrollbarWidthNoneDisabledQuirk()) {
+        if (style.scrollbarWidth() == ScrollbarWidth::None)
+            style.setScrollbarWidth(ScrollbarWidth::Auto);
+    }
+
     if (m_document->quirks().needsGMailOverflowScrollQuirk()) {
         // This turns sidebar scrollable without mouse move event.
         static MainThreadNeverDestroyed<const AtomString> roleValue("navigation"_s);
@@ -932,8 +938,8 @@ void Adjuster::adjustForSiteSpecificQuirks(RenderStyle& style) const
     if (m_document->quirks().needsIPadSkypeOverflowScrollQuirk()) {
         // This makes the layout scrollable and makes visible the buttons hidden outside of the viewport.
         // static MainThreadNeverDestroyed<const AtomString> selectorValue(".app-container .noFocusOutline > div"_s);
-        if (RefPtr div = dynamicDowncast<HTMLDivElement>(m_element)) {
-            auto matchesNoFocus = div->matches(".app-container .noFocusOutline > div"_s);
+        if (is<HTMLDivElement>(*m_element)) {
+            auto matchesNoFocus = m_element->matches(".app-container .noFocusOutline > div"_s);
             if (matchesNoFocus.hasException())
                 return;
             if (matchesNoFocus.returnValue()) {
@@ -958,8 +964,8 @@ void Adjuster::adjustForSiteSpecificQuirks(RenderStyle& style) const
             && style.flexShrink() == 1
             && (flexBasis.isPercent() || flexBasis.isFixed())
             && flexBasis.value() == 0
-            && const_cast<Element*>(m_element.get())->classList().contains(class1)
-            && const_cast<Element*>(m_element.get())->classList().contains(class2))
+            && m_element->hasClassName(class1)
+            && m_element->hasClassName(class2))
             style.setMinHeight(WebCore::Length(0, LengthType::Fixed));
     }
     if (m_document->quirks().needsPrimeVideoUserSelectNoneQuirk()) {
@@ -968,14 +974,24 @@ void Adjuster::adjustForSiteSpecificQuirks(RenderStyle& style) const
             style.setUserSelect(UserSelect::None);
     }
 
+#if PLATFORM(IOS_FAMILY)
+    if (m_document->quirks().needsGoogleMapsScrollingQuirk()) {
+        static MainThreadNeverDestroyed<const AtomString> className("PUtLdf"_s);
+        if (is<HTMLBodyElement>(*m_element) && m_element->hasClassName(className))
+            style.setUsedTouchActions({ TouchAction::Auto });
+    }
+    if (m_document->quirks().needsFacebookStoriesCreationFormQuirk(*m_element, style))
+        style.setEffectiveDisplay(DisplayType::Flex);
+#endif // PLATFORM(IOS_FAMILY)
+
 #if ENABLE(VIDEO)
     if (m_document->quirks().needsFullscreenDisplayNoneQuirk()) {
-        if (RefPtr div = dynamicDowncast<HTMLDivElement>(m_element); div && style.display() == DisplayType::None) {
+        if (is<HTMLDivElement>(*m_element) && style.display() == DisplayType::None) {
             static MainThreadNeverDestroyed<const AtomString> instreamNativeVideoDivClass("instream-native-video--mobile"_s);
             static MainThreadNeverDestroyed<const AtomString> videoElementID("vjs_video_3_html5_api"_s);
 
-            if (div->hasClassName(instreamNativeVideoDivClass)) {
-                RefPtr video = dynamicDowncast<HTMLVideoElement>(div->treeScope().getElementById(videoElementID));
+            if (m_element->hasClassName(instreamNativeVideoDivClass)) {
+                RefPtr video = dynamicDowncast<HTMLVideoElement>(m_element->treeScope().getElementById(videoElementID));
                 if (video && video->isFullscreen())
                     style.setEffectiveDisplay(DisplayType::Block);
             }
@@ -985,8 +1001,7 @@ void Adjuster::adjustForSiteSpecificQuirks(RenderStyle& style) const
     if (CheckedPtr fullscreenManager = m_document->fullscreenManagerIfExists(); fullscreenManager && m_document->quirks().needsFullscreenObjectFitQuirk()) {
         static MainThreadNeverDestroyed<const AtomString> playerClassName("top-player-video-element"_s);
         bool isFullscreen = fullscreenManager->isFullscreen();
-        RefPtr video = dynamicDowncast<HTMLVideoElement>(m_element);
-        if (video && isFullscreen && video->hasClassName(playerClassName) && style.objectFit() == ObjectFit::Fill)
+        if (is<HTMLVideoElement>(*m_element) && isFullscreen && m_element->hasClassName(playerClassName) && style.objectFit() == ObjectFit::Fill)
             style.setObjectFit(ObjectFit::Contain);
     }
 #endif
@@ -1014,24 +1029,24 @@ void Adjuster::propagateToDocumentElementAndInitialContainingBlock(Update& updat
     auto writingMode = [&] {
         // FIXME: The spec says body should win.
         if (documentElementStyle->hasExplicitlySetWritingMode())
-            return documentElementStyle->writingMode();
+            return documentElementStyle->writingMode().computedWritingMode();
         if (shouldPropagateFromBody && bodyStyle && bodyStyle->hasExplicitlySetWritingMode())
-            return bodyStyle->writingMode();
+            return bodyStyle->writingMode().computedWritingMode();
         return RenderStyle::initialWritingMode();
     }();
 
     auto direction = [&] {
         if (documentElementStyle->hasExplicitlySetDirection())
-            return documentElementStyle->direction();
+            return documentElementStyle->writingMode().computedTextDirection();
         if (shouldPropagateFromBody && bodyStyle && bodyStyle->hasExplicitlySetDirection())
-            return bodyStyle->direction();
+            return bodyStyle->writingMode().computedTextDirection();
         return RenderStyle::initialDirection();
     }();
 
     // https://drafts.csswg.org/css-writing-modes-3/#icb
-    auto& viewStyle = document.renderView()->style();
-    if (writingMode != viewStyle.writingMode() || direction != viewStyle.direction()) {
-        auto newRootStyle = RenderStyle::clonePtr(viewStyle);
+    WritingMode viewWritingMode = document.renderView()->writingMode();
+    if (writingMode != viewWritingMode.computedWritingMode() || direction != viewWritingMode.computedTextDirection()) {
+        auto newRootStyle = RenderStyle::clonePtr(document.renderView()->style());
         newRootStyle->setWritingMode(writingMode);
         newRootStyle->setDirection(direction);
         newRootStyle->setColumnStylesFromPaginationMode(document.view()->pagination().mode);
@@ -1039,7 +1054,7 @@ void Adjuster::propagateToDocumentElementAndInitialContainingBlock(Update& updat
     }
 
     // https://drafts.csswg.org/css-writing-modes-3/#principal-flow
-    if (writingMode != documentElementStyle->writingMode() || direction != documentElementStyle->direction()) {
+    if (writingMode != documentElementStyle->writingMode().computedWritingMode() || direction != documentElementStyle->writingMode().computedTextDirection()) {
         auto* documentElementUpdate = update.elementUpdate(*document.documentElement());
         if (!documentElementUpdate) {
             update.addElement(*document.documentElement(), nullptr, { RenderStyle::clonePtr(*documentElementStyle) });
@@ -1053,7 +1068,7 @@ void Adjuster::propagateToDocumentElementAndInitialContainingBlock(Update& updat
 
 std::unique_ptr<RenderStyle> Adjuster::restoreUsedDocumentElementStyleToComputed(const RenderStyle& style)
 {
-    if (style.writingMode() == RenderStyle::initialWritingMode() && style.direction() == RenderStyle::initialDirection())
+    if (style.writingMode().computedWritingMode() == RenderStyle::initialWritingMode() && style.writingMode().computedTextDirection() == RenderStyle::initialDirection())
         return { };
 
     auto adjusted = RenderStyle::clonePtr(style);
@@ -1135,14 +1150,13 @@ auto Adjuster::adjustmentForTextAutosizing(const RenderStyle& style, const Eleme
     return adjustmentForTextAutosizing;
 }
 
-bool Adjuster::adjustForTextAutosizing(RenderStyle& style, const Element& element, AdjustmentForTextAutosizing adjustment)
+bool Adjuster::adjustForTextAutosizing(RenderStyle& style, AdjustmentForTextAutosizing adjustment)
 {
     AutosizeStatus::updateStatus(style);
     if (auto newFontSize = adjustment.newFontSize) {
         auto fontDescription = style.fontDescription();
         fontDescription.setComputedSize(*newFontSize);
         style.setFontDescription(WTFMove(fontDescription));
-        style.fontCascade().update(&element.document().fontSelector());
     }
     if (auto newLineHeight = adjustment.newLineHeight)
         style.setLineHeight({ *newLineHeight, LengthType::Fixed });
@@ -1153,7 +1167,7 @@ bool Adjuster::adjustForTextAutosizing(RenderStyle& style, const Element& elemen
 
 bool Adjuster::adjustForTextAutosizing(RenderStyle& style, const Element& element)
 {
-    return adjustForTextAutosizing(style, element, adjustmentForTextAutosizing(style, element));
+    return adjustForTextAutosizing(style, adjustmentForTextAutosizing(style, element));
 }
 #endif
 

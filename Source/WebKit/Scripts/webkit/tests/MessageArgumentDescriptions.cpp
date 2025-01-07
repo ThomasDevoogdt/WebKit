@@ -46,7 +46,6 @@
 #include "LibWebRTCResolverIdentifier.h"
 #include "LogStreamIdentifier.h"
 #include "MarkSurfacesAsVolatileRequestIdentifier.h"
-#include "MediaRecorderIdentifier.h"
 #include "NetworkResourceLoadIdentifier.h"
 #include "PDFPluginIdentifier.h"
 #include "PlaybackSessionContextIdentifier.h"
@@ -71,6 +70,9 @@
 #endif
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
 #include "RemoteLegacyCDMSessionIdentifier.h"
+#endif
+#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_RECORDER)
+#include "RemoteMediaRecorderPrivateWriterIdentifier.h"
 #endif
 #include "RemoteMediaResourceIdentifier.h"
 #if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_SOURCE)
@@ -121,6 +123,7 @@
 #include <WebCore/FileSystemSyncAccessHandleIdentifier.h>
 #include <WebCore/GlobalWindowIdentifier.h>
 #include <WebCore/IDBDatabaseConnectionIdentifier.h>
+#include <WebCore/IDBIndexIdentifier.h>
 #include <WebCore/IDBObjectStoreIdentifier.h>
 #include <WebCore/ImageDecoderIdentifier.h>
 #include <WebCore/InbandGenericCueIdentifier.h>
@@ -149,6 +152,7 @@
 #include <WebCore/ServiceWorkerTypes.h>
 #include <WebCore/SharedWorkerIdentifier.h>
 #include <WebCore/SleepDisablerIdentifier.h>
+#include <WebCore/SnapshotIdentifier.h>
 #include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
 #include <WebCore/TextCheckingRequestIdentifier.h>
 #include <WebCore/TextManipulationItemIdentifier.h>
@@ -156,18 +160,17 @@
 #include <WebCore/UserMediaRequestIdentifier.h>
 #include <WebCore/WebSocketIdentifier.h>
 #include "TestWithCVPixelBufferMessages.h" // NOLINT
-#include "TestWithWantsDispatchMessages.h" // NOLINT
-#include "TestWithWantsDispatchNoSyncMessagesMessages.h" // NOLINT
-#include "TestWithWantsAsyncDispatchMessages.h" // NOLINT
+#include "TestWithDeferSendingOptionMessages.h" // NOLINT
+#include "TestWithDispatchedFromAndToMessages.h" // NOLINT
 #include "TestWithEnabledByMessages.h" // NOLINT
 #include "TestWithEnabledByAndConjunctionMessages.h" // NOLINT
 #include "TestWithEnabledByOrConjunctionMessages.h" // NOLINT
-#include "TestWithEnabledIfMessages.h" // NOLINT
 #include "TestWithIfMessageMessages.h" // NOLINT
 #include "TestWithImageDataMessages.h" // NOLINT
 #if (ENABLE(WEBKIT2) && (NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND))
 #include "TestWithLegacyReceiverMessages.h" // NOLINT
 #endif
+#include "TestWithMultiLineExtendedAttributesMessages.h" // NOLINT
 #if (ENABLE(WEBKIT2) && (NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND))
 #include "TestWithoutAttributesMessages.h" // NOLINT
 #endif
@@ -180,6 +183,10 @@
 #include "TestWithSuperclassMessages.h" // NOLINT
 #include "TestWithSuperclassAndWantsAsyncDispatchMessages.h" // NOLINT
 #include "TestWithSuperclassAndWantsDispatchMessages.h" // NOLINT
+#include "TestWithValidatorMessages.h" // NOLINT
+#include "TestWithWantsAsyncDispatchMessages.h" // NOLINT
+#include "TestWithWantsDispatchMessages.h" // NOLINT
+#include "TestWithWantsDispatchNoSyncMessagesMessages.h" // NOLINT
 
 namespace IPC {
 
@@ -194,16 +201,16 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
     case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
         return jsValueForDecodedMessage<MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer>(globalObject, decoder);
 #endif
-    case MessageName::TestWithWantsDispatch_TestMessage:
-        return jsValueForDecodedMessage<MessageName::TestWithWantsDispatch_TestMessage>(globalObject, decoder);
-    case MessageName::TestWithWantsDispatch_TestSyncMessage:
-        return jsValueForDecodedMessage<MessageName::TestWithWantsDispatch_TestSyncMessage>(globalObject, decoder);
-    case MessageName::TestWithWantsDispatchNoSyncMessages_TestMessage:
-        return jsValueForDecodedMessage<MessageName::TestWithWantsDispatchNoSyncMessages_TestMessage>(globalObject, decoder);
-    case MessageName::TestWithWantsAsyncDispatch_TestMessage:
-        return jsValueForDecodedMessage<MessageName::TestWithWantsAsyncDispatch_TestMessage>(globalObject, decoder);
-    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
-        return jsValueForDecodedMessage<MessageName::TestWithWantsAsyncDispatch_TestSyncMessage>(globalObject, decoder);
+    case MessageName::TestWithDeferSendingOption_NoOptions:
+        return jsValueForDecodedMessage<MessageName::TestWithDeferSendingOption_NoOptions>(globalObject, decoder);
+    case MessageName::TestWithDeferSendingOption_NoIndices:
+        return jsValueForDecodedMessage<MessageName::TestWithDeferSendingOption_NoIndices>(globalObject, decoder);
+    case MessageName::TestWithDeferSendingOption_OneIndex:
+        return jsValueForDecodedMessage<MessageName::TestWithDeferSendingOption_OneIndex>(globalObject, decoder);
+    case MessageName::TestWithDeferSendingOption_MultipleIndices:
+        return jsValueForDecodedMessage<MessageName::TestWithDeferSendingOption_MultipleIndices>(globalObject, decoder);
+    case MessageName::TestWithDispatchedFromAndTo_AlwaysEnabled:
+        return jsValueForDecodedMessage<MessageName::TestWithDispatchedFromAndTo_AlwaysEnabled>(globalObject, decoder);
     case MessageName::TestWithEnabledBy_AlwaysEnabled:
         return jsValueForDecodedMessage<MessageName::TestWithEnabledBy_AlwaysEnabled>(globalObject, decoder);
     case MessageName::TestWithEnabledBy_ConditionallyEnabled:
@@ -216,10 +223,6 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
         return jsValueForDecodedMessage<MessageName::TestWithEnabledByAndConjunction_AlwaysEnabled>(globalObject, decoder);
     case MessageName::TestWithEnabledByOrConjunction_AlwaysEnabled:
         return jsValueForDecodedMessage<MessageName::TestWithEnabledByOrConjunction_AlwaysEnabled>(globalObject, decoder);
-    case MessageName::TestWithEnabledIf_AlwaysEnabled:
-        return jsValueForDecodedMessage<MessageName::TestWithEnabledIf_AlwaysEnabled>(globalObject, decoder);
-    case MessageName::TestWithEnabledIf_OnlyEnabledIfFeatureEnabled:
-        return jsValueForDecodedMessage<MessageName::TestWithEnabledIf_OnlyEnabledIfFeatureEnabled>(globalObject, decoder);
 #if PLATFORM(COCOA)
     case MessageName::TestWithIfMessage_LoadURL:
         return jsValueForDecodedMessage<MessageName::TestWithIfMessage_LoadURL>(globalObject, decoder);
@@ -292,6 +295,8 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
         return jsValueForDecodedMessage<MessageName::TestWithLegacyReceiver_ExperimentalOperation>(globalObject, decoder);
 #endif
 #endif
+    case MessageName::TestWithMultiLineExtendedAttributes_AlwaysEnabled:
+        return jsValueForDecodedMessage<MessageName::TestWithMultiLineExtendedAttributes_AlwaysEnabled>(globalObject, decoder);
 #if (ENABLE(WEBKIT2) && (NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND))
     case MessageName::TestWithoutAttributes_LoadURL:
         return jsValueForDecodedMessage<MessageName::TestWithoutAttributes_LoadURL>(globalObject, decoder);
@@ -414,6 +419,22 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
         return jsValueForDecodedMessage<MessageName::TestWithSuperclassAndWantsDispatch_LoadURL>(globalObject, decoder);
     case MessageName::TestWithSuperclassAndWantsDispatch_TestSyncMessage:
         return jsValueForDecodedMessage<MessageName::TestWithSuperclassAndWantsDispatch_TestSyncMessage>(globalObject, decoder);
+    case MessageName::TestWithValidator_AlwaysEnabled:
+        return jsValueForDecodedMessage<MessageName::TestWithValidator_AlwaysEnabled>(globalObject, decoder);
+    case MessageName::TestWithValidator_EnabledIfPassValidation:
+        return jsValueForDecodedMessage<MessageName::TestWithValidator_EnabledIfPassValidation>(globalObject, decoder);
+    case MessageName::TestWithValidator_EnabledIfSomeFeatureEnabledAndPassValidation:
+        return jsValueForDecodedMessage<MessageName::TestWithValidator_EnabledIfSomeFeatureEnabledAndPassValidation>(globalObject, decoder);
+    case MessageName::TestWithWantsAsyncDispatch_TestMessage:
+        return jsValueForDecodedMessage<MessageName::TestWithWantsAsyncDispatch_TestMessage>(globalObject, decoder);
+    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
+        return jsValueForDecodedMessage<MessageName::TestWithWantsAsyncDispatch_TestSyncMessage>(globalObject, decoder);
+    case MessageName::TestWithWantsDispatch_TestMessage:
+        return jsValueForDecodedMessage<MessageName::TestWithWantsDispatch_TestMessage>(globalObject, decoder);
+    case MessageName::TestWithWantsDispatch_TestSyncMessage:
+        return jsValueForDecodedMessage<MessageName::TestWithWantsDispatch_TestSyncMessage>(globalObject, decoder);
+    case MessageName::TestWithWantsDispatchNoSyncMessages_TestMessage:
+        return jsValueForDecodedMessage<MessageName::TestWithWantsDispatchNoSyncMessages_TestMessage>(globalObject, decoder);
     default:
         break;
     }
@@ -427,10 +448,6 @@ std::optional<JSC::JSValue> jsValueForReplyArguments(JSC::JSGlobalObject* global
     case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
         return jsValueForDecodedMessageReply<MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer>(globalObject, decoder);
 #endif
-    case MessageName::TestWithWantsDispatch_TestSyncMessage:
-        return jsValueForDecodedMessageReply<MessageName::TestWithWantsDispatch_TestSyncMessage>(globalObject, decoder);
-    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
-        return jsValueForDecodedMessageReply<MessageName::TestWithWantsAsyncDispatch_TestSyncMessage>(globalObject, decoder);
     case MessageName::TestWithImageData_ReceiveImageData:
         return jsValueForDecodedMessageReply<MessageName::TestWithImageData_ReceiveImageData>(globalObject, decoder);
 #if (ENABLE(WEBKIT2) && (NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND))
@@ -505,6 +522,10 @@ std::optional<JSC::JSValue> jsValueForReplyArguments(JSC::JSGlobalObject* global
         return jsValueForDecodedMessageReply<MessageName::TestWithSuperclassAndWantsAsyncDispatch_TestSyncMessage>(globalObject, decoder);
     case MessageName::TestWithSuperclassAndWantsDispatch_TestSyncMessage:
         return jsValueForDecodedMessageReply<MessageName::TestWithSuperclassAndWantsDispatch_TestSyncMessage>(globalObject, decoder);
+    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
+        return jsValueForDecodedMessageReply<MessageName::TestWithWantsAsyncDispatch_TestSyncMessage>(globalObject, decoder);
+    case MessageName::TestWithWantsDispatch_TestSyncMessage:
+        return jsValueForDecodedMessageReply<MessageName::TestWithWantsDispatch_TestSyncMessage>(globalObject, decoder);
     default:
         break;
     }
@@ -523,6 +544,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
 #if PLATFORM(COCOA)
     static_assert(sizeof(uint64_t) == sizeof(WebCore::AttributedStringTextTableID));
 #endif
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::BackForwardFrameItemIdentifierID));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::BackForwardItemIdentifierID));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::BackgroundFetchRecordIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::BroadcastChannelIdentifier));
@@ -533,6 +555,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::FileSystemHandleIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::FileSystemSyncAccessHandleIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::FrameIdentifierID));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::IDBIndexIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::IDBObjectStoreIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::ImageDecoderIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::InbandGenericCueIdentifier));
@@ -566,6 +589,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SharedWorkerIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SharedWorkerObjectIdentifierID));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SleepDisablerIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::SnapshotIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::SpeechRecognitionConnectionClientIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::TextCheckingRequestIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::TextManipulationItemIdentifier));
@@ -575,6 +599,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::UserMediaRequestIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::WebLockIdentifierID));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::WebSocketIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::WebTransportStreamIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::WindowIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::AudioMediaStreamTrackRendererInternalUnitIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::AuthenticationChallengeIdentifier));
@@ -592,7 +617,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebKit::LibWebRTCResolverIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::LogStreamIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::MarkSurfacesAsVolatileRequestIdentifier));
-    static_assert(sizeof(uint64_t) == sizeof(WebKit::MediaRecorderIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::NetworkResourceLoadIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::PDFPluginIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::PageGroupIdentifier));
@@ -618,6 +642,9 @@ Vector<ASCIILiteral> serializedIdentifiers()
 #endif
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
     static_assert(sizeof(uint64_t) == sizeof(WebKit::RemoteLegacyCDMSessionIdentifier));
+#endif
+#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_RECORDER)
+    static_assert(sizeof(uint64_t) == sizeof(WebKit::RemoteMediaRecorderPrivateWriterIdentifier));
 #endif
     static_assert(sizeof(uint64_t) == sizeof(WebKit::RemoteMediaResourceIdentifier));
 #if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_SOURCE)
@@ -657,7 +684,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebKit::WebGPUIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::WebPageProxyIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::WebTransportSessionIdentifier));
-    static_assert(sizeof(uint64_t) == sizeof(WebKit::WebTransportStreamIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebKit::WebURLSchemeHandlerIdentifier));
     return {
         "IPC::AsyncReplyID"_s,
@@ -670,6 +696,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
 #if PLATFORM(COCOA)
         "WebCore::AttributedStringTextTableID"_s,
 #endif
+        "WebCore::BackForwardFrameItemIdentifierID"_s,
         "WebCore::BackForwardItemIdentifierID"_s,
         "WebCore::BackgroundFetchRecordIdentifier"_s,
         "WebCore::BroadcastChannelIdentifier"_s,
@@ -680,6 +707,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::FileSystemHandleIdentifier"_s,
         "WebCore::FileSystemSyncAccessHandleIdentifier"_s,
         "WebCore::FrameIdentifierID"_s,
+        "WebCore::IDBIndexIdentifier"_s,
         "WebCore::IDBObjectStoreIdentifier"_s,
         "WebCore::ImageDecoderIdentifier"_s,
         "WebCore::InbandGenericCueIdentifier"_s,
@@ -713,6 +741,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::SharedWorkerIdentifier"_s,
         "WebCore::SharedWorkerObjectIdentifierID"_s,
         "WebCore::SleepDisablerIdentifier"_s,
+        "WebCore::SnapshotIdentifier"_s,
         "WebCore::SpeechRecognitionConnectionClientIdentifier"_s,
         "WebCore::TextCheckingRequestIdentifier"_s,
         "WebCore::TextManipulationItemIdentifier"_s,
@@ -722,6 +751,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::UserMediaRequestIdentifier"_s,
         "WebCore::WebLockIdentifierID"_s,
         "WebCore::WebSocketIdentifier"_s,
+        "WebCore::WebTransportStreamIdentifier"_s,
         "WebCore::WindowIdentifier"_s,
         "WebKit::AudioMediaStreamTrackRendererInternalUnitIdentifier"_s,
         "WebKit::AuthenticationChallengeIdentifier"_s,
@@ -739,7 +769,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::LibWebRTCResolverIdentifier"_s,
         "WebKit::LogStreamIdentifier"_s,
         "WebKit::MarkSurfacesAsVolatileRequestIdentifier"_s,
-        "WebKit::MediaRecorderIdentifier"_s,
         "WebKit::NetworkResourceLoadIdentifier"_s,
         "WebKit::PDFPluginIdentifier"_s,
         "WebKit::PageGroupIdentifier"_s,
@@ -765,6 +794,9 @@ Vector<ASCIILiteral> serializedIdentifiers()
 #endif
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
         "WebKit::RemoteLegacyCDMSessionIdentifier"_s,
+#endif
+#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_RECORDER)
+        "WebKit::RemoteMediaRecorderPrivateWriterIdentifier"_s,
 #endif
         "WebKit::RemoteMediaResourceIdentifier"_s,
 #if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_SOURCE)
@@ -804,7 +836,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::WebGPUIdentifier"_s,
         "WebKit::WebPageProxyIdentifier"_s,
         "WebKit::WebTransportSessionIdentifier"_s,
-        "WebKit::WebTransportStreamIdentifier"_s,
         "WebKit::WebURLSchemeHandlerIdentifier"_s,
     };
 }
@@ -822,25 +853,28 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
     case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
         return Vector<ArgumentDescription> { };
 #endif
-    case MessageName::TestWithWantsDispatch_TestMessage:
+    case MessageName::TestWithDeferSendingOption_NoOptions:
         return Vector<ArgumentDescription> {
             { "url"_s, "String"_s, ASCIILiteral(), false },
         };
-    case MessageName::TestWithWantsDispatch_TestSyncMessage:
-        return Vector<ArgumentDescription> {
-            { "param"_s, "uint32_t"_s, ASCIILiteral(), false },
-        };
-    case MessageName::TestWithWantsDispatchNoSyncMessages_TestMessage:
+    case MessageName::TestWithDeferSendingOption_NoIndices:
         return Vector<ArgumentDescription> {
             { "url"_s, "String"_s, ASCIILiteral(), false },
         };
-    case MessageName::TestWithWantsAsyncDispatch_TestMessage:
+    case MessageName::TestWithDeferSendingOption_OneIndex:
         return Vector<ArgumentDescription> {
             { "url"_s, "String"_s, ASCIILiteral(), false },
         };
-    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
+    case MessageName::TestWithDeferSendingOption_MultipleIndices:
         return Vector<ArgumentDescription> {
-            { "param"_s, "uint32_t"_s, ASCIILiteral(), false },
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+            { "foo"_s, "int"_s, ASCIILiteral(), false },
+            { "bar"_s, "int"_s, ASCIILiteral(), false },
+            { "baz"_s, "int"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithDispatchedFromAndTo_AlwaysEnabled:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
         };
     case MessageName::TestWithEnabledBy_AlwaysEnabled:
         return Vector<ArgumentDescription> {
@@ -859,14 +893,6 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
             { "url"_s, "String"_s, ASCIILiteral(), false },
         };
     case MessageName::TestWithEnabledByOrConjunction_AlwaysEnabled:
-        return Vector<ArgumentDescription> {
-            { "url"_s, "String"_s, ASCIILiteral(), false },
-        };
-    case MessageName::TestWithEnabledIf_AlwaysEnabled:
-        return Vector<ArgumentDescription> {
-            { "url"_s, "String"_s, ASCIILiteral(), false },
-        };
-    case MessageName::TestWithEnabledIf_OnlyEnabledIfFeatureEnabled:
         return Vector<ArgumentDescription> {
             { "url"_s, "String"_s, ASCIILiteral(), false },
         };
@@ -968,7 +994,7 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         };
     case MessageName::TestWithLegacyReceiver_TemplateTest:
         return Vector<ArgumentDescription> {
-            { "a"_s, "UncheckedKeyHashMap<String, std::pair<String, uint64_t>>"_s, ASCIILiteral(), false },
+            { "a"_s, "HashMap<String, std::pair<String, uint64_t>>"_s, ASCIILiteral(), false },
         };
     case MessageName::TestWithLegacyReceiver_SetVideoLayerID:
         return Vector<ArgumentDescription> {
@@ -998,6 +1024,10 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         };
 #endif
 #endif
+    case MessageName::TestWithMultiLineExtendedAttributes_AlwaysEnabled:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
 #if (ENABLE(WEBKIT2) && (NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND))
     case MessageName::TestWithoutAttributes_LoadURL:
         return Vector<ArgumentDescription> {
@@ -1077,7 +1107,7 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         };
     case MessageName::TestWithoutAttributes_TemplateTest:
         return Vector<ArgumentDescription> {
-            { "a"_s, "UncheckedKeyHashMap<String, std::pair<String, uint64_t>>"_s, ASCIILiteral(), false },
+            { "a"_s, "HashMap<String, std::pair<String, uint64_t>>"_s, ASCIILiteral(), false },
         };
     case MessageName::TestWithoutAttributes_SetVideoLayerID:
         return Vector<ArgumentDescription> {
@@ -1211,6 +1241,38 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         return Vector<ArgumentDescription> {
             { "param"_s, "uint32_t"_s, ASCIILiteral(), false },
         };
+    case MessageName::TestWithValidator_AlwaysEnabled:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithValidator_EnabledIfPassValidation:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithValidator_EnabledIfSomeFeatureEnabledAndPassValidation:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsAsyncDispatch_TestMessage:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
+        return Vector<ArgumentDescription> {
+            { "param"_s, "uint32_t"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsDispatch_TestMessage:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsDispatch_TestSyncMessage:
+        return Vector<ArgumentDescription> {
+            { "param"_s, "uint32_t"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsDispatchNoSyncMessages_TestMessage:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
     default:
         break;
     }
@@ -1226,14 +1288,6 @@ std::optional<Vector<ArgumentDescription>> messageReplyArgumentDescriptions(Mess
             { "r0"_s, "RetainPtr<CVPixelBufferRef>"_s, ASCIILiteral(), false },
         };
 #endif
-    case MessageName::TestWithWantsDispatch_TestSyncMessage:
-        return Vector<ArgumentDescription> {
-            { "reply"_s, "uint8_t"_s, ASCIILiteral(), false },
-        };
-    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
-        return Vector<ArgumentDescription> {
-            { "reply"_s, "uint8_t"_s, ASCIILiteral(), false },
-        };
     case MessageName::TestWithImageData_ReceiveImageData:
         return Vector<ArgumentDescription> {
             { "r0"_s, "RefPtr<WebCore::ImageData>"_s, ASCIILiteral(), false },
@@ -1352,6 +1406,14 @@ std::optional<Vector<ArgumentDescription>> messageReplyArgumentDescriptions(Mess
             { "reply"_s, "uint8_t"_s, ASCIILiteral(), false },
         };
     case MessageName::TestWithSuperclassAndWantsDispatch_TestSyncMessage:
+        return Vector<ArgumentDescription> {
+            { "reply"_s, "uint8_t"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsAsyncDispatch_TestSyncMessage:
+        return Vector<ArgumentDescription> {
+            { "reply"_s, "uint8_t"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithWantsDispatch_TestSyncMessage:
         return Vector<ArgumentDescription> {
             { "reply"_s, "uint8_t"_s, ASCIILiteral(), false },
         };

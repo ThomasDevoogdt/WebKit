@@ -221,8 +221,8 @@ void RenderBoxModelObject::updateFromStyle()
     setHasVisibleBoxDecorations(hasVisibleBoxDecorationStyle());
     setInline(styleToUse.isDisplayInlineType());
     setPositionState(styleToUse.position());
-    setHorizontalWritingMode(styleToUse.isHorizontalWritingMode());
-    if (styleToUse.isFlippedBlocksWritingMode())
+    setHorizontalWritingMode(styleToUse.writingMode().isHorizontal());
+    if (writingMode().isBlockFlipped())
         view().frameView().setHasFlippedBlockRenderers(true);
     setPaintContainmentApplies(shouldApplyPaintContainment());
 }
@@ -281,37 +281,6 @@ RenderBlock* RenderBoxModelObject::containingBlockForAutoHeightDetection(Length 
         return nullptr;
     
     return cb;
-}
-    
-bool RenderBoxModelObject::hasAutoHeightOrContainingBlockWithAutoHeight(UpdatePercentageHeightDescendants updatePercentageDescendants) const
-{
-    auto* thisBox = dynamicDowncast<RenderBox>(this);
-    Length logicalHeightLength = style().logicalHeight();
-    auto* cb = containingBlockForAutoHeightDetection(logicalHeightLength);
-    
-    if (updatePercentageDescendants == UpdatePercentageHeightDescendants::Yes && logicalHeightLength.isPercentOrCalculated() && cb && thisBox)
-        cb->addPercentHeightDescendant(*const_cast<RenderBox*>(thisBox));
-
-    if (thisBox && thisBox->isFlexItem() && downcast<RenderFlexibleBox>(*parent()).usedFlexItemOverridingLogicalHeightForPercentageResolution(*thisBox))
-        return false;
-    
-    if (thisBox && thisBox->isGridItem()) {
-        if (auto overridingContainingBlockContentLogicalHeight = thisBox->overridingContainingBlockContentLogicalHeight())
-            return !*overridingContainingBlockContentLogicalHeight;
-    }
-    
-    if (logicalHeightLength.isAuto() && !isOutOfFlowPositionedWithImplicitHeight(*this))
-        return true;
-
-    // We need the containing block to have a definite block-size in order to resolve the block-size of the descendant,
-    // except when in quirks mode. Flexboxes follow strict behavior even in quirks mode, though.
-    if (!cb || (document().inQuirksMode() && !cb->isFlexibleBoxIncludingDeprecated()))
-        return false;
-    if (thisBox) {
-        if (auto overridingContainingBlockContentLogicalHeight = thisBox->overridingContainingBlockContentLogicalHeight())
-            return !*overridingContainingBlockContentLogicalHeight;
-    }
-    return !cb->hasDefiniteLogicalHeight();
 }
 
 DecodingMode RenderBoxModelObject::decodingModeForImageDraw(const Image& image, const PaintInfo& paintInfo) const
@@ -388,8 +357,6 @@ DecodingMode RenderBoxModelObject::decodingModeForImageDraw(const Image& image, 
 
 LayoutSize RenderBoxModelObject::relativePositionOffset() const
 {
-    // This function has been optimized to avoid calls to containingBlock() in the common case
-    // where all values are either auto or fixed.
     auto* containingBlock = this->containingBlock();
 
     auto& style = this->style();
@@ -399,28 +366,30 @@ LayoutSize RenderBoxModelObject::relativePositionOffset() const
     auto& bottom = style.bottom();
 
     auto offset = accumulateInFlowPositionOffsets(this);
-    if (top.isFixed() && bottom.isAuto() && left.isFixed() && right.isAuto() && containingBlock->style().isLeftToRightDirection()) {
+    if (top.isFixed() && bottom.isAuto() && left.isFixed() && right.isAuto() && containingBlock->writingMode().isAnyLeftToRight()) {
         offset.expand(left.value(), top.value());
         return offset;
     }
 
-    // Objects that shrink to avoid floats normally use available line width when computing containing block width.  However
-    // in the case of relative positioning using percentages, we can't do this.  The offset should always be resolved using the
-    // available width of the containing block.  Therefore we don't use containingBlockLogicalWidthForContent() here, but instead explicitly
+    // Objects that shrink to avoid floats normally use available line width when computing containing block width. However
+    // in the case of relative positioning using percentages, we can't do this. The offset should always be resolved using the
+    // available width of the containing block. Therefore we don't use containingBlockLogicalWidthForContent() here, but instead explicitly
     // call availableWidth on our containing block.
-    // However for grid items the containing block is the grid area, so offsets should be resolved against that:
-    // https://drafts.csswg.org/css-grid/#grid-item-sizing
     if (!left.isAuto() || !right.isAuto()) {
         auto availableWidth = [&] {
             auto* renderBox = dynamicDowncast<RenderBox>(*this);
-            if (!renderBox)
-                return containingBlock->availableWidth();
-            if (auto overridingContainingBlockContentWidth = renderBox->overridingContainingBlockContentWidth(containingBlock->style().writingMode()))
-                return overridingContainingBlockContentWidth->value_or(0_lu);
-            return containingBlock->availableWidth();
+            if (!renderBox || !renderBox->isGridItem())
+                return containingBlock->contentBoxWidth();
+            // For grid items the containing block is the grid area, so offsets should be resolved against that.
+            auto containingBlockContentWidth = renderBox->gridAreaContentWidth(containingBlock->writingMode());
+            if (!containingBlockContentWidth || !*containingBlockContentWidth) {
+                ASSERT_NOT_REACHED();
+                return containingBlock->contentBoxWidth();
+            }
+            return **containingBlockContentWidth;
         };
         if (!left.isAuto()) {
-            if (!right.isAuto() && !containingBlock->style().isLeftToRightDirection())
+            if (!right.isAuto() && !containingBlock->writingMode().isAnyLeftToRight())
                 offset.setWidth(-valueForLength(right, !right.isFixed() ? availableWidth() : 0_lu));
             else
                 offset.expand(valueForLength(left, !left.isFixed() ? availableWidth() : 0_lu), 0_lu);
@@ -439,26 +408,27 @@ LayoutSize RenderBoxModelObject::relativePositionOffset() const
     if (top.isAuto() && bottom.isAuto())
         return offset;
 
-    auto overridingContainingBlockContentHeight = [&]() -> std::optional<LayoutUnit> {
+    auto containingBlockHasDefiniteHeight = !containingBlock->hasAutoHeightOrContainingBlockWithAutoHeight() || containingBlock->stretchesToViewport();
+    auto availableHeight = [&] {
         auto* renderBox = dynamicDowncast<RenderBox>(*this);
-        if (!renderBox)
-            return { };
-        if (auto overridingContainingBlockContentHeight = renderBox->overridingContainingBlockContentHeight(containingBlock->style().writingMode()))
-            return *overridingContainingBlockContentHeight;
-        return { };
-    }();
-    auto containingBlockHasDefiniteHeight = !containingBlock->hasAutoHeightOrContainingBlockWithAutoHeight() || containingBlock->stretchesToViewport() || overridingContainingBlockContentHeight;
-    auto containingBlockContentHeight = [&] {
-        return overridingContainingBlockContentHeight ? overridingContainingBlockContentHeight.value_or(0_lu) : containingBlock->availableHeight();
+        if (!renderBox || !renderBox->isGridItem())
+            return containingBlock->contentBoxHeight();
+        // For grid items the containing block is the grid area, so offsets should be resolved against that.
+        auto containingBlockContentHeight = renderBox->gridAreaContentHeight(containingBlock->style().writingMode());
+        if (!containingBlockContentHeight || !*containingBlockContentHeight) {
+            ASSERT_NOT_REACHED();
+            return containingBlock->contentBoxHeight();
+        }
+        return **containingBlockContentHeight;
     };
     if (!top.isAuto() && (!top.isPercentOrCalculated() || containingBlockHasDefiniteHeight)) {
         // FIXME: The computation of the available height is repeated later for "bottom".
         // We could refactor this and move it to some common code for both ifs, however moving it outside of the ifs
         // is not possible as it'd cause performance regressions.
-        offset.expand(0_lu, valueForLength(top, !top.isFixed() ? containingBlockContentHeight() : 0_lu));
+        offset.expand(0_lu, valueForLength(top, !top.isFixed() ? availableHeight() : 0_lu));
     } else if (!bottom.isAuto() && (!bottom.isPercentOrCalculated() || containingBlockHasDefiniteHeight)) {
         // FIXME: Check comment above for "top", it applies here too.
-        offset.expand(0_lu, -valueForLength(bottom, !bottom.isFixed() ? containingBlockContentHeight() : 0_lu));
+        offset.expand(0_lu, -valueForLength(bottom, !bottom.isFixed() ? availableHeight() : 0_lu));
     }
     return offset;
 }
@@ -484,7 +454,7 @@ LayoutPoint RenderBoxModelObject::adjustedPositionRelativeToOffsetParent(const L
             if (isOutOfFlowPositioned()) {
                 auto& outOfFlowStyle = style();
                 ASSERT(containingBlock());
-                auto isHorizontalWritingMode = containingBlock() ? containingBlock()->style().isHorizontalWritingMode() : true;
+                auto isHorizontalWritingMode = containingBlock() ? containingBlock()->writingMode().isHorizontal() : true;
                 if (!outOfFlowStyle.hasStaticInlinePosition(isHorizontalWritingMode))
                     topLeft.setX(LayoutUnit { });
                 if (!outOfFlowStyle.hasStaticBlockPosition(isHorizontalWritingMode))
@@ -562,7 +532,7 @@ void RenderBoxModelObject::computeStickyPositionConstraints(StickyPositionViewpo
             containingBlock->computedCSSPaddingBottom(), containingBlock->computedCSSPaddingLeft() });
     }
 
-    LayoutUnit maxWidth = containingBlock->availableLogicalWidth();
+    LayoutUnit maxWidth = containingBlock->contentBoxLogicalWidth();
 
     // Sticky positioned element ignore any override logical width on the containing block (as they don't call
     // containingBlockLogicalWidthForContent). It's unclear whether this is totally fine.
@@ -644,7 +614,7 @@ FloatRect RenderBoxModelObject::constrainingRectForStickyPosition() const
 
     if (enclosingClippingLayer) {
         RenderBox& enclosingClippingBox = downcast<RenderBox>(enclosingClippingLayer->renderer());
-        LayoutRect clipRect = enclosingClippingBox.overflowClipRect(LayoutPoint(), nullptr); // FIXME: make this work in regions.
+        LayoutRect clipRect = enclosingClippingBox.overflowClipRect({ });
         clipRect.contract(LayoutSize(enclosingClippingBox.paddingLeft() + enclosingClippingBox.paddingRight(),
             enclosingClippingBox.paddingTop() + enclosingClippingBox.paddingBottom()));
 
@@ -657,7 +627,7 @@ FloatRect RenderBoxModelObject::constrainingRectForStickyPosition() const
 
         float scrollbarOffset = 0;
         if (enclosingClippingBox.hasLayer() && enclosingClippingBox.shouldPlaceVerticalScrollbarOnLeft() && scrollableArea)
-            scrollbarOffset = scrollableArea->verticalScrollbarWidth(IgnoreOverlayScrollbarSize, isHorizontalWritingMode());
+            scrollbarOffset = scrollableArea->verticalScrollbarWidth(OverlayScrollbarSizeRelevancy::IgnoreOverlayScrollbarSize, isHorizontalWritingMode());
 
         constrainingRect.setLocation(FloatPoint(scrollOffset.x() + scrollbarOffset, scrollOffset.y()));
         return constrainingRect;
@@ -717,13 +687,7 @@ void RenderBoxModelObject::paintMaskForTextFillBox(GraphicsContext& context, con
         for (auto box = inlineBox->firstLeafBox(), end = inlineBox->endLeafBox(); box != end; box.traverseNextOnLine()) {
             if (!box->isText())
                 continue;
-            if (auto* legacyTextBox = downcast<LegacyInlineTextBox>(box->legacyInlineBox())) {
-                LegacyTextBoxPainter textBoxPainter(*legacyTextBox, maskInfo, paintOffset);
-                textBoxPainter.paint();
-                continue;
-            }
-            ModernTextBoxPainter textBoxPainter(box->modernPath().inlineContent(), box->modernPath().box(), maskInfo, paintOffset);
-            textBoxPainter.paint();
+            TextBoxPainter { box->modernPath().inlineContent(), box->modernPath().box(), box->modernPath().box().style(), maskInfo, paintOffset }.paint();
         }
         return;
     }
@@ -873,7 +837,7 @@ bool RenderBoxModelObject::borderObscuresBackground() const
     return true;
 }
 
-BorderShape RenderBoxModelObject::borderShapeForContentClipping(const LayoutRect& borderBoxRect, bool includeLeftEdge, bool includeRightEdge) const
+BorderShape RenderBoxModelObject::borderShapeForContentClipping(const LayoutRect& borderBoxRect, RectEdges<bool> closedEdges) const
 {
     auto borderWidths = this->borderWidths();
     auto padding = this->padding();
@@ -885,13 +849,13 @@ BorderShape RenderBoxModelObject::borderShapeForContentClipping(const LayoutRect
         borderWidths.left() + padding.left(),
     };
 
-    return BorderShape::shapeForBorderRect(style(), borderBoxRect, contentBoxInsets, includeLeftEdge, includeRightEdge);
+    return BorderShape::shapeForBorderRect(style(), borderBoxRect, contentBoxInsets, closedEdges);
 }
 
 LayoutUnit RenderBoxModelObject::containingBlockLogicalWidthForContent() const
 {
     if (auto* containingBlock = this->containingBlock())
-        return containingBlock->availableLogicalWidth();
+        return containingBlock->contentBoxLogicalWidth();
     return { };
 }
 

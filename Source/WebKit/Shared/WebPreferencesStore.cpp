@@ -26,13 +26,12 @@
 #include "config.h"
 #include "WebPreferencesStore.h"
 
-#include "WebCoreArgumentCoders.h"
 #include "WebPreferencesKeys.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebKit {
 
-typedef UncheckedKeyHashMap<String, bool> BoolOverridesMap;
+typedef HashMap<String, bool> BoolOverridesMap;
 
 static BoolOverridesMap& boolTestRunnerOverridesMap()
 {

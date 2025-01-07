@@ -70,9 +70,13 @@ using CocoaColor = UIColor;
 
 @property (nonatomic, readonly, strong) NSString *yieldMessage;
 
+- (void)sendTestMessage:(NSString *)message;
+- (void)sendTestMessage:(NSString *)message withArgument:(id)argument;
+
 - (void)load;
 - (void)run;
 - (void)runForTimeInterval:(NSTimeInterval)interval;
+- (id)runUntilTestMessage:(NSString *)message;
 - (void)loadAndRun;
 - (void)done;
 
@@ -91,6 +95,7 @@ using CocoaColor = UIColor;
 
 @property (nonatomic, weak) TestWebExtensionTab *parentTab;
 
+@property (nonatomic) bool shouldBypassPermissions;
 @property (nonatomic, getter=isPinned) bool pinned;
 @property (nonatomic, getter=isMuted) bool muted;
 @property (nonatomic, getter=isSelected) bool selected;

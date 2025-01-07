@@ -120,9 +120,8 @@ class RemoteMediaPlayerManagerProxy;
 class RemoteMediaResourceManager;
 class RemoteVideoFrameObjectHeap;
 #endif
-
 #if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
-class RemoteMediaRecorderManager;
+class RemoteMediaRecorderPrivateWriterManager;
 #endif
 
 #if ENABLE(WEBGL)
@@ -138,6 +137,9 @@ class GPUConnectionToWebProcess
 public:
     static Ref<GPUConnectionToWebProcess> create(GPUProcess&, WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&);
     virtual ~GPUConnectionToWebProcess();
+
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_sharedPreferencesForWebProcess; }
     const SharedPreferencesForWebProcess& sharedPreferencesForWebProcessValue() const { return m_sharedPreferencesForWebProcess; }
@@ -167,13 +169,15 @@ public:
     RemoteMediaResourceManager& remoteMediaResourceManager();
     Ref<RemoteMediaResourceManager> protectedRemoteMediaResourceManager();
 #endif
+#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
+    RemoteMediaRecorderPrivateWriterManager& remoteMediaRecorderPrivateWriterManager();
+        Ref<RemoteMediaRecorderPrivateWriterManager> protectedRemoteMediaRecorderPrivateWriterManager();
+#endif
 
     PAL::SessionID sessionID() const { return m_sessionID; }
 
     bool isLockdownModeEnabled() const { return m_isLockdownModeEnabled; }
     bool isLockdownSafeFontParserEnabled() const { return sharedPreferencesForWebProcess() ? sharedPreferencesForWebProcess()->lockdownFontParserEnabled : false; }
-
-    bool allowTestOnlyIPC() const { return sharedPreferencesForWebProcess() ? sharedPreferencesForWebProcess()->allowTestOnlyIPC : false; }
 
     Logger& logger();
 
@@ -217,6 +221,7 @@ public:
     Ref<RemoteLegacyCDMFactoryProxy> protectedLegacyCdmFactoryProxy();
 #endif
     RemoteMediaEngineConfigurationFactoryProxy& mediaEngineConfigurationFactoryProxy();
+    Ref<RemoteMediaEngineConfigurationFactoryProxy> protectedMediaEngineConfigurationFactoryProxy();
 #if ENABLE(VIDEO)
     RemoteMediaPlayerManagerProxy& remoteMediaPlayerManagerProxy() { return m_remoteMediaPlayerManagerProxy.get(); }
     Ref<RemoteMediaPlayerManagerProxy> protectedRemoteMediaPlayerManagerProxy();
@@ -227,6 +232,7 @@ public:
 
 #if HAVE(AVASSETREADER)
     RemoteImageDecoderAVFProxy& imageDecoderAVFProxy();
+    Ref<RemoteImageDecoderAVFProxy> protectedImageDecoderAVFProxy();
 #endif
 
     void updateSupportedRemoteCommands();
@@ -242,13 +248,19 @@ public:
 
     static uint64_t objectCountForTesting() { return gObjectCountForTesting; }
 
-    using RemoteRenderingBackendMap = UncheckedKeyHashMap<RenderingBackendIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteRenderingBackend>>;
+    using RemoteRenderingBackendMap = HashMap<RenderingBackendIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteRenderingBackend>>;
     const RemoteRenderingBackendMap& remoteRenderingBackendMap() const { return m_remoteRenderingBackendMap; }
 
     RemoteRenderingBackend* remoteRenderingBackend(RenderingBackendIdentifier);
 
 #if HAVE(AUDIT_TOKEN)
-    const std::optional<audit_token_t>& presentingApplicationAuditToken() const { return m_presentingApplicationAuditToken; }
+    const HashMap<WebCore::PageIdentifier, CoreIPCAuditToken>& presentingApplicationAuditTokens() const { return m_presentingApplicationAuditTokens; }
+    std::optional<audit_token_t> presentingApplicationAuditToken(WebCore::PageIdentifier) const;
+    ProcessID presentingApplicationPID(WebCore::PageIdentifier) const;
+    void setPresentingApplicationAuditToken(WebCore::PageIdentifier, std::optional<CoreIPCAuditToken>&&);
+#endif
+#if PLATFORM(COCOA)
+    const String& applicationBundleIdentifier() const { return m_applicationBundleIdentifier; }
 #endif
 
 #if ENABLE(VIDEO)
@@ -265,6 +277,12 @@ public:
     void setMediaEnvironment(WebCore::PageIdentifier, const String&);
 #endif
 
+    bool isAlwaysOnLoggingAllowed() const;
+
+#if USE(AUDIO_SESSION)
+    RemoteAudioSessionProxy& audioSessionProxy();
+#endif
+
 private:
     GPUConnectionToWebProcess(GPUProcess&, WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&);
 
@@ -274,14 +292,14 @@ private:
 
 #if ENABLE(WEB_AUDIO)
     RemoteAudioDestinationManager& remoteAudioDestinationManager();
+    Ref<RemoteAudioDestinationManager> protectedRemoteAudioDestinationManager();
 #endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     Ref<RemoteSampleBufferDisplayLayerManager> protectedSampleBufferDisplayLayerManager() const;
     UserMediaCaptureManagerProxy& userMediaCaptureManagerProxy();
+    Ref<UserMediaCaptureManagerProxy> protectedUserMediaCaptureManagerProxy();
     RemoteAudioMediaStreamTrackRendererInternalUnitManager& audioMediaStreamTrackRendererInternalUnitManager();
-#endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
-    RemoteMediaRecorderManager& mediaRecorderManager();
+    Ref<RemoteAudioMediaStreamTrackRendererInternalUnitManager> protectedAudioMediaStreamTrackRendererInternalUnitManager();
 #endif
 
     void createRenderingBackend(RenderingBackendIdentifier, IPC::StreamServerConnection::Handle&&);
@@ -311,7 +329,6 @@ private:
 #endif
 
 #if USE(AUDIO_SESSION)
-    RemoteAudioSessionProxy& audioSessionProxy();
     Ref<RemoteAudioSessionProxy> protectedAudioSessionProxy();
     using EnsureAudioSessionCompletion = CompletionHandler<void(const RemoteAudioSessionConfiguration&)>;
     void ensureAudioSession(EnsureAudioSessionCompletion&&);
@@ -368,18 +385,18 @@ private:
     RefPtr<RemoteMediaResourceManager> m_remoteMediaResourceManager WTF_GUARDED_BY_CAPABILITY(mainThread);
     Ref<RemoteMediaPlayerManagerProxy> m_remoteMediaPlayerManagerProxy;
 #endif
+#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
+    const std::unique_ptr<RemoteMediaRecorderPrivateWriterManager> m_remoteMediaRecorderPrivateWriterManager;
+#endif
     PAL::SessionID m_sessionID;
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    std::unique_ptr<UserMediaCaptureManagerProxy> m_userMediaCaptureManagerProxy;
+    RefPtr<UserMediaCaptureManagerProxy> m_userMediaCaptureManagerProxy;
     std::unique_ptr<RemoteAudioMediaStreamTrackRendererInternalUnitManager> m_audioMediaStreamTrackRendererInternalUnitManager;
     bool m_isLastToCaptureAudio { false };
 
     Ref<RemoteSampleBufferDisplayLayerManager> m_sampleBufferDisplayLayerManager;
 #endif
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
-    std::unique_ptr<RemoteMediaRecorderManager> m_remoteMediaRecorderManager;
-#endif
 #if ENABLE(MEDIA_STREAM)
     Ref<WebCore::SecurityOrigin> m_captureOrigin;
     bool m_allowsAudioCapture { false };
@@ -393,15 +410,18 @@ private:
     IPC::ScopedActiveMessageReceiveQueue<LibWebRTCCodecsProxy> m_libWebRTCCodecsProxy;
 #endif
 #if HAVE(AUDIT_TOKEN)
-    const std::optional<audit_token_t> m_presentingApplicationAuditToken;
+    HashMap<WebCore::PageIdentifier, CoreIPCAuditToken> m_presentingApplicationAuditTokens;
+#endif
+#if PLATFORM(COCOA)
+    const String m_applicationBundleIdentifier;
 #endif
 
     RemoteRenderingBackendMap m_remoteRenderingBackendMap;
 #if ENABLE(WEBGL)
-    using RemoteGraphicsContextGLMap = UncheckedKeyHashMap<GraphicsContextGLIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGraphicsContextGL>>;
+    using RemoteGraphicsContextGLMap = HashMap<GraphicsContextGLIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGraphicsContextGL>>;
     RemoteGraphicsContextGLMap m_remoteGraphicsContextGLMap;
 #endif
-    using RemoteGPUMap = UncheckedKeyHashMap<WebGPUIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGPU>>;
+    using RemoteGPUMap = HashMap<WebGPUIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteGPU>>;
     RemoteGPUMap m_remoteGPUMap;
 #if ENABLE(ENCRYPTED_MEDIA)
     RefPtr<RemoteCDMFactoryProxy> m_cdmFactoryProxy;
@@ -416,20 +436,20 @@ private:
     RefPtr<RemoteLegacyCDMFactoryProxy> m_legacyCdmFactoryProxy;
 #endif
 #if HAVE(AVASSETREADER)
-    std::unique_ptr<RemoteImageDecoderAVFProxy> m_imageDecoderAVFProxy;
+    const std::unique_ptr<RemoteImageDecoderAVFProxy> m_imageDecoderAVFProxy;
 #endif
 
     std::unique_ptr<RemoteMediaEngineConfigurationFactoryProxy> m_mediaEngineConfigurationFactoryProxy;
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    UncheckedKeyHashMap<std::pair<WebPageProxyIdentifier, WebCore::PageIdentifier>, std::unique_ptr<LayerHostingContext>> m_visibilityPropagationContexts;
+    HashMap<std::pair<WebPageProxyIdentifier, WebCore::PageIdentifier>, std::unique_ptr<LayerHostingContext>> m_visibilityPropagationContexts;
 #endif
 
-    using RemoteAudioHardwareListenerMap = UncheckedKeyHashMap<RemoteAudioHardwareListenerIdentifier, std::unique_ptr<RemoteAudioHardwareListenerProxy>>;
+    using RemoteAudioHardwareListenerMap = HashMap<RemoteAudioHardwareListenerIdentifier, std::unique_ptr<RemoteAudioHardwareListenerProxy>>;
     RemoteAudioHardwareListenerMap m_remoteAudioHardwareListenerMap;
 
 #if USE(GRAPHICS_LAYER_WC)
-    using RemoteWCLayerTreeHostMap = UncheckedKeyHashMap<WCLayerTreeHostIdentifier, std::unique_ptr<RemoteWCLayerTreeHost>>;
+    using RemoteWCLayerTreeHostMap = HashMap<WCLayerTreeHostIdentifier, Ref<RemoteWCLayerTreeHost>>;
     RemoteWCLayerTreeHostMap m_remoteWCLayerTreeHostMap;
 #endif
 
@@ -441,14 +461,14 @@ private:
 #endif
 
 #if ENABLE(EXTENSION_CAPABILITIES)
-    UncheckedKeyHashMap<WebCore::PageIdentifier, String> m_mediaEnvironments;
+    HashMap<WebCore::PageIdentifier, String> m_mediaEnvironments;
 #endif
 
 #if ENABLE(ROUTING_ARBITRATION) && HAVE(AVAUDIO_ROUTING_ARBITER)
     std::unique_ptr<LocalAudioSessionRoutingArbitrator> m_routingArbitrator;
 #endif
 #if ENABLE(IPC_TESTING_API)
-    IPCTester m_ipcTester;
+    const Ref<IPCTester> m_ipcTester;
 #endif
     SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
 };

@@ -1268,23 +1268,23 @@ PartialResult WARN_UNUSED_RETURN BBQJIT::truncSaturated(Ext1OpType truncationOp,
     switch (kind) {
     case TruncationKind::I32TruncF32S:
     case TruncationKind::I32TruncF64S:
-        maxResult = bitwise_cast<uint32_t>(INT32_MAX);
-        minResult = bitwise_cast<uint32_t>(INT32_MIN);
+        maxResult = std::bit_cast<uint32_t>(INT32_MAX);
+        minResult = std::bit_cast<uint32_t>(INT32_MIN);
         break;
     case TruncationKind::I32TruncF32U:
     case TruncationKind::I32TruncF64U:
-        maxResult = bitwise_cast<uint32_t>(UINT32_MAX);
-        minResult = bitwise_cast<uint32_t>(0U);
+        maxResult = std::bit_cast<uint32_t>(UINT32_MAX);
+        minResult = std::bit_cast<uint32_t>(0U);
         break;
     case TruncationKind::I64TruncF32S:
     case TruncationKind::I64TruncF64S:
-        maxResult = bitwise_cast<uint64_t>(INT64_MAX);
-        minResult = bitwise_cast<uint64_t>(INT64_MIN);
+        maxResult = std::bit_cast<uint64_t>(INT64_MAX);
+        minResult = std::bit_cast<uint64_t>(INT64_MIN);
         break;
     case TruncationKind::I64TruncF32U:
     case TruncationKind::I64TruncF64U:
-        maxResult = bitwise_cast<uint64_t>(UINT64_MAX);
-        minResult = bitwise_cast<uint64_t>(0ULL);
+        maxResult = std::bit_cast<uint64_t>(UINT64_MAX);
+        minResult = std::bit_cast<uint64_t>(0ULL);
         break;
     }
 
@@ -1450,10 +1450,10 @@ Value BBQJIT::marshallToI64(Value value)
     if (value.isConst()) {
         switch (value.type()) {
         case TypeKind::F64:
-            return Value::fromI64(bitwise_cast<uint64_t>(value.asF64()));
+            return Value::fromI64(std::bit_cast<uint64_t>(value.asF64()));
         case TypeKind::F32:
         case TypeKind::I32:
-            return Value::fromI64(bitwise_cast<uint32_t>(value.asI32()));
+            return Value::fromI64(std::bit_cast<uint32_t>(value.asI32()));
         default:
             return value;
         }
@@ -1884,7 +1884,7 @@ void BBQJIT::emitStructPayloadSet(GPRReg payloadGPR, const StructType& structTyp
             if (structType.field(fieldIndex).type.is<PackedType>()) {
                 ScratchScope<1, 0> scratches(*this);
                 // If it's a packed type, we materialize the constant to ensure constant blinding.
-                emitMoveConst(value, Location::fromGPR(scratches.gpr(0)));
+                emitMoveConst(Value::fromI32(value.asI32()), Location::fromGPR(scratches.gpr(0)));
                 switch (structType.field(fieldIndex).type.as<PackedType>()) {
                 case PackedType::I8:
                     m_jit.store8(scratches.gpr(0), MacroAssembler::Address(payloadGPR, fieldOffset));
@@ -2599,7 +2599,7 @@ PartialResult WARN_UNUSED_RETURN BBQJIT::addI64ReinterpretF64(Value operand, Val
 {
     EMIT_UNARY(
         "I64ReinterpretF64", TypeKind::I64,
-        BLOCK(Value::fromI64(bitwise_cast<int64_t>(operand.asF64()))),
+        BLOCK(Value::fromI64(std::bit_cast<int64_t>(operand.asF64()))),
         BLOCK(
             m_jit.moveDoubleTo64(operandLocation.asFPR(), resultLocation.asGPRhi(), resultLocation.asGPRlo());
         )
@@ -2610,7 +2610,7 @@ PartialResult WARN_UNUSED_RETURN BBQJIT::addF64ReinterpretI64(Value operand, Val
 {
     EMIT_UNARY(
         "F64ReinterpretI64", TypeKind::F64,
-        BLOCK(Value::fromF64(bitwise_cast<double>(operand.asI64()))),
+        BLOCK(Value::fromF64(std::bit_cast<double>(operand.asI64()))),
         BLOCK(
             m_jit.moveIntsToDouble(operandLocation.asGPRlo(), operandLocation.asGPRhi(), resultLocation.asFPR());
         )
@@ -2976,14 +2976,15 @@ void BBQJIT::emitCatchTableImpl(ControlData& entryData, ControlType::TryTableTar
     m_exceptionHandlers.append({ handlerType, entryData.tryStart(), m_callSiteIndex, 0, m_tryCatchDepth, target.tag });
     emitCatchPrologue();
 
+    auto& targetControl = m_parser->resolveControlRef(target.target).controlData;
     if (target.type == CatchKind::CatchRef || target.type == CatchKind::CatchAllRef) {
-        if (target.target->targetLocations().last().isGPR())
-            m_jit.move(GPRInfo::returnValueGPR, target.target->targetLocations().last().asGPR());
-        else if (target.target->targetLocations().last().isGPR2()) {
-            m_jit.move(GPRInfo::returnValueGPR, target.target->targetLocations().last().asGPRlo());
-            m_jit.move(GPRInfo::returnValueGPR2, target.target->targetLocations().last().asGPRhi());
+        if (targetControl.targetLocations().last().isGPR())
+            m_jit.move(GPRInfo::returnValueGPR, targetControl.targetLocations().last().asGPR());
+        else if (targetControl.targetLocations().last().isGPR2()) {
+            m_jit.move(GPRInfo::returnValueGPR, targetControl.targetLocations().last().asGPRlo());
+            m_jit.move(GPRInfo::returnValueGPR2, targetControl.targetLocations().last().asGPRhi());
         } else
-            m_jit.storePtr(GPRInfo::returnValueGPR, target.target->targetLocations().last().asAddress());
+            m_jit.storePtr(GPRInfo::returnValueGPR, targetControl.targetLocations().last().asAddress());
     }
 
     if (target.type == CatchKind::Catch || target.type == CatchKind::CatchRef) {
@@ -2995,7 +2996,7 @@ void BBQJIT::emitCatchTableImpl(ControlData& entryData, ControlType::TryTableTar
             unsigned offset = 0;
             for (unsigned i = 0; i < signature->argumentCount(); ++i) {
                 Type type = signature->argumentType(i);
-                Location slot = target.target->targetLocations()[i];
+                Location slot = targetControl.targetLocations()[i];
                 switch (type.kind) {
                 case TypeKind::I32:
                     if (slot.isGPR())
@@ -3060,7 +3061,7 @@ void BBQJIT::emitCatchTableImpl(ControlData& entryData, ControlType::TryTableTar
     }
 
     // jump to target
-    target.target->addBranch(m_jit.jump());
+    targetControl.addBranch(m_jit.jump());
 }
 
 PartialResult WARN_UNUSED_RETURN BBQJIT::addThrowRef(Value exception, Stack&)

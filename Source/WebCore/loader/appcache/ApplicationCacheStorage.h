@@ -87,7 +87,7 @@ public:
 
     WEBCORE_EXPORT void empty();
 
-    WEBCORE_EXPORT HashSet<SecurityOriginData> originsWithCache();
+    WEBCORE_EXPORT UncheckedKeyHashSet<SecurityOriginData> originsWithCache();
     WEBCORE_EXPORT void deleteAllEntries();
 
     // FIXME: This should be consolidated with deleteAllEntries().
@@ -153,7 +153,7 @@ private:
     // we keep a hash set of the hosts of the manifest URLs of all non-obsolete cache groups.
     HashCountedSet<unsigned, AlreadyHashed> m_cacheHostSet;
     
-    UncheckedKeyHashMap<String, ApplicationCacheGroup*> m_cachesInMemory; // Excludes obsolete cache groups.
+    HashMap<String, ApplicationCacheGroup*> m_cachesInMemory; // Excludes obsolete cache groups.
 
     friend class NeverDestroyed<ApplicationCacheStorage>;
 };

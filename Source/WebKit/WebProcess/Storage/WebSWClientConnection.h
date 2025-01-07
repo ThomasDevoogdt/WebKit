@@ -55,6 +55,9 @@ public:
     static Ref<WebSWClientConnection> create() { return adoptRef(*new WebSWClientConnection); }
     ~WebSWClientConnection();
 
+    void ref() const final { WebCore::SWClientConnection::ref(); }
+    void deref() const final { WebCore::SWClientConnection::deref(); }
+
     WebCore::SWServerConnectionIdentifier serverConnectionIdentifier() const final { return m_identifier; }
 
     void addServiceWorkerRegistrationInServer(WebCore::ServiceWorkerRegistrationIdentifier) final;
@@ -142,7 +145,7 @@ private:
 
     Deque<Function<void()>> m_tasksPendingOriginImport;
     bool m_isThrottleable { true };
-    UncheckedKeyHashMap<RetrieveRecordResponseBodyCallbackIdentifier, RetrieveRecordResponseBodyCallback> m_retrieveRecordResponseBodyCallbacks;
+    HashMap<RetrieveRecordResponseBodyCallbackIdentifier, RetrieveRecordResponseBodyCallback> m_retrieveRecordResponseBodyCallbacks;
 };
 
 } // namespace WebKit

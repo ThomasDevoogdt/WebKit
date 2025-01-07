@@ -35,7 +35,7 @@ template<typename T, typename WeakPtrImpl, EnableWeakPtrThreadingAssertions asse
 class WeakHashSet final {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    using WeakPtrImplSet = HashSet<Ref<WeakPtrImpl>>;
+    using WeakPtrImplSet = UncheckedKeyHashSet<Ref<WeakPtrImpl>>;
     using AddResult = typename WeakPtrImplSet::AddResult;
 
     class WeakHashSetConstIterator {
@@ -178,7 +178,7 @@ public:
         return m_set.size();
     }
 
-    void forEach(const Function<void(T&)>& callback)
+    void forEach(NOESCAPE const Function<void(T&)>& callback)
     {
         auto items = map(m_set, [](const Ref<WeakPtrImpl>& item) {
             auto* pointer = static_cast<T*>(item->template get<T>());

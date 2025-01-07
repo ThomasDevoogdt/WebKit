@@ -25,6 +25,7 @@
 #pragma once
 
 #include "CSSCalcSymbolTable.h"
+#include "CSSNoConversionDataRequiredToken.h"
 #include "CSSValueTypes.h"
 #include <optional>
 #include <tuple>
@@ -34,631 +35,15 @@
 
 namespace WebCore {
 
+class CSSToLengthConversionData;
 class RenderStyle;
+struct BlendingContext;
 
 namespace Style {
 
 class BuilderState;
 
-// Types can specialize this and set the value to true to be treated as "non-converting"
-// for css to style / style to css conversion algorithms. This means the type is identical
-// for both CSS and Style systems (e.g. a constant value or an enum).
-template<class> inline constexpr bool TreatAsNonConverting = false;
-
-// Types can specialize this and set the value to true to be treated as "tuple-like"
-// for css to style / style to css conversion algorithms.
-// NOTE: This gets automatically specialized when using the STYLE_TUPLE_LIKE_CONFORMANCE macro.
-template<class> inline constexpr bool TreatAsTupleLike = false;
-
-// Types that are treated as "tuple-like" can have their conversion operations defined
-// automatically by just defining their type mapping.
-template<typename> struct CSSToStyleMapping;
-template<typename> struct StyleToCSSMapping;
-
-// Macro to define two-way mapping between a CSS and Style type. This is only needed
-// for "tuple-like" types, in lieu of explicit ToCSS/ToStyle specializations.
-#define DEFINE_CSS_STYLE_MAPPING(css, style) \
-    template<> struct CSSToStyleMapping<css> { using type = style; }; \
-    template<> struct StyleToCSSMapping<style> { using type = css; }; \
-
-// All non-converting and non-tuple like conforming types must implement the following for conversions:
-//
-//    template<> struct WebCore::Style::ToCSS<StyleType> {
-//        CSSType operator()(const StyleType&, const RenderStyle&);
-//    };
-//
-//    template<> struct WebCore::Style::ToStyle<CSSType> {
-//        StyleType operator()(const CSSType&, const CSSToLengthConversionData&, const CSSCalcSymbolTable&);
-//        StyleType operator()(const CSSType&, const BuilderState&, const CSSCalcSymbolTable&);
-//        StyleType operator()(const CSSType&, NoConversionDataRequiredToken, const CSSCalcSymbolTable&);
-//    };
-
-// Token passed to ToStyle to indicate that the caller has checked that no conversion data is required.
-struct NoConversionDataRequiredToken { };
-
-template<typename> struct ToCSS;
-template<typename> struct ToStyle;
-
-// Types can specialize `PrimaryCSSType` to provided a "primary" type the specialized type should be converted to before conversion to Style. For
-// instance, `CSS::NumberRaw`, would specialize this as `template<> struct ToPrimaryCSSTypeMapping<CSS::NumberRaw> { using type = CSS::Number };` to
-// allow callers to use `toStyle(...)` directly on values of type `CSS::NumberRaw`.
-template<typename CSSType> struct ToPrimaryCSSTypeMapping { using type = CSSType; };
-template<typename CSSType> using PrimaryCSSType = typename ToPrimaryCSSTypeMapping<CSSType>::type;
-
-// MARK: Common Types.
-
-// Helper type used to represent a constant identifier.
-template<CSSValueID C> using Constant = CSS::Constant<C>;
-
-// Specialize TreatAsNonConverting for Constant<C>, to indicate that its type does not change from the CSS representation.
-template<CSSValueID C> inline constexpr bool TreatAsNonConverting<Constant<C>> = true;
-
-// Helper type used to represent a CSS function.
-template<CSSValueID C, typename T> using FunctionNotation = CSS::FunctionNotation<C, T>;
-
-// Wraps a variable number of elements of a single type, semantically marking them as serializing as "space separated".
-template<typename T, size_t inlineCapacity = 0> struct SpaceSeparatedVector {
-    using Vector = WTF::Vector<T, inlineCapacity>;
-    using const_iterator = typename Vector::const_iterator;
-    using const_reverse_iterator = typename Vector::const_reverse_iterator;
-    using value_type = typename Vector::value_type;
-
-    SpaceSeparatedVector(std::initializer_list<T> initializerList)
-        : value { initializerList }
-    {
-    }
-
-    SpaceSeparatedVector(WTF::Vector<T, inlineCapacity>&& value)
-        : value { WTFMove(value) }
-    {
-    }
-
-    const_iterator begin() const { return value.begin(); }
-    const_iterator end() const { return value.end(); }
-    const_reverse_iterator rbegin() const { return value.rbegin(); }
-    const_reverse_iterator rend() const { return value.rend(); }
-
-    bool isEmpty() const { return value.isEmpty(); }
-    size_t size() const { return value.size(); }
-    const T& operator[](size_t i) const { return value[i]; }
-
-    bool operator==(const SpaceSeparatedVector<T, inlineCapacity>&) const = default;
-
-    WTF::Vector<T, inlineCapacity> value;
-};
-
-// Wraps a variable size list of elements of a single type, semantically marking them as serializing as "comma separated".
-template<typename T, size_t inlineCapacity = 0> struct CommaSeparatedVector {
-    using Vector = WTF::Vector<T, inlineCapacity>;
-    using const_iterator = typename Vector::const_iterator;
-    using const_reverse_iterator = typename Vector::const_reverse_iterator;
-    using value_type = typename Vector::value_type;
-
-    CommaSeparatedVector(std::initializer_list<T> initializerList)
-        : value { initializerList }
-    {
-    }
-
-    CommaSeparatedVector(WTF::Vector<T, inlineCapacity>&& value)
-        : value { WTFMove(value) }
-    {
-    }
-
-    const_iterator begin() const { return value.begin(); }
-    const_iterator end() const { return value.end(); }
-    const_reverse_iterator rbegin() const { return value.rbegin(); }
-    const_reverse_iterator rend() const { return value.rend(); }
-
-    bool isEmpty() const { return value.isEmpty(); }
-    size_t size() const { return value.size(); }
-    const T& operator[](size_t i) const { return value[i]; }
-
-    bool operator==(const CommaSeparatedVector<T, inlineCapacity>&) const = default;
-
-    WTF::Vector<T, inlineCapacity> value;
-};
-
-// Wraps a fixed size list of elements of a single type, semantically marking them as serializing as "space separated".
-template<typename T, size_t N> struct SpaceSeparatedArray {
-    using Array = std::array<T, N>;
-
-    template<typename...Ts>
-        requires (sizeof...(Ts) == N && WTF::all<std::is_same_v<T, Ts>...>)
-    constexpr SpaceSeparatedArray(Ts&&... values)
-        : value { std::forward<Ts>(values)... }
-    {
-    }
-
-    constexpr SpaceSeparatedArray(std::array<T, N>&& array)
-        : value { WTFMove(array) }
-    {
-    }
-
-    constexpr bool operator==(const SpaceSeparatedArray<T, N>&) const = default;
-
-    std::array<T, N> value;
-};
-
-template<class T, class... Ts>
-    requires (WTF::all<std::is_same_v<T, Ts>...>)
-SpaceSeparatedArray(T, Ts...) -> SpaceSeparatedArray<T, 1 + sizeof...(Ts)>;
-
-template<size_t I, typename T, size_t N> decltype(auto) get(const SpaceSeparatedArray<T, N>& array)
-{
-    return std::get<I>(array.value);
-}
-
-// Wraps a fixed size list of elements of a single type, semantically marking them as serializing as "comma separated".
-template<typename T, size_t N> struct CommaSeparatedArray {
-    using Array = std::array<T, N>;
-
-    template<typename...Ts>
-        requires (sizeof...(Ts) == N && WTF::all<std::is_same_v<T, Ts>...>)
-    constexpr CommaSeparatedArray(Ts&&... values)
-        : value { std::forward<Ts>(values)... }
-    {
-    }
-
-    constexpr CommaSeparatedArray(std::array<T, N>&& array)
-        : value { WTFMove(array) }
-    {
-    }
-
-    constexpr bool operator==(const CommaSeparatedArray<T, N>&) const = default;
-
-    std::array<T, N> value;
-};
-
-template<class T, class... Ts>
-    requires (WTF::all<std::is_same_v<T, Ts>...>)
-CommaSeparatedArray(T, Ts...) -> CommaSeparatedArray<T, 1 + sizeof...(Ts)>;
-
-template<size_t I, typename T, size_t N> decltype(auto) get(const CommaSeparatedArray<T, N>& array)
-{
-    return std::get<I>(array.value);
-}
-
-// Wraps a variadic list of types, semantically marking them as serializing as "space separated".
-template<typename... Ts> struct SpaceSeparatedTuple {
-    using Tuple = std::tuple<Ts...>;
-
-    constexpr SpaceSeparatedTuple(Ts&&... values)
-        : value { std::make_tuple(std::forward<Ts>(values)...) }
-    {
-    }
-
-    constexpr SpaceSeparatedTuple(const Ts&... values)
-        : value { std::make_tuple(values...) }
-    {
-    }
-
-    constexpr SpaceSeparatedTuple(std::tuple<Ts...>&& tuple)
-        : value { WTFMove(tuple) }
-    {
-    }
-
-    constexpr bool operator==(const SpaceSeparatedTuple<Ts...>&) const = default;
-
-    std::tuple<Ts...> value;
-};
-
-template<size_t I, typename... Ts> decltype(auto) get(const SpaceSeparatedTuple<Ts...>& tuple)
-{
-    return std::get<I>(tuple.value);
-}
-
-// Wraps a variadic list of types, semantically marking them as serializing as "comma separated".
-template<typename... Ts> struct CommaSeparatedTuple {
-    using Tuple = std::tuple<Ts...>;
-
-    constexpr CommaSeparatedTuple(Ts&&... values)
-        : value { std::make_tuple(std::forward<Ts>(values)...) }
-    {
-    }
-
-    constexpr CommaSeparatedTuple(const Ts&... values)
-        : value { std::make_tuple(values...) }
-    {
-    }
-
-    constexpr CommaSeparatedTuple(std::tuple<Ts...>&& tuple)
-        : value { WTFMove(tuple) }
-    {
-    }
-
-    constexpr bool operator==(const CommaSeparatedTuple<Ts...>&) const = default;
-
-    std::tuple<Ts...> value;
-};
-
-template<size_t I, typename... Ts> decltype(auto) get(const CommaSeparatedTuple<Ts...>& tuple)
-{
-    return std::get<I>(tuple.value);
-}
-
-// MARK: - Conversion from "Style to "CSS"
-
-// Conversion Invoker
-template<typename StyleType> decltype(auto) toCSS(const StyleType& styleType, const RenderStyle& style)
-{
-    return ToCSS<StyleType>{}(styleType, style);
-}
-
-template<typename To, typename From> auto toCSSOnTupleLike(const From& tupleLike, const RenderStyle& style) -> To
-{
-    return WTF::apply([&](const auto& ...x) { return To { toCSS(x, style)... }; }, tupleLike);
-}
-
-// Conversion Utility Types
-template<typename StyleType> using CSSType = std::decay_t<decltype(toCSS(std::declval<const StyleType&>(), std::declval<const RenderStyle&>()))>;
-template<typename... StyleTypes> using CSSVariant = std::variant<CSSType<StyleTypes>...>;
-template<typename... StyleTypes> using CSSTuple = std::tuple<CSSType<StyleTypes>...>;
-
-// Constrained for `TreatAsNonConverting`.
-template<typename StyleType> requires (TreatAsNonConverting<StyleType>) struct ToCSS<StyleType> {
-    constexpr decltype(auto) operator()(const StyleType& value, const RenderStyle&)
-    {
-        return value;
-    }
-};
-
-// Constrained for `TreatAsTupleLike`.
-template<typename StyleType> requires (TreatAsTupleLike<StyleType>) struct ToCSS<StyleType> {
-    decltype(auto) operator()(const StyleType& value, const RenderStyle& style)
-    {
-        return toCSSOnTupleLike<typename StyleToCSSMapping<StyleType>::type>(value, style);
-    }
-};
-
-// Specialization for `std::optional`.
-template<typename StyleType> struct ToCSS<std::optional<StyleType>> {
-    decltype(auto) operator()(const std::optional<StyleType>& value, const RenderStyle& style)
-    {
-        return value ? std::make_optional(toCSS(*value, style)) : std::nullopt;
-    }
-};
-
-// Specialization for `std::variant`.
-template<typename... StyleTypes> struct ToCSS<std::variant<StyleTypes...>> {
-    decltype(auto) operator()(const std::variant<StyleTypes...>& value, const RenderStyle& style)
-    {
-        return WTF::switchOn(value, [&](const auto& alternative) { return CSSVariant<StyleTypes...> { toCSS(alternative, style) }; });
-    }
-};
-
-// Specialization for `FunctionNotation`.
-template<CSSValueID Name, typename StyleType> struct ToCSS<FunctionNotation<Name, StyleType>> {
-    decltype(auto) operator()(const FunctionNotation<Name, StyleType>& value, const RenderStyle& style)
-    {
-        return FunctionNotation<Name, CSSType<StyleType>> { toCSS(value.parameters, style) };
-    }
-};
-
-// Specialization for `SpaceSeparatedVector`.
-template<typename StyleType, size_t inlineCapacity> struct ToCSS<SpaceSeparatedVector<StyleType, inlineCapacity>> {
-    using Result = CSS::SpaceSeparatedVector<CSSType<StyleType>, inlineCapacity>;
-
-    decltype(auto) operator()(const SpaceSeparatedVector<StyleType, inlineCapacity>& value, const RenderStyle& style)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toCSS(x, style); }) };
-    }
-};
-
-// Specialization for `CommaSeparatedVector`.
-template<typename StyleType, size_t inlineCapacity> struct ToCSS<CommaSeparatedVector<StyleType, inlineCapacity>> {
-    using Result = CSS::CommaSeparatedVector<CSSType<StyleType>, inlineCapacity>;
-
-    decltype(auto) operator()(const CommaSeparatedVector<StyleType, inlineCapacity>& value, const RenderStyle& style)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toCSS(x, style); }) };
-    }
-};
-
-// Specialization for `SpaceSeparatedArray`.
-template<typename StyleType, size_t N> struct ToCSS<SpaceSeparatedArray<StyleType, N>> {
-    using Result = CSS::SpaceSeparatedArray<CSSType<StyleType>, N>;
-
-    decltype(auto) operator()(const SpaceSeparatedArray<StyleType, N>& value, const RenderStyle& style)
-    {
-        return Result { toCSSOnTupleLike<typename Result::Array>(value.value, style) };
-    }
-};
-
-// Specialization for `CommaSeparatedArray`.
-template<typename StyleType, size_t N> struct ToCSS<CommaSeparatedArray<StyleType, N>> {
-    using Result = CSS::CommaSeparatedArray<CSSType<StyleType>, N>;
-
-    decltype(auto) operator()(const CommaSeparatedArray<StyleType, N>& value, const RenderStyle& style)
-    {
-        return Result { toCSSOnTupleLike<typename Result::Array>(value.value, style) };
-    }
-};
-
-// Specialization for `SpaceSeparatedTuple`.
-template<typename... StyleTypes> struct ToCSS<SpaceSeparatedTuple<StyleTypes...>> {
-    using Result = CSS::SpaceSeparatedTuple<CSSType<StyleTypes>...>;
-
-    decltype(auto) operator()(const SpaceSeparatedTuple<StyleTypes...>& value, const RenderStyle& style)
-    {
-        return Result { toCSSOnTupleLike<typename Result::Tuple>(value.value, style) };
-    }
-};
-
-// Specialization for `CommaSeparatedTuple`.
-template<typename... StyleTypes> struct ToCSS<CommaSeparatedTuple<StyleTypes...>> {
-    using Result = CSS::CommaSeparatedTuple<CSSType<StyleTypes>...>;
-
-    decltype(auto) operator()(const CommaSeparatedTuple<StyleTypes...>& value, const RenderStyle& style)
-    {
-        return Result { toCSSOnTupleLike<typename Result::Tuple>(value.value, style) };
-    }
-};
-
-// MARK: - Conversion from "CSS" to "Style"
-
-// Conversion Invokers
-template<typename CSSType> decltype(auto) toStyle(const CSSType& cssType, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-{
-    return ToStyle<PrimaryCSSType<CSSType>>{}(cssType, conversionData, symbolTable);
-}
-
-template<typename CSSType> decltype(auto) toStyle(const CSSType& cssType, const CSSToLengthConversionData& conversionData)
-{
-    return ToStyle<PrimaryCSSType<CSSType>>{}(cssType, conversionData, CSSCalcSymbolTable { });
-}
-
-template<typename CSSType> decltype(auto) toStyle(const CSSType& cssType, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-{
-    return ToStyle<PrimaryCSSType<CSSType>>{}(cssType, builderState, symbolTable);
-}
-
-template<typename CSSType> decltype(auto) toStyle(const CSSType& cssType, const BuilderState& builderState)
-{
-    return ToStyle<PrimaryCSSType<CSSType>>{}(cssType, builderState, CSSCalcSymbolTable { });
-}
-
-template<typename CSSType> decltype(auto) toStyleNoConversionDataRequired(const CSSType& cssType, const CSSCalcSymbolTable& symbolTable)
-{
-    return ToStyle<PrimaryCSSType<CSSType>>{}(cssType, NoConversionDataRequiredToken { }, symbolTable);
-}
-
-template<typename CSSType> decltype(auto) toStyleNoConversionDataRequired(const CSSType& cssType)
-{
-    return ToStyle<PrimaryCSSType<CSSType>>{}(cssType, NoConversionDataRequiredToken { }, CSSCalcSymbolTable { });
-}
-
-template<typename To, typename From, typename... Args> auto toStyleOnTupleLike(const From& tupleLike, Args&&... args) -> To
-{
-    return WTF::apply([&](const auto& ...x) { return To { toStyle(x, args...)... }; }, tupleLike);
-}
-
-template<typename To, typename From, typename... Args> auto toStyleNoConversionDataRequiredOnTupleLike(const From& tupleLike, Args&&... args) -> To
-{
-    return WTF::apply([&](const auto& ...x) { return To { toStyleNoConversionDataRequired(x, args...)... }; }, tupleLike);
-}
-
-// Conversion Utility Types
-template<typename CSSType> using StyleType = std::decay_t<decltype(toStyle(std::declval<const CSSType&>(), std::declval<const BuilderState&>(), std::declval<const CSSCalcSymbolTable&>()))>;
-template<typename... CSSTypes> using StyleVariant = std::variant<StyleType<CSSTypes>...>;
-template<typename... CSSTypes> using StyleTuple = std::tuple<StyleType<CSSTypes>...>;
-
-// Constrained for `TreatAsNonConverting`.
-template<typename CSSType> requires (TreatAsNonConverting<CSSType>) struct ToStyle<CSSType> {
-    constexpr decltype(auto) operator()(const CSSType& value, const CSSToLengthConversionData&, const CSSCalcSymbolTable&)
-    {
-        return value;
-    }
-    constexpr decltype(auto) operator()(const CSSType& value, const BuilderState&, const CSSCalcSymbolTable&)
-    {
-        return value;
-    }
-    constexpr decltype(auto) operator()(const CSSType& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable&)
-    {
-        return value;
-    }
-};
-
-// Constrained for `TreatAsTupleLike`.
-template<typename CSSType> requires (CSS::TreatAsTupleLike<CSSType>) struct ToStyle<CSSType> {
-    decltype(auto) operator()(const CSSType& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return toStyleOnTupleLike<typename CSSToStyleMapping<CSSType>::type>(value, conversionData, symbolTable);
-    }
-    decltype(auto) operator()(const CSSType& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return toStyleOnTupleLike<typename CSSToStyleMapping<CSSType>::type>(value, builderState, symbolTable);
-    }
-    decltype(auto) operator()(const CSSType& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return toStyleNoConversionDataRequiredOnTupleLike<typename CSSToStyleMapping<CSSType>::type>(value, symbolTable);
-    }
-};
-
-// Specialization for `std::optional`.
-template<typename CSSType> struct ToStyle<std::optional<CSSType>> {
-    decltype(auto) operator()(const std::optional<CSSType>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return value ? std::make_optional(toStyle(*value, conversionData, symbolTable)) : std::nullopt;
-    }
-    decltype(auto) operator()(const std::optional<CSSType>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return value ? std::make_optional(toStyle(*value, builderState, symbolTable)) : std::nullopt;
-    }
-    decltype(auto) operator()(const std::optional<CSSType>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return value ? std::make_optional(toStyleNoConversionDataRequired(*value, symbolTable)) : std::nullopt;
-    }
-};
-
-// Specialization for `std::variant`.
-template<typename... CSSTypes> struct ToStyle<std::variant<CSSTypes...>> {
-    decltype(auto) operator()(const std::variant<CSSTypes...>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return WTF::switchOn(value, [&](const auto& alternative) { return StyleVariant<CSSTypes...> { toStyle(alternative, conversionData, symbolTable) }; });
-    }
-    decltype(auto) operator()(const std::variant<CSSTypes...>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return WTF::switchOn(value, [&](const auto& alternative) { return StyleVariant<CSSTypes...> { toStyle(alternative, builderState, symbolTable) }; });
-    }
-    decltype(auto) operator()(const std::variant<CSSTypes...>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return WTF::switchOn(value, [&](const auto& alternative) { return StyleVariant<CSSTypes...> { toStyleNoConversionDataRequired(alternative, symbolTable) }; });
-    }
-};
-
-// Specialization for `FunctionNotation`.
-template<CSSValueID Name, typename CSSType> struct ToStyle<CSS::FunctionNotation<Name, CSSType>> {
-    decltype(auto) operator()(const CSS::FunctionNotation<Name, CSSType>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return FunctionNotation<Name, StyleType<CSSType>> { toStyle(value.parameters, conversionData, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::FunctionNotation<Name, CSSType>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return FunctionNotation<Name, StyleType<CSSType>> { toStyle(value.parameters, builderState, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::FunctionNotation<Name, CSSType>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return FunctionNotation<Name, StyleType<CSSType>> { toStyleNoConversionDataRequired(value.parameters, symbolTable) };
-    }
-};
-
-// Specialization for `SpaceSeparatedVector`.
-template<typename CSSType, size_t inlineCapacity> struct ToStyle<CSS::SpaceSeparatedVector<CSSType, inlineCapacity>> {
-    using Result = SpaceSeparatedVector<StyleType<CSSType>, inlineCapacity>;
-
-    decltype(auto) operator()(const CSS::SpaceSeparatedVector<CSSType, inlineCapacity>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyle(x, conversionData, symbolTable); }) };
-    }
-    decltype(auto) operator()(const CSS::SpaceSeparatedVector<CSSType, inlineCapacity>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyle(x, builderState, symbolTable); }) };
-    }
-    decltype(auto) operator()(const CSS::SpaceSeparatedVector<CSSType, inlineCapacity>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyleNoConversionDataRequired(x, symbolTable); }) };
-    }
-};
-
-// Specialization for `CommaSeparatedVector`.
-template<typename CSSType, size_t inlineCapacity> struct ToStyle<CSS::CommaSeparatedVector<CSSType, inlineCapacity>> {
-    using Result = CommaSeparatedVector<StyleType<CSSType>, inlineCapacity>;
-
-    decltype(auto) operator()(const CSS::CommaSeparatedVector<CSSType, inlineCapacity>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyle(x, conversionData, symbolTable); }) };
-    }
-    decltype(auto) operator()(const CSS::CommaSeparatedVector<CSSType, inlineCapacity>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyle(x, builderState, symbolTable); }) };
-    }
-    decltype(auto) operator()(const CSS::CommaSeparatedVector<CSSType, inlineCapacity>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyleNoConversionDataRequired(x, symbolTable); }) };
-    }
-};
-
-// Specialization for `SpaceSeparatedArray`.
-template<typename CSSType, size_t N> struct ToStyle<CSS::SpaceSeparatedArray<CSSType, N>> {
-    using Result = SpaceSeparatedArray<StyleType<CSSType>, N>;
-
-    decltype(auto) operator()(const CSS::SpaceSeparatedArray<CSSType, N>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Array>(value, conversionData, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::SpaceSeparatedArray<CSSType, N>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Array>(value, builderState, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::SpaceSeparatedArray<CSSType, N>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleNoConversionDataRequiredOnTupleLike<typename Result::Array>(value, symbolTable) };
-    }
-};
-
-// Specialization for `CommaSeparatedArray`.
-template<typename CSSType, size_t N> struct ToStyle<CSS::CommaSeparatedArray<CSSType, N>> {
-    using Result = CommaSeparatedArray<StyleType<CSSType>, N>;
-
-    decltype(auto) operator()(const CSS::CommaSeparatedArray<CSSType, N>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Array>(value, conversionData, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::CommaSeparatedArray<CSSType, N>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Array>(value, builderState, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::CommaSeparatedArray<CSSType, N>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleNoConversionDataRequiredOnTupleLike<typename Result::Array>(value, symbolTable) };
-    }
-};
-
-// Specialization for `SpaceSeparatedTuple`.
-template<typename... CSSTypes> struct ToStyle<CSS::SpaceSeparatedTuple<CSSTypes...>> {
-    using Result = SpaceSeparatedTuple<StyleType<CSSTypes>...>;
-
-    decltype(auto) operator()(const CSS::SpaceSeparatedTuple<CSSTypes...>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Tuple>(value, conversionData, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::SpaceSeparatedTuple<CSSTypes...>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Tuple>(value, builderState, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::SpaceSeparatedTuple<CSSTypes...>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleNoConversionDataRequiredOnTupleLike<typename Result::Tuple>(value, symbolTable) };
-    }
-};
-
-// Specialization for `CommaSeparatedTuple`.
-template<typename... CSSTypes> struct ToStyle<CSS::CommaSeparatedTuple<CSSTypes...>> {
-    using Result = CommaSeparatedTuple<StyleType<CSSTypes>...>;
-
-    decltype(auto) operator()(const CSS::CommaSeparatedTuple<CSSTypes...>& value, const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Tuple>(value, conversionData, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::CommaSeparatedTuple<CSSTypes...>& value, const BuilderState& builderState, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleOnTupleLike<typename Result::Tuple>(value, builderState, symbolTable) };
-    }
-    decltype(auto) operator()(const CSS::CommaSeparatedTuple<CSSTypes...>& value, NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable)
-    {
-        return Result { toStyleNoConversionDataRequiredOnTupleLike<typename Result::Tuple>(value, symbolTable) };
-    }
-};
-
-} // namespace Style
-} // namespace WebCore
-
-namespace std {
-
-template<typename T, size_t N> class tuple_size<WebCore::Style::SpaceSeparatedArray<T, N>> : public std::integral_constant<size_t, N> { };
-template<size_t I, typename T, size_t N> class tuple_element<I, WebCore::Style::SpaceSeparatedArray<T, N>> {
-public:
-    using type = T;
-};
-
-template<typename T, size_t N> class tuple_size<WebCore::Style::CommaSeparatedArray<T, N>> : public std::integral_constant<size_t, N> { };
-template<size_t I, typename T, size_t N> class tuple_element<I, WebCore::Style::CommaSeparatedArray<T, N>> {
-public:
-    using type = T;
-};
-
-template<typename... Ts> class tuple_size<WebCore::Style::SpaceSeparatedTuple<Ts...>> : public std::integral_constant<size_t, sizeof...(Ts)> { };
-template<size_t I, typename... Ts> class tuple_element<I, WebCore::Style::SpaceSeparatedTuple<Ts...>> {
-public:
-    using type = tuple_element_t<I, tuple<Ts...>>;
-};
-
-template<typename... Ts> class tuple_size<WebCore::Style::CommaSeparatedTuple<Ts...>> : public std::integral_constant<size_t, sizeof...(Ts)> { };
-template<size_t I, typename... Ts> class tuple_element<I, WebCore::Style::CommaSeparatedTuple<Ts...>> {
-public:
-    using type = tuple_element_t<I, tuple<Ts...>>;
-};
-
+// Helper for declaring types in the Style namespace as Tuple-Like.
 #define STYLE_TUPLE_LIKE_CONFORMANCE(t, numberOfArguments) \
     namespace std { \
         template<> class tuple_size<WebCore::Style::t> : public std::integral_constant<size_t, numberOfArguments> { }; \
@@ -667,7 +52,570 @@ public:
             using type = decltype(WebCore::Style::get<I>(std::declval<WebCore::Style::t>())); \
         }; \
     } \
-    template<> inline constexpr bool WebCore::Style::TreatAsTupleLike<WebCore::Style::t> = true; \
+    template<> inline constexpr bool WebCore::TreatAsTupleLike<WebCore::Style::t> = true; \
 \
 
-} // namespace std
+#define STYLE_SPACE_SEPARATED_TUPLE_LIKE_CONFORMANCE(t, numberOfArguments) \
+    STYLE_TUPLE_LIKE_CONFORMANCE(t, numberOfArguments) \
+    template<> inline constexpr ASCIILiteral WebCore::SerializationSeparator<WebCore::Style::t> = " "_s; \
+\
+
+#define STYLE_COMMA_SEPARATED_TUPLE_LIKE_CONFORMANCE(t, numberOfArguments) \
+    STYLE_TUPLE_LIKE_CONFORMANCE(t, numberOfArguments) \
+    template<> inline constexpr ASCIILiteral WebCore::SerializationSeparator<WebCore::Style::t> = ", "_s; \
+\
+
+// Types can specialize this and set the value to true to be treated as "non-converting"
+// for css to style / style to css conversion algorithms. This means the type is identical
+// for both CSS and Style systems (e.g. a constant value or an enum).
+template<typename> inline constexpr bool TreatAsNonConverting = false;
+
+// The `NonConverting` concept can be used to filter to types that specialize `TreatAsNonConverting`.
+template<typename T> concept NonConverting = TreatAsNonConverting<T>;
+
+// Types that are treated as "tuple-like" can have their conversion operations defined
+// automatically by just defining their type mapping.
+template<typename> struct ToStyleMapping;
+template<typename> struct ToCSSMapping;
+
+// Macro to define two-way mapping between a CSS and Style type. This is only needed
+// for "tuple-like" types, in lieu of explicit ToCSS/ToStyle specializations.
+#define DEFINE_TYPE_MAPPING(css, style) \
+    template<> struct ToStyleMapping<css> { using type = style; }; \
+    template<> struct ToCSSMapping<style> { using type = css; }; \
+
+// All non-converting and non-tuple-like conforming types must implement the following for conversions:
+//
+//    template<> struct WebCore::Style::ToCSS<StyleType> {
+//        CSSType operator()(const StyleType&, const RenderStyle&);
+//    };
+//
+//    template<> struct WebCore::Style::ToStyle<CSSType> {
+//        StyleType operator()(const CSSType&, const CSSToLengthConversionData&);
+//        StyleType operator()(const CSSType&, const BuilderState&);
+//        StyleType operator()(const CSSType&, NoConversionDataRequiredToken);
+//    };
+
+template<typename> struct ToCSS;
+template<typename> struct ToStyle;
+
+// MARK: Common Types.
+
+// Specialize `TreatAsNonConverting` for `Constant<C>`, to indicate that its type does not change from the CSS representation.
+template<CSSValueID C> inline constexpr bool TreatAsNonConverting<Constant<C>> = true;
+
+// Specialize `TreatAsNonConverting` for `CustomIdentifier`, to indicate that its type does not change from the CSS representation.
+template<> inline constexpr bool TreatAsNonConverting<CustomIdentifier> = true;
+
+
+// MARK: - Conversion from "Style to "CSS"
+
+// Conversion Invoker
+template<typename StyleType, typename... Rest> decltype(auto) toCSS(const StyleType& styleType, const RenderStyle& style, Rest&&... rest)
+{
+    return ToCSS<StyleType>{}(styleType, style, std::forward<Rest>(rest)...);
+}
+
+// Conversion Utility Types
+template<typename StyleType> using CSSType = std::decay_t<decltype(toCSS(std::declval<const StyleType&>(), std::declval<const RenderStyle&>()))>;
+
+template<typename To, typename From, typename... Rest> auto toCSSOnTupleLike(const From& tupleLike, Rest&&... rest) -> To
+{
+    return WTF::apply([&](const auto& ...x) { return To { toCSS(x, rest...)... }; }, tupleLike);
+}
+
+// Standard Optional-Like type mappings:
+template<typename T> struct ToCSSMapping<std::optional<T>> { using type = std::optional<CSSType<T>>; };
+template<typename T> struct ToCSSMapping<WTF::Markable<T>> { using type = WTF::Markable<CSSType<T>>; };
+
+// Standard Tuple-Like type mappings:
+template<typename... Ts> struct ToCSSMapping<std::tuple<Ts...>> { using type = std::tuple<CSSType<Ts>...>; };
+template<CSSValueID C, typename T> struct ToCSSMapping<FunctionNotation<C, T>> { using type = FunctionNotation<C, CSSType<T>>; };
+template<typename T, size_t N> struct ToCSSMapping<SpaceSeparatedArray<T, N>> { using type = SpaceSeparatedArray<CSSType<T>, N>; };
+template<typename T, size_t N> struct ToCSSMapping<CommaSeparatedArray<T, N>> { using type = CommaSeparatedArray<CSSType<T>, N>; };
+template<typename... Ts> struct ToCSSMapping<SpaceSeparatedTuple<Ts...>> { using type = SpaceSeparatedTuple<CSSType<Ts>...>; };
+template<typename... Ts> struct ToCSSMapping<CommaSeparatedTuple<Ts...>> { using type = CommaSeparatedTuple<CSSType<Ts>...>; };
+template<typename T> struct ToCSSMapping<SpaceSeparatedPoint<T>> { using type = SpaceSeparatedPoint<CSSType<T>>; };
+template<typename T> struct ToCSSMapping<SpaceSeparatedSize<T>> { using type = SpaceSeparatedSize<CSSType<T>>; };
+template<typename T> struct ToCSSMapping<SpaceSeparatedRectEdges<T>> { using type = SpaceSeparatedRectEdges<CSSType<T>>; };
+template<typename T> struct ToCSSMapping<MinimallySerializingSpaceSeparatedRectEdges<T>> { using type = MinimallySerializingSpaceSeparatedRectEdges<CSSType<T>>; };
+
+// Standard Range-Like type mappings:
+template<typename T, size_t N> struct ToCSSMapping<SpaceSeparatedVector<T, N>> { using type = SpaceSeparatedVector<CSSType<T>, N>; };
+template<typename T, size_t N> struct ToCSSMapping<CommaSeparatedVector<T, N>> { using type = CommaSeparatedVector<CSSType<T>, N>; };
+
+// Standard Variant-Like type mappings:
+template<typename... Ts> struct ToCSSMapping<std::variant<Ts...>> { using type = std::variant<CSSType<Ts>...>; };
+
+// Constrained for `TreatAsNonConverting`.
+template<NonConverting StyleType> struct ToCSS<StyleType> {
+    constexpr StyleType operator()(const StyleType& value, const RenderStyle&)
+    {
+        return value;
+    }
+};
+
+// Constrained for `TreatAsOptionalLike`.
+template<OptionalLike StyleType> struct ToCSS<StyleType> {
+    using Result = typename ToCSSMapping<StyleType>::type;
+
+    Result operator()(const StyleType& value, const RenderStyle& style)
+    {
+        if (value)
+            return toCSS(*value, style);
+        return std::nullopt;
+    }
+};
+
+// Constrained for `TreatAsTupleLike`.
+template<TupleLike StyleType> struct ToCSS<StyleType> {
+    using Result = typename ToCSSMapping<StyleType>::type;
+
+    Result operator()(const StyleType& value, const RenderStyle& style)
+    {
+        return toCSSOnTupleLike<Result>(value, style);
+    }
+};
+
+// Constrained for `TreatAsVariantLike`.
+template<VariantLike StyleType> struct ToCSS<StyleType> {
+    using Result = typename ToCSSMapping<StyleType>::type;
+
+    Result operator()(const StyleType& value, const RenderStyle& style)
+    {
+        return WTF::switchOn(value, [&](const auto& alternative) { return Result { toCSS(alternative, style) }; });
+    }
+};
+
+// Specialization for `SpaceSeparatedVector`.
+template<typename StyleType, size_t inlineCapacity> struct ToCSS<SpaceSeparatedVector<StyleType, inlineCapacity>> {
+    using Result = SpaceSeparatedVector<CSSType<StyleType>, inlineCapacity>;
+
+    Result operator()(const SpaceSeparatedVector<StyleType, inlineCapacity>& value, const RenderStyle& style)
+    {
+        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toCSS(x, style); }) };
+    }
+};
+
+// Specialization for `CommaSeparatedVector`.
+template<typename StyleType, size_t inlineCapacity> struct ToCSS<CommaSeparatedVector<StyleType, inlineCapacity>> {
+    using Result = CommaSeparatedVector<CSSType<StyleType>, inlineCapacity>;
+
+    Result operator()(const CommaSeparatedVector<StyleType, inlineCapacity>& value, const RenderStyle& style)
+    {
+        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toCSS(x, style); }) };
+    }
+};
+
+// MARK: - Conversion from "CSS" to "Style"
+
+// Conversion Invokers
+template<typename CSSType, typename... Rest> decltype(auto) toStyle(const CSSType& cssType, const CSSToLengthConversionData& conversionData, Rest&&... rest)
+{
+    return ToStyle<CSSType>{}(cssType, conversionData, std::forward<Rest>(rest)...);
+}
+
+template<typename CSSType, typename... Rest> decltype(auto) toStyle(const CSSType& cssType, const BuilderState& builderState, Rest&&... rest)
+{
+    return ToStyle<CSSType>{}(cssType, builderState, std::forward<Rest>(rest)...);
+}
+
+template<typename CSSType, typename... Rest> decltype(auto) toStyle(const CSSType& cssType, NoConversionDataRequiredToken token, Rest&&... rest)
+{
+    return ToStyle<CSSType>{}(cssType, token, std::forward<Rest>(rest)...);
+}
+
+// Convenience invoker that adds a `NoConversionDataRequiredToken` argument.
+template<typename CSSType, typename... Rest> decltype(auto) toStyleNoConversionDataRequired(const CSSType& cssType, Rest&&... rest)
+{
+    return toStyle(cssType, NoConversionDataRequiredToken { }, std::forward<Rest>(rest)...);
+}
+
+template<typename To, typename From, typename... Rest> auto toStyleOnTupleLike(const From& tupleLike, Rest&&... rest) -> To
+{
+    return WTF::apply([&](const auto& ...x) { return To { toStyle(x, rest...)... }; }, tupleLike);
+}
+
+template<typename To, typename From, typename... Rest> auto toStyleNoConversionDataRequiredOnTupleLike(const From& tupleLike, Rest&&... rest) -> To
+{
+    return WTF::apply([&](const auto& ...x) { return To { toStyleNoConversionDataRequired(x, rest...)... }; }, tupleLike);
+}
+
+// Conversion Utility Types
+template<typename CSSType> using StyleType = std::decay_t<decltype(toStyle(std::declval<const CSSType&>(), std::declval<const BuilderState&>()))>;
+
+// Standard Optional-Like type mappings:
+template<typename T> struct ToStyleMapping<std::optional<T>> { using type = std::optional<StyleType<T>>; };
+template<typename T> struct ToStyleMapping<WTF::Markable<T>> { using type = WTF::Markable<StyleType<T>>; };
+
+// Standard Tuple-Like type mappings:
+template<typename... Ts> struct ToStyleMapping<std::tuple<Ts...>> { using type = std::tuple<StyleType<Ts>...>; };
+template<CSSValueID C, typename T> struct ToStyleMapping<FunctionNotation<C, T>> { using type = FunctionNotation<C, StyleType<T>>; };
+template<typename T, size_t N> struct ToStyleMapping<SpaceSeparatedArray<T, N>> { using type = SpaceSeparatedArray<StyleType<T>, N>; };
+template<typename T, size_t N> struct ToStyleMapping<CommaSeparatedArray<T, N>> { using type = CommaSeparatedArray<StyleType<T>, N>; };
+template<typename... Ts> struct ToStyleMapping<SpaceSeparatedTuple<Ts...>> { using type = SpaceSeparatedTuple<StyleType<Ts>...>; };
+template<typename... Ts> struct ToStyleMapping<CommaSeparatedTuple<Ts...>> { using type = CommaSeparatedTuple<StyleType<Ts>...>; };
+template<typename T> struct ToStyleMapping<SpaceSeparatedPoint<T>> { using type = SpaceSeparatedPoint<StyleType<T>>; };
+template<typename T> struct ToStyleMapping<SpaceSeparatedSize<T>> { using type = SpaceSeparatedSize<StyleType<T>>; };
+template<typename T> struct ToStyleMapping<SpaceSeparatedRectEdges<T>> { using type = SpaceSeparatedRectEdges<StyleType<T>>; };
+template<typename T> struct ToStyleMapping<MinimallySerializingSpaceSeparatedRectEdges<T>> { using type = MinimallySerializingSpaceSeparatedRectEdges<StyleType<T>>; };
+
+// Standard Range-Like type mappings:
+template<typename T, size_t N> struct ToStyleMapping<SpaceSeparatedVector<T, N>> { using type = SpaceSeparatedVector<StyleType<T>, N>; };
+template<typename T, size_t N> struct ToStyleMapping<CommaSeparatedVector<T, N>> { using type = CommaSeparatedVector<StyleType<T>, N>; };
+
+// Standard Variant-Like type mappings:
+template<typename... Ts> struct ToStyleMapping<std::variant<Ts...>> { using type = std::variant<StyleType<Ts>...>; };
+
+// Constrained for `TreatAsNonConverting`.
+template<NonConverting CSSType> struct ToStyle<CSSType> {
+    template<typename... Rest> constexpr CSSType operator()(const CSSType& value, Rest&&...)
+    {
+        return value;
+    }
+};
+
+// Constrained for `TreatAsOptionalLike`.
+template<OptionalLike CSSType> struct ToStyle<CSSType> {
+    using Result = typename ToStyleMapping<CSSType>::type;
+
+    template<typename... Rest> Result operator()(const CSSType& value, Rest&&... rest)
+    {
+        if (value)
+            return toStyle(*value, std::forward<Rest>(rest)...);
+        return std::nullopt;
+    }
+};
+
+// Constrained for `TreatAsTupleLike`.
+template<TupleLike CSSType> struct ToStyle<CSSType> {
+    using Result = typename ToStyleMapping<CSSType>::type;
+
+    template<typename... Rest> Result operator()(const CSSType& value, Rest&&... rest)
+    {
+        return toStyleOnTupleLike<Result>(value, std::forward<Rest>(rest)...);
+    }
+};
+
+// Constrained for `TreatAsVariantLike`.
+template<VariantLike CSSType> struct ToStyle<CSSType> {
+    using Result = typename ToStyleMapping<CSSType>::type;
+
+    template<typename... Rest> Result operator()(const CSSType& value, Rest&&... rest)
+    {
+        return WTF::switchOn(value, [&](const auto& alternative) { return Result { toStyle(alternative, std::forward<Rest>(rest)...) }; });
+    }
+};
+
+// Specialization for `SpaceSeparatedVector`.
+template<typename CSSType, size_t inlineCapacity> struct ToStyle<SpaceSeparatedVector<CSSType, inlineCapacity>> {
+    using Result = SpaceSeparatedVector<StyleType<CSSType>, inlineCapacity>;
+
+    template<typename... Rest> Result operator()(const SpaceSeparatedVector<CSSType, inlineCapacity>& value, Rest&&... rest)
+    {
+        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyle(x, rest...); }) };
+    }
+};
+
+// Specialization for `CommaSeparatedVector`.
+template<typename CSSType, size_t inlineCapacity> struct ToStyle<CommaSeparatedVector<CSSType, inlineCapacity>> {
+    using Result = CommaSeparatedVector<StyleType<CSSType>, inlineCapacity>;
+
+    template<typename... Rest> Result operator()(const CommaSeparatedVector<CSSType, inlineCapacity>& value, Rest&&... rest)
+    {
+        return Result { value.value.template map<typename Result::Vector>([&](const auto& x) { return toStyle(x, rest...); }) };
+    }
+};
+
+// MARK: - Blending
+
+// All non-tuple-like leaf types must specialize `Blending` with the following member functions:
+//
+//    template<> struct WebCore::Style::Blending<StyleType> {
+//        bool canBlend(const StyleType&, const StyleType&);
+//        StyleType blend(const StyleType&, const StyleType&, const BlendingContext&);
+//    };
+//
+// or, if a RenderStyle is needed for blending:
+//
+//    template<> struct WebCore::Style::Blending<StyleType> {
+//        bool canBlend(const StyleType&, const StyleType&, const RenderStyle&, const RenderStyle&);
+//        StyleType blend(const StyleType&, const StyleType&, const RenderStyle&, const RenderStyle&, const BlendingContext&);
+//    };
+
+template<typename> struct Blending;
+
+// `CanBlend` Invoker
+template<typename StyleType> auto canBlend(const StyleType& a, const StyleType& b) -> bool
+{
+    return Blending<StyleType>{}.canBlend(a, b);
+}
+
+template<typename StyleType> auto canBlend(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+{
+    return Blending<StyleType>{}.canBlend(a, b, aStyle, bStyle);
+}
+
+// `Blend` Invoker
+template<typename StyleType> auto blend(const StyleType& a, const StyleType& b, const BlendingContext& context) -> StyleType
+{
+    return Blending<StyleType>{}.blend(a, b, context);
+}
+
+template<typename StyleType> auto blend(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> StyleType
+{
+    return Blending<StyleType>{}.blend(a, b, aStyle, bStyle, context);
+}
+
+// Utilities for blending
+
+template<typename StyleType> auto canBlendOnOptionalLike(const StyleType& a, const StyleType& b) -> bool
+{
+    if (a && b)
+        return WebCore::Style::canBlend(*a, *b);
+    return !a && !b;
+}
+
+template<typename StyleType> auto canBlendOnOptionalLike(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+{
+    if (a && b)
+        return WebCore::Style::canBlend(*a, *b, aStyle, bStyle);
+    return !a && !b;
+}
+
+template<typename StyleType> auto blendOnOptionalLike(const StyleType& a, const StyleType& b, const BlendingContext& context) -> StyleType
+{
+    if (a && b)
+        return WebCore::Style::blend(*a, *b, context);
+    return std::nullopt;
+}
+
+template<typename StyleType> auto blendOnOptionalLike(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> StyleType
+{
+    if (a && b)
+        return WebCore::Style::blend(*a, *b, aStyle, bStyle, context);
+    return std::nullopt;
+}
+
+template<typename StyleType> auto canBlendOnTupleLike(const StyleType& a, const StyleType& b) -> bool
+{
+    return WTF::apply([&](const auto& ...pair) {
+        return (WebCore::Style::canBlend(std::get<0>(pair), std::get<1>(pair)) && ...);
+    }, WTF::tuple_zip(a, b));
+}
+
+template<typename StyleType> auto canBlendOnTupleLike(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+{
+    return WTF::apply([&](const auto& ...pair) {
+        return (WebCore::Style::canBlend(std::get<0>(pair), std::get<1>(pair), aStyle, bStyle) && ...);
+    }, WTF::tuple_zip(a, b));
+}
+
+template<typename StyleType> auto blendOnTupleLike(const StyleType& a, const StyleType& b, const BlendingContext& context) -> StyleType
+{
+    return WTF::apply([&](const auto& ...pair) {
+        return StyleType { WebCore::Style::blend(std::get<0>(pair), std::get<1>(pair), context)... };
+    }, WTF::tuple_zip(a, b));
+}
+
+template<typename StyleType> auto blendOnTupleLike(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> StyleType
+{
+    return WTF::apply([&](const auto& ...pair) {
+        return StyleType { WebCore::Style::blend(std::get<0>(pair), std::get<1>(pair), aStyle, bStyle, context)... };
+    }, WTF::tuple_zip(a, b));
+}
+
+// Constrained for `TreatAsOptionalLike`.
+template<OptionalLike StyleType> struct Blending<StyleType> {
+    constexpr auto canBlend(const StyleType& a, const StyleType& b) -> bool
+    {
+        return canBlendOnOptionalLike(a, b);
+    }
+    constexpr auto canBlend(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+    {
+        return canBlendOnOptionalLike(a, b, aStyle, bStyle);
+    }
+    auto blend(const StyleType& a, const StyleType& b, const BlendingContext& context) -> StyleType
+    {
+        return blendOnOptionalLike(a, b, context);
+    }
+    auto blend(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> StyleType
+    {
+        return blendOnOptionalLike(a, b, aStyle, bStyle, context);
+    }
+};
+
+// Constrained for `TreatAsTupleLike`.
+template<TupleLike StyleType> struct Blending<StyleType> {
+    constexpr auto canBlend(const StyleType& a, const StyleType& b) -> bool
+    {
+        return canBlendOnTupleLike(a, b);
+    }
+    constexpr auto canBlend(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+    {
+        return canBlendOnTupleLike(a, b, aStyle, bStyle);
+    }
+    auto blend(const StyleType& a, const StyleType& b, const BlendingContext& context) -> StyleType
+    {
+        return blendOnTupleLike(a, b, context);
+    }
+    auto blend(const StyleType& a, const StyleType& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> StyleType
+    {
+        return blendOnTupleLike(a, b, aStyle, bStyle, context);
+    }
+};
+
+// Specialization for `Constant`.
+template<CSSValueID C> struct Blending<Constant<C>> {
+    constexpr auto canBlend(const Constant<C>&, const Constant<C>&) -> bool
+    {
+        return true;
+    }
+    constexpr auto canBlend(const Constant<C>&, const Constant<C>&, const RenderStyle&, const RenderStyle&) -> bool
+    {
+        return true;
+    }
+    auto blend(const Constant<C>&, const Constant<C>&, const BlendingContext&) -> Constant<C>
+    {
+        return { };
+    }
+    auto blend(const Constant<C>&, const Constant<C>&, const RenderStyle&, const RenderStyle&, const BlendingContext&) -> Constant<C>
+    {
+        return { };
+    }
+};
+
+// Specialization for `std::variant`.
+template<typename... StyleTypes> struct Blending<std::variant<StyleTypes...>> {
+    auto canBlend(const std::variant<StyleTypes...>& a, const std::variant<StyleTypes...>& b) -> bool
+    {
+        return std::visit(WTF::makeVisitor(
+            []<typename T>(const T& a, const T& b) -> bool {
+                return WebCore::Style::canBlend(a, b);
+            },
+            [](const auto&, const auto&) -> bool {
+                return false;
+            }
+        ), a, b);
+    }
+    auto canBlend(const std::variant<StyleTypes...>& a, const std::variant<StyleTypes...>& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+    {
+        return std::visit(WTF::makeVisitor(
+            [&]<typename T>(const T& a, const T& b) -> bool {
+                return WebCore::Style::canBlend(a, b, aStyle, bStyle);
+            },
+            [](const auto&, const auto&) -> bool {
+                return false;
+            }
+        ), a, b);
+    }
+    auto blend(const std::variant<StyleTypes...>& a, const std::variant<StyleTypes...>& b, const BlendingContext& context) -> std::variant<StyleTypes...>
+    {
+        return std::visit(WTF::makeVisitor(
+            [&]<typename T>(const T& a, const T& b) -> std::variant<StyleTypes...> {
+                return WebCore::Style::blend(a, b, context);
+            },
+            [](const auto&, const auto&) -> std::variant<StyleTypes...> {
+                RELEASE_ASSERT_NOT_REACHED();
+            }
+        ), a, b);
+    }
+    auto blend(const std::variant<StyleTypes...>& a, const std::variant<StyleTypes...>& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> std::variant<StyleTypes...>
+    {
+        return std::visit(WTF::makeVisitor(
+            [&]<typename T>(const T& a, const T& b) -> std::variant<StyleTypes...> {
+                return WebCore::Style::blend(a, b, aStyle, bStyle, context);
+            },
+            [](const auto&, const auto&) -> std::variant<StyleTypes...> {
+                RELEASE_ASSERT_NOT_REACHED();
+            }
+        ), a, b);
+    }
+};
+
+// Specialization for `SpaceSeparatedVector`.
+template<typename StyleType, size_t inlineCapacity> struct Blending<SpaceSeparatedVector<StyleType, inlineCapacity>> {
+    auto canBlend(const SpaceSeparatedVector<StyleType, inlineCapacity>& a, const SpaceSeparatedVector<StyleType, inlineCapacity>& b) -> bool
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (!WebCore::Style::canBlend(a[i], b[i]))
+                return false;
+        }
+        return true;
+    }
+    auto canBlend(const SpaceSeparatedVector<StyleType, inlineCapacity>& a, const SpaceSeparatedVector<StyleType, inlineCapacity>& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (!WebCore::Style::canBlend(a[i], b[i], aStyle, bStyle))
+                return false;
+        }
+        return true;
+    }
+    auto blend(const SpaceSeparatedVector<StyleType, inlineCapacity>& a, const SpaceSeparatedVector<StyleType, inlineCapacity>& b, const BlendingContext& context) -> SpaceSeparatedVector<StyleType, inlineCapacity>
+    {
+        auto size = a.size();
+        typename SpaceSeparatedVector<StyleType, inlineCapacity>::Vector result;
+        result.reserveInitialCapacity(size);
+        for (size_t i = 0; i < size; ++i)
+            result.append(WebCore::Style::blend(a[i], b[i], context));
+        return { WTFMove(result) };
+    }
+    auto blend(const SpaceSeparatedVector<StyleType, inlineCapacity>& a, const SpaceSeparatedVector<StyleType, inlineCapacity>& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> SpaceSeparatedVector<StyleType, inlineCapacity>
+    {
+        auto size = a.size();
+        typename SpaceSeparatedVector<StyleType, inlineCapacity>::Vector result;
+        result.reserveInitialCapacity(size);
+        for (size_t i = 0; i < size; ++i)
+            result.append(WebCore::Style::blend(a[i], b[i], aStyle, bStyle, context));
+        return { WTFMove(result) };
+    }
+};
+
+// Specialization for `CommaSeparatedVector`.
+template<typename StyleType, size_t inlineCapacity> struct Blending<CommaSeparatedVector<StyleType, inlineCapacity>> {
+    auto canBlend(const CommaSeparatedVector<StyleType, inlineCapacity>& a, const CommaSeparatedVector<StyleType, inlineCapacity>& b) -> bool
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (!WebCore::Style::canBlend(a[i], b[i]))
+                return false;
+        }
+        return true;
+    }
+    auto canBlend(const CommaSeparatedVector<StyleType, inlineCapacity>& a, const CommaSeparatedVector<StyleType, inlineCapacity>& b, const RenderStyle& aStyle, const RenderStyle& bStyle) -> bool
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (!WebCore::Style::canBlend(a[i], b[i], aStyle, bStyle))
+                return false;
+        }
+        return true;
+    }
+    auto blend(const CommaSeparatedVector<StyleType, inlineCapacity>& a, const CommaSeparatedVector<StyleType, inlineCapacity>& b, const BlendingContext& context) -> CommaSeparatedVector<StyleType, inlineCapacity>
+    {
+        auto size = a.size();
+        typename CommaSeparatedVector<StyleType, inlineCapacity>::Vector result;
+        result.reserveInitialCapacity(size);
+        for (size_t i = 0; i < size; ++i)
+            result.append(WebCore::Style::blend(a[i], b[i], context));
+        return { WTFMove(result) };
+    }
+    auto blend(const CommaSeparatedVector<StyleType, inlineCapacity>& a, const CommaSeparatedVector<StyleType, inlineCapacity>& b, const RenderStyle& aStyle, const RenderStyle& bStyle, const BlendingContext& context) -> CommaSeparatedVector<StyleType, inlineCapacity>
+    {
+        auto size = a.size();
+        typename CommaSeparatedVector<StyleType, inlineCapacity>::Vector result;
+        result.reserveInitialCapacity(size);
+        for (size_t i = 0; i < size; ++i)
+            result.append(WebCore::Style::blend(a[i], b[i], aStyle, bStyle, context));
+        return { WTFMove(result) };
+    }
+};
+
+} // namespace Style
+} // namespace WebCore

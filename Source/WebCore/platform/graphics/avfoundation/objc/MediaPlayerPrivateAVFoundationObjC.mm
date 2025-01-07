@@ -135,6 +135,8 @@
 
 #import <pal/cocoa/MediaToolboxSoftLink.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace std {
 template <> struct iterator_traits<HashSet<RefPtr<WebCore::MediaSelectionOptionAVFObjC>>::iterator> {
     typedef RefPtr<WebCore::MediaSelectionOptionAVFObjC> value_type;
@@ -886,19 +888,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
         return;
 
     [options setObject:@(AVAssetReferenceRestrictionForbidRemoteReferenceToLocal | AVAssetReferenceRestrictionForbidLocalReferenceToRemote) forKey:AVURLAssetReferenceRestrictionsKey];
-
-    RetainPtr<NSMutableDictionary> headerFields = adoptNS([[NSMutableDictionary alloc] init]);
-
-    String referrer = player->referrer();
-    if (!referrer.isEmpty())
-        [headerFields setObject:referrer forKey:@"Referer"];
-
-    String userAgent = player->userAgent();
-    if (!userAgent.isEmpty())
-        [headerFields setObject:userAgent forKey:@"User-Agent"];
-
-    if ([headerFields count])
-        [options setObject:headerFields.get() forKey:@"AVURLAssetHTTPHeaderFieldsKey"];
 
     if (shouldEnableInheritURIQueryComponent())
         [options setObject:@YES forKey:AVURLAssetInheritURIQueryComponentFromReferencingURIKey];
@@ -2930,11 +2919,11 @@ void MediaPlayerPrivateAVFoundationObjC::keyAdded()
         m_keyURIToRequestMap.remove(keyId);
 }
 
-std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateAVFoundationObjC::createSession(const String& keySystem, LegacyCDMSessionClient& client)
+RefPtr<LegacyCDMSession> MediaPlayerPrivateAVFoundationObjC::createSession(const String& keySystem, LegacyCDMSessionClient& client)
 {
     if (!keySystemIsSupported(keySystem))
         return nullptr;
-    auto session = makeUnique<CDMSessionAVFoundationObjC>(this, client);
+    RefPtr session = CDMSessionAVFoundationObjC::create(this, client);
     m_session = *session;
     return WTFMove(session);
 }
@@ -4459,5 +4448,7 @@ NSArray* playerKVOProperties()
 }
 
 @end
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

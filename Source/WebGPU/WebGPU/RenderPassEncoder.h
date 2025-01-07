@@ -32,7 +32,8 @@
 #import <wtf/HashSet.h>
 #import <wtf/HashTraits.h>
 #import <wtf/Ref.h>
-#import <wtf/RefCounted.h>
+#import <wtf/RefCountedAndCanMakeWeakPtr.h>
+#import <wtf/RetainReleaseSwift.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakPtr.h>
@@ -56,7 +57,7 @@ class TextureView;
 struct BindableResources;
 
 // https://gpuweb.github.io/gpuweb/#gpurenderpassencoder
-class RenderPassEncoder : public WGPURenderPassEncoderImpl, public RefCounted<RenderPassEncoder>, public CommandsMixin, public CanMakeWeakPtr<RenderPassEncoder> {
+class RenderPassEncoder : public RefCountedAndCanMakeWeakPtr<RenderPassEncoder>, public WGPURenderPassEncoderImpl, public CommandsMixin {
     WTF_MAKE_TZONE_ALLOCATED(RenderPassEncoder);
 public:
     static Ref<RenderPassEncoder> create(id<MTLRenderCommandEncoder> renderCommandEncoder, const WGPURenderPassDescriptor& descriptor, NSUInteger visibilityResultBufferSize, bool depthReadOnly, bool stencilReadOnly, CommandEncoder& parentEncoder, id<MTLBuffer> visibilityResultBuffer, uint64_t maxDrawCount, Device& device, MTLRenderPassDescriptor* mtlDescriptor)
@@ -77,11 +78,11 @@ public:
     void drawIndirect(Buffer& indirectBuffer, uint64_t indirectOffset);
     void endOcclusionQuery();
     void endPass();
-    void executeBundles(Vector<std::reference_wrapper<RenderBundle>>&& bundles);
+    void executeBundles(Vector<Ref<RenderBundle>>&& bundles);
     void insertDebugMarker(String&& markerLabel);
     void popDebugGroup();
     void pushDebugGroup(String&& groupLabel);
-    void setBindGroup(uint32_t groupIndex, const BindGroup&, uint32_t dynamicOffsetCount, const uint32_t* dynamicOffsets);
+    void setBindGroup(uint32_t groupIndex, const BindGroup&, std::span<const uint32_t>);
     void setBlendConstant(const WGPUColor&);
     void setIndexBuffer(Buffer&, WGPUIndexFormat, uint64_t offset, uint64_t size);
     void setPipeline(const RenderPipeline&);
@@ -97,17 +98,20 @@ public:
     bool colorDepthStencilTargetsMatch(const RenderPipeline&) const;
     id<MTLRenderCommandEncoder> renderCommandEncoder() const;
     void makeInvalid(NSString* = nil);
-    CommandEncoder& parentEncoder();
+    CommandEncoder& parentEncoder() const { return m_parentEncoder; }
+    Ref<CommandEncoder> protectedParentEncoder() const { return m_parentEncoder; }
+
     bool setCommandEncoder(const BindGroupEntryUsageData::Resource&);
     void addResourceToActiveResources(const BindGroupEntryUsageData::Resource&, id<MTLResource>, OptionSet<BindGroupEntryUsage>);
     static double quantizedDepthValue(double, WGPUTextureFormat);
     NSString* errorValidatingPipeline(const RenderPipeline&) const;
 
-    static std::pair<id<MTLBuffer>, uint64_t> clampIndirectIndexBufferToValidValues(Buffer*, Buffer&, MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, MTLPrimitiveType, Device&, uint32_t rasterSampleCount, id<MTLRenderCommandEncoder>, bool& splitEncoder);
-    static id<MTLBuffer> clampIndirectBufferToValidValues(Buffer&, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, Device&, uint32_t rasterSampleCount, id<MTLRenderCommandEncoder>, bool& splitEncoder);
+    static std::pair<id<MTLBuffer>, uint64_t> clampIndirectIndexBufferToValidValues(Buffer*, Buffer&, MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, MTLPrimitiveType, Device&, uint32_t rasterSampleCount, RenderPassEncoder&, bool& splitEncoder);
+    static std::pair<id<MTLBuffer>, uint64_t> clampIndirectBufferToValidValues(Buffer&, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, Device&, uint32_t rasterSampleCount, RenderPassEncoder&, bool& splitEncoder);
     enum class IndexCall { Draw, IndirectDraw, Skip, CachedIndirectDraw };
-    static IndexCall clampIndexBufferToValidValues(uint32_t indexCount, uint32_t instanceCount, int32_t baseVertex, uint32_t firstInstance, MTLIndexType, NSUInteger indexBufferOffsetInBytes, Buffer*, uint32_t minVertexCount, uint32_t minInstanceCount, id<MTLRenderCommandEncoder>, Device&, uint32_t rasterSampleCount, MTLPrimitiveType);
+    static IndexCall clampIndexBufferToValidValues(uint32_t indexCount, uint32_t instanceCount, int32_t baseVertex, uint32_t firstInstance, MTLIndexType, NSUInteger indexBufferOffsetInBytes, Buffer*, uint32_t minVertexCount, uint32_t minInstanceCount, RenderPassEncoder&, Device&, uint32_t rasterSampleCount, MTLPrimitiveType);
     void splitRenderPass();
+    static std::pair<uint32_t, uint32_t> computeMininumVertexInstanceCount(const RenderPipeline*, uint64_t (^)(uint32_t));
 
 private:
     RenderPassEncoder(id<MTLRenderCommandEncoder>, const WGPURenderPassDescriptor&, NSUInteger, bool depthReadOnly, bool stencilReadOnly, CommandEncoder&, id<MTLBuffer>, uint64_t maxDrawCount, Device&, MTLRenderPassDescriptor*);
@@ -133,16 +137,12 @@ private:
     IndexCall clampIndexBufferToValidValues(uint32_t indexCount, uint32_t instanceCount, int32_t baseVertex, uint32_t firstInstance, MTLIndexType, NSUInteger indexBufferOffsetInBytes);
     std::pair<uint32_t, uint32_t> computeMininumVertexInstanceCount() const;
     std::pair<id<MTLBuffer>, uint64_t> clampIndirectIndexBufferToValidValues(Buffer&, MTLIndexType, NSUInteger indexBufferOffsetInBytes, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, bool& splitEncoder);
-    id<MTLBuffer> clampIndirectBufferToValidValues(Buffer&, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, bool& splitEncoder);
+    std::pair<id<MTLBuffer>, uint64_t> clampIndirectBufferToValidValues(Buffer&, uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount, bool& splitEncoder);
     void setCachedRenderPassState(id<MTLRenderCommandEncoder>);
 
     id<MTLRenderCommandEncoder> m_renderCommandEncoder { nil };
 
     uint64_t m_debugGroupStackSize { 0 };
-    struct PendingTimestampWrites {
-        Ref<QuerySet> querySet;
-        uint32_t queryIndex;
-    };
 
     const Ref<Device> m_device;
     RefPtr<Buffer> m_indexBuffer;
@@ -160,10 +160,10 @@ private:
     Vector<uint32_t> m_vertexDynamicOffsets;
     Vector<uint32_t> m_fragmentDynamicOffsets;
     Ref<CommandEncoder> m_parentEncoder;
-    UncheckedKeyHashMap<uint32_t, Vector<uint32_t>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_bindGroupDynamicOffsets;
+    HashMap<uint32_t, Vector<uint32_t>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_bindGroupDynamicOffsets;
     using EntryUsage = OptionSet<BindGroupEntryUsage>;
-    using EntryMap = UncheckedKeyHashMap<uint64_t, EntryUsage, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
-    UncheckedKeyHashMap<const void*, EntryMap> m_usagesForResource;
+    using EntryMap = HashMap<uint64_t, EntryUsage, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+    HashMap<const void*, EntryMap> m_usagesForResource;
     float m_minDepth { 0.f };
     float m_maxDepth { 1.f };
     HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_queryBufferIndicesToClear;
@@ -177,7 +177,6 @@ private:
     WGPURenderPassDescriptor m_descriptor;
     Vector<WGPURenderPassColorAttachment> m_descriptorColorAttachments;
     WGPURenderPassDepthStencilAttachment m_descriptorDepthStencilAttachment;
-    WGPURenderPassTimestampWrites m_descriptorTimestampWrites;
     Vector<RefPtr<TextureView>> m_colorAttachmentViews;
     RefPtr<TextureView> m_depthStencilView;
     struct BufferAndOffset {
@@ -185,8 +184,8 @@ private:
         uint64_t offset { 0 };
         uint64_t size { 0 };
     };
-    UncheckedKeyHashMap<uint32_t, BufferAndOffset, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_vertexBuffers;
-    UncheckedKeyHashMap<uint32_t, RefPtr<const BindGroup>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_bindGroups;
+    HashMap<uint32_t, BufferAndOffset, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_vertexBuffers;
+    HashMap<uint32_t, RefPtr<const BindGroup>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_bindGroups;
     NSString* m_lastErrorString { nil };
 #if CPU(X86_64)
     MTLRenderPassDescriptor* m_metalDescriptor { nil };
@@ -206,6 +205,16 @@ private:
     bool m_clearStencilAttachment { false };
     bool m_occlusionQueryActive { false };
     bool m_passEnded { false };
-};
+} SWIFT_SHARED_REFERENCE(refRenderPassEncoder, derefRenderPassEncoder);
 
 } // namespace WebGPU
+
+inline void refRenderPassEncoder(WebGPU::RenderPassEncoder* obj)
+{
+    ref(obj);
+}
+
+inline void derefRenderPassEncoder(WebGPU::RenderPassEncoder* obj)
+{
+    deref(obj);
+}

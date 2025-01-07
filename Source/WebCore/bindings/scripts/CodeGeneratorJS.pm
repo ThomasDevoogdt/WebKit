@@ -2503,11 +2503,15 @@ sub GenerateEnumerationImplementation
     # - Add default header template
     push(@implContentHeader, GenerateImplementationContentHeader($enumeration));
 
+    push(@implContent, "\n");
+
     push(@implContent, "\n\nnamespace WebCore {\n");
     push(@implContent, "using namespace JSC;\n\n");
     push(@implContent, GenerateEnumerationImplementationContent($enumeration, $className));
     push(@implContent, "} // namespace WebCore\n");
-     
+
+    push(@implContent, "\n");
+
     my $conditionalString = $codeGenerator->GenerateConditionalString($enumeration);
     push(@implContent, "\n#endif // ${conditionalString}\n") if $conditionalString;
 }
@@ -2528,7 +2532,7 @@ sub GenerateEnumerationImplementationContent
     $result .= "String convertEnumerationToString($className enumerationValue)\n";
     $result .= "{\n";
     AddToImplIncludes("<wtf/NeverDestroyed.h>");
-    $result .= "    static const NeverDestroyed<String> values[] = {\n";
+    $result .= "    static const std::array<NeverDestroyed<String>, " . scalar(@{$enumeration->values}) . "> values {\n";
     foreach my $value (@{$enumeration->values}) {
         if ($value eq "") {
             $result .= "        emptyString(),\n";
@@ -2563,10 +2567,10 @@ sub GenerateEnumerationImplementationContent
         my $enumerationValueName = GetEnumerationValueName(shift(@sortedEnumerationValues));
         $result .= "        return ${className}::$enumerationValueName;\n";
     }
-    $result .= "    static constexpr std::pair<ComparableASCIILiteral, $className> mappings[] = {\n";
+    $result .= "    static constexpr std::array<std::pair<ComparableASCIILiteral, $className>, " . scalar(@sortedEnumerationValues) . "> mappings {\n";
     for my $value (@sortedEnumerationValues) {
         my $enumerationValueName = GetEnumerationValueName($value);
-        $result .= "        { \"$value\", ${className}::$enumerationValueName },\n";
+        $result .= "        std::pair<ComparableASCIILiteral, $className> { \"$value\"_s, ${className}::$enumerationValueName },\n";
     }
     $result .= "    };\n";
     $result .= "    static constexpr SortedArrayMap enumerationMapping { mappings };\n";
@@ -4509,7 +4513,9 @@ sub GenerateImplementation
 
     @implContent = ();
 
-    push(@implContent, "\n\nnamespace WebCore {\n");
+    push(@implContent, "\n");
+
+    push(@implContent, "namespace WebCore {\n");
     push(@implContent, "using namespace JSC;\n\n");
 
     push(@implContent, GenerateEnumerationsImplementationContent($interface, $enumerations));
@@ -5303,7 +5309,7 @@ sub GenerateImplementation
         if ($codeGenerator->InheritsExtendedAttribute($interface, "ActiveDOMObject")) {
             push(@implContent, "    SUPPRESS_UNCOUNTED_LOCAL auto* js${interfaceName} = jsCast<JS${interfaceName}*>(handle.slot()->asCell());\n");
             $emittedJSCast = 1;
-            push(@implContent, "    auto& wrapped = js${interfaceName}->wrapped();\n");
+            push(@implContent, "    SUPPRESS_UNCOUNTED_LOCAL auto& wrapped = js${interfaceName}->wrapped();\n");
             push(@implContent, "    if (!wrapped.isContextStopped() && wrapped.hasPendingActivity()) {\n");
             push(@implContent, "        if (UNLIKELY(reason))\n");
             push(@implContent, "            *reason = \"ActiveDOMObject with pending activity\"_s;\n");
@@ -5418,6 +5424,7 @@ sub GenerateImplementation
         # being checked to be a dependent type so we can rely on `if constexpr`
         # not causing errors when evaluated.
         push(@implContent, <<END) if $vtableNameGnu;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #if ENABLE(BINDING_INTEGRITY)
 #if PLATFORM(WIN)
 #pragma warning(disable: 4483)
@@ -5442,6 +5449,8 @@ template<typename T, typename = std::enable_if_t<std::is_same_v<T, ${implType}>,
     }
 }
 #endif
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
 END
 
         push(@implContent, "JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<$implType>&& impl)\n");
@@ -5505,12 +5514,12 @@ sub GenerateForEachEventHandlerContentAttribute
     AddToImplIncludes("HTMLNames.h");
     push(@$outputArray, "void ${className}::${functionName}(const Function<void(const AtomString& attributeName, const AtomString& eventName)>& function)\n");
     push(@$outputArray, "{\n");
-    push(@$outputArray, "    static constexpr std::pair<decltype(HTMLNames::altAttr)&, const AtomString EventNames::*> table[] = {\n");
+    push(@$outputArray, "    static constexpr std::array table {\n");
     foreach my $attribute (@{$interface->attributes}) {
         if ($codeGenerator->IsEventHandlerType($attribute->type) && (!defined $eventHandlerExtendedAttributeName || $attribute->extendedAttributes->{$eventHandlerExtendedAttributeName})) {
             my $attributeName = $attribute->name;
             my $eventName = EventHandlerAttributeShortEventName($attribute);
-            push(@$outputArray, "        { HTMLNames::${attributeName}Attr, &EventNames::${eventName} },\n");
+            push(@$outputArray, "        std::pair<const decltype(HTMLNames::altAttr)&, const AtomString EventNames::*> { HTMLNames::${attributeName}Attr, &EventNames::${eventName} },\n");
         }
     }
     push(@$outputArray, "    };\n");
@@ -6329,20 +6338,20 @@ sub GenerateCallWith
     # Document of current realm (https://html.spec.whatwg.org/multipage/webappapis.html#concept-current-everything)
     if ($codeGenerator->ExtendedAttributeContains($callWith, "CurrentDocument")) {
         AddToImplIncludes("Document.h");
-        push(@$outputArray, $indent . "auto* context = ${scriptExecutionContextAccessor}->scriptExecutionContext();\n");
+        push(@$outputArray, $indent . "RefPtr context = ${scriptExecutionContextAccessor}->scriptExecutionContext();\n");
         push(@$outputArray, $indent . "if (UNLIKELY(!context))\n");
         push(@$outputArray, $indent . "    return" . ($contextMissing ? " " . $contextMissing : "") . ";\n");
-        push(@$outputArray, $indent . "auto& document = downcast<Document>(*context);\n");
-        push(@callWithArgs, "document");
+        push(@$outputArray, $indent . "Ref document = downcast<Document>(*context);\n");
+        push(@callWithArgs, "document.get()");
     }
     # Document of relevant realm (https://html.spec.whatwg.org/multipage/webappapis.html#concept-relevant-everything)
     if ($codeGenerator->ExtendedAttributeContains($callWith, "RelevantDocument")) {
         AddToImplIncludes("Document.h");
-        push(@$outputArray, $indent . "auto* context = ${relevantGlobalObjectPointer}->scriptExecutionContext();\n");
+        push(@$outputArray, $indent . "RefPtr context = ${relevantGlobalObjectPointer}->scriptExecutionContext();\n");
         push(@$outputArray, $indent . "if (UNLIKELY(!context))\n");
         push(@$outputArray, $indent . "    return" . ($contextMissing ? " " . $contextMissing : "") . ";\n");
-        push(@$outputArray, $indent . "auto& document = downcast<Document>(*context);\n");
-        push(@callWithArgs, "document");
+        push(@$outputArray, $indent . "Ref document = downcast<Document>(*context);\n");
+        push(@callWithArgs, "document.get()");
     }
     if ($codeGenerator->ExtendedAttributeContains($callWith, "IncumbentDocument")) {
         AddToImplIncludes("LocalDOMWindow.h");
@@ -6595,12 +6604,14 @@ sub GenerateDictionaryImplementation
     # - Add default header template
     push(@implContentHeader, GenerateImplementationContentHeader($dictionary));
 
+    push(@implContent, "\n");
     push(@implContent, "\n\nnamespace WebCore {\n");
     push(@implContent, "using namespace JSC;\n\n");
     push(@implContent, GenerateDictionaryImplementationContent($dictionary, $className));
     push(@implContent, GenerateEnumerationsImplementationContent($dictionary, $enumerations));
     push(@implContent, GenerateDictionariesImplementationContent($dictionary, $otherDictionaries)) if $otherDictionaries;
     push(@implContent, "} // namespace WebCore\n");
+    push(@implContent, "\n");
 
     my $conditionalString = $codeGenerator->GenerateConditionalString($dictionary);
     push(@implContent, "\n#endif // ${conditionalString}\n") if $conditionalString;
@@ -6760,8 +6771,13 @@ sub GenerateCallbackHeaderContent
             
             # FIXME: Change the default name (used for callback functions) to something other than handleEvent. It makes little sense.
             my $functionName = $operation->extendedAttributes->{ImplementedAs} || $operation->name || "handleEvent";
-
             push(@$contentRef, "    ${nativeReturnType} ${functionName}(" . join(", ", @arguments) . ") override;\n");
+
+            # Unless the callback function returns a promise, also generate a version that rethrows any exception it might encounter.
+            unless ($codeGenerator->IsPromiseType($operation->type)) {
+                my $rethrowingFunctionName = $functionName . "RethrowingException";
+                push(@$contentRef, "    ${nativeReturnType} ${rethrowingFunctionName}(" . join(", ", @arguments) . ") override;\n");
+            }
         }
     }
 
@@ -6787,6 +6803,131 @@ sub GenerateCallbackHeaderContent
     push(@$contentRef, "template<> struct JSDOMCallbackConverterTraits<${className}> {\n");
     push(@$contentRef, "    using Base = ${name};\n");
     push(@$contentRef, "};\n");
+}
+
+sub GenerateCallbackImplementationOperationBody
+{
+    my ($object, $interfaceOrCallback, $operations, $contentRef, $includesRef, $operation, $isForRethrowingHandler) = @_;
+
+    my $name = $interfaceOrCallback->type->name;
+    my $className = "JS${name}";
+
+    AddToIncludesForIDLType($operation->type, $includesRef);
+
+    my $nativeReturnType = "CallbackResult<typename " . GetIDLType($interfaceOrCallback, $operation->type) . "::CallbackReturnType>";
+
+    # FIXME: Change the default name (used for callback functions) to something other than handleEvent. It makes little sense.
+    my $functionName = $operation->name || "handleEvent";
+
+    my $functionImplementationName = $operation->extendedAttributes->{ImplementedAs} || $functionName;
+    $functionImplementationName .= "RethrowingException" if $isForRethrowingHandler;
+
+    my @arguments = ();
+
+    my $thisValue = "jsUndefined()";
+
+    my $callbackThisObject = $operation->extendedAttributes->{CallbackThisObject};
+    if ($callbackThisObject) {
+        my $thisObjectType = $codeGenerator->ParseType($callbackThisObject);
+
+        AddToIncludesForIDLType($thisObjectType, $includesRef, 1);
+        my $IDLType = GetIDLType($interfaceOrCallback, $thisObjectType);
+        push(@arguments, "typename ${IDLType}::ParameterType thisObject");
+
+        my $thisObjectArgument = IDLArgument->new();
+        $thisObjectArgument->type($thisObjectType);
+
+        $thisValue = NativeToJSValueUsingReferences($thisObjectArgument, $interfaceOrCallback, "thisObject", "globalObject");
+    }
+
+    foreach my $argument (@{$operation->arguments}) {
+        my $IDLType = GetIDLType($interfaceOrCallback, $argument->type);
+        if ($argument->isVariadic) {
+            push(@arguments, "VariadicArguments<${IDLType}>&& " . $argument->name);
+        } else {
+            AddToIncludesForIDLType($argument->type, $includesRef, 1);
+            push(@arguments, "typename ${IDLType}::ParameterType " . $argument->name);
+        }
+    }
+
+    push(@$contentRef, "${nativeReturnType} ${className}::${functionImplementationName}(" . join(", ", @arguments) . ")\n");
+    push(@$contentRef, "{\n");
+
+    # FIXME: This is needed for NodeFilter, which works even for disconnected iframes. We should investigate
+    # if that behavior is needed for other callbacks.
+    if (!$operation->extendedAttributes->{SkipCallbackInvokeCheck}) {
+        push(@$contentRef, "    if (!canInvokeCallback())\n");
+        push(@$contentRef, "        return CallbackResultType::UnableToExecute;\n\n");
+    }
+
+    push(@$contentRef, "    Ref<$className> protectedThis(*this);\n\n");
+    push(@$contentRef, "    auto& globalObject = *m_data->globalObject();\n");
+    push(@$contentRef, "    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject.vm();\n\n");
+    push(@$contentRef, "    JSLockHolder lock(vm);\n");
+
+    push(@$contentRef, "    auto& lexicalGlobalObject = globalObject;\n");
+
+    push(@$contentRef, "    JSValue thisValue = ${thisValue};\n");
+    push(@$contentRef, "    MarkedArgumentBuffer args;\n");
+
+    foreach my $argument (@{$operation->arguments}) {
+        if ($argument->isVariadic) {
+            my $argumentName = $argument->name;
+            push(@$contentRef, "    for (auto&& ${argumentName}Item : WTFMove(${argumentName})) {\n");
+            push(@$contentRef, "        args.append(" . NativeToJSValueUsingReferences($argument, $interfaceOrCallback, "WTFMove(${argumentName}Item)", "globalObject") . ");\n");
+            push(@$contentRef, "    }\n");
+        } else {
+            push(@$contentRef, "    args.append(" . NativeToJSValueUsingReferences($argument, $interfaceOrCallback, $argument->name, "globalObject") . ");\n");
+        }
+    }
+    push(@$contentRef, "    ASSERT(!args.hasOverflowed());\n");
+
+    push(@$contentRef, "\n    NakedPtr<JSC::Exception> returnedException;\n");
+
+    my $callbackInvocation;
+    if (ref($interfaceOrCallback) eq "IDLCallbackFunction") {
+        $callbackInvocation = "m_data->invokeCallback(thisValue, args, JSCallbackData::CallbackType::Function, Identifier(), returnedException)";
+    } else {
+        my $callbackType = @{$operations} > 1 ? "Object" : "FunctionOrObject";
+        $callbackInvocation = "m_data->invokeCallback(thisValue, args, JSCallbackData::CallbackType::${callbackType}, Identifier::fromString(vm, \"${functionName}\"_s), returnedException)";
+    }
+
+    if ($operation->type->name eq "undefined") {
+        push(@$contentRef, "    ${callbackInvocation};\n");
+    } else {
+        push(@$contentRef, "    auto jsResult = ${callbackInvocation};\n");
+    }
+
+    $includesRef->{"JSDOMExceptionHandling.h"} = 1;
+    push(@$contentRef, "    if (returnedException) {\n");
+    if ($codeGenerator->IsPromiseType($operation->type)) {
+        push(@$contentRef, "        auto* jsPromise = JSC::JSPromise::create(vm, globalObject.promiseStructure());\n");
+        push(@$contentRef, "        jsPromise->reject(&globalObject, returnedException->value());\n");
+        push(@$contentRef, "        return { DOMPromise::create(globalObject, *jsPromise) };\n");
+    } elsif ($isForRethrowingHandler) {
+        push(@$contentRef, "        auto throwScope = DECLARE_THROW_SCOPE(vm);\n");
+        push(@$contentRef, "        throwException(&lexicalGlobalObject, throwScope, returnedException);\n");
+        push(@$contentRef, "        return CallbackResultType::ExceptionThrown;\n");
+    } else {
+        push(@$contentRef, "        UNUSED_PARAM(lexicalGlobalObject);\n");
+        push(@$contentRef, "        reportException(m_data->callback()->globalObject(), returnedException);\n");
+        push(@$contentRef, "        return CallbackResultType::ExceptionThrown;\n");
+    }
+    push(@$contentRef, "     }\n\n");
+
+    if ($operation->type->name eq "undefined") {
+        push(@$contentRef, "    return { };\n");
+    } else {
+        my $nativeValue = JSValueToNative($interfaceOrCallback, $operation, "jsResult", "", "&lexicalGlobalObject", "lexicalGlobalObject");
+
+        push(@$contentRef, "    auto throwScope = DECLARE_THROW_SCOPE(vm);\n");
+        push(@$contentRef, "    auto returnValue = ${nativeValue};\n");
+        push(@$contentRef, "    if (UNLIKELY(returnValue.hasException(throwScope)))\n");
+        push(@$contentRef, "        return CallbackResultType::ExceptionThrown;\n");
+        push(@$contentRef, "    return { returnValue.releaseReturnValue() };\n");
+    }
+
+    push(@$contentRef, "}\n\n");
 }
 
 sub GenerateCallbackImplementationContent
@@ -6815,9 +6956,10 @@ sub GenerateCallbackImplementationContent
     # Destructor
     push(@$contentRef, "${className}::~${className}()\n");
     push(@$contentRef, "{\n");
-    push(@$contentRef, "    ScriptExecutionContext* context = scriptExecutionContext();\n");
+    push(@$contentRef, "    SUPPRESS_UNCOUNTED_LOCAL ScriptExecutionContext* context = scriptExecutionContext();\n");
     push(@$contentRef, "    // When the context is destroyed, all tasks with a reference to a callback\n");
     push(@$contentRef, "    // should be deleted. So if the context is 0, we are on the context thread.\n");
+    push(@$contentRef, "    // We can't use RefPtr here since ScriptExecutionContext is not thread safe ref counted.\n");
     push(@$contentRef, "    if (!context || context->isContextThread())\n");
     push(@$contentRef, "        delete m_data;\n");
     push(@$contentRef, "    else\n");
@@ -6877,123 +7019,12 @@ sub GenerateCallbackImplementationContent
     if ($numOperations > 0) {
         foreach my $operation (@{$operations}) {
             next if $operation->extendedAttributes->{Custom};
-        
-            AddToIncludesForIDLType($operation->type, $includesRef);
 
-            my $nativeReturnType = "CallbackResult<typename " . GetIDLType($interfaceOrCallback, $operation->type) . "::CallbackReturnType>";
-            
-            # FIXME: Change the default name (used for callback functions) to something other than handleEvent. It makes little sense.
-            my $functionName = $operation->name || "handleEvent";
-            my $functionImplementationName = $operation->extendedAttributes->{ImplementedAs} || $functionName;
+            GenerateCallbackImplementationOperationBody($object, $interfaceOrCallback, $operations, $contentRef, $includesRef, $operation, 0);
 
-            my @arguments = ();
-
-            my $thisValue = "jsUndefined()";
-
-            my $callbackThisObject = $operation->extendedAttributes->{CallbackThisObject};
-            if ($callbackThisObject) {
-                my $thisObjectType = $codeGenerator->ParseType($callbackThisObject);
-
-                AddToIncludesForIDLType($thisObjectType, $includesRef, 1);
-                my $IDLType = GetIDLType($interfaceOrCallback, $thisObjectType);
-                push(@arguments, "typename ${IDLType}::ParameterType thisObject");
-
-                my $thisObjectArgument = IDLArgument->new();
-                $thisObjectArgument->type($thisObjectType);
-
-                $thisValue = NativeToJSValueUsingReferences($thisObjectArgument, $interfaceOrCallback, "thisObject", "globalObject");
+            unless ($codeGenerator->IsPromiseType($operation->type)) {
+                GenerateCallbackImplementationOperationBody($object, $interfaceOrCallback, $operations, $contentRef, $includesRef, $operation, 1);
             }
-
-            foreach my $argument (@{$operation->arguments}) {
-                my $IDLType = GetIDLType($interfaceOrCallback, $argument->type);
-                if ($argument->isVariadic) {
-                    push(@arguments, "VariadicArguments<${IDLType}>&& " . $argument->name);
-                } else {
-                    AddToIncludesForIDLType($argument->type, $includesRef, 1);
-                    push(@arguments, "typename ${IDLType}::ParameterType " . $argument->name);
-                }
-            }
-            
-            push(@$contentRef, "${nativeReturnType} ${className}::${functionImplementationName}(" . join(", ", @arguments) . ")\n");
-            push(@$contentRef, "{\n");
-
-            # FIXME: This is needed for NodeFilter, which works even for disconnected iframes. We should investigate
-            # if that behavior is needed for other callbacks.
-            if (!$operation->extendedAttributes->{SkipCallbackInvokeCheck}) {
-                push(@$contentRef, "    if (!canInvokeCallback())\n");
-                push(@$contentRef, "        return CallbackResultType::UnableToExecute;\n\n");
-            }
-
-            push(@$contentRef, "    Ref<$className> protectedThis(*this);\n\n");
-            push(@$contentRef, "    auto& globalObject = *m_data->globalObject();\n");
-            push(@$contentRef, "    SUPPRESS_UNCOUNTED_LOCAL auto& vm = globalObject.vm();\n\n");
-            push(@$contentRef, "    JSLockHolder lock(vm);\n");
-
-            push(@$contentRef, "    auto& lexicalGlobalObject = globalObject;\n");
-
-            push(@$contentRef, "    JSValue thisValue = ${thisValue};\n");
-            push(@$contentRef, "    MarkedArgumentBuffer args;\n");
-
-            foreach my $argument (@{$operation->arguments}) {
-                if ($argument->isVariadic) {
-                    my $argumentName = $argument->name;
-                    push(@$contentRef, "    for (auto&& ${argumentName}Item : WTFMove(${argumentName})) {\n");
-                    push(@$contentRef, "        args.append(" . NativeToJSValueUsingReferences($argument, $interfaceOrCallback, "WTFMove(${argumentName}Item)", "globalObject") . ");\n");
-                    push(@$contentRef, "    }\n");
-                } else {
-                    push(@$contentRef, "    args.append(" . NativeToJSValueUsingReferences($argument, $interfaceOrCallback, $argument->name, "globalObject") . ");\n");
-                }
-            }
-            push(@$contentRef, "    ASSERT(!args.hasOverflowed());\n");
-
-            push(@$contentRef, "\n    NakedPtr<JSC::Exception> returnedException;\n");
-
-            my $callbackInvocation;
-            if (ref($interfaceOrCallback) eq "IDLCallbackFunction") {
-                $callbackInvocation = "m_data->invokeCallback(thisValue, args, JSCallbackData::CallbackType::Function, Identifier(), returnedException)";
-            } else {
-                my $callbackType = $numOperations > 1 ? "Object" : "FunctionOrObject";
-                $callbackInvocation = "m_data->invokeCallback(thisValue, args, JSCallbackData::CallbackType::${callbackType}, Identifier::fromString(vm, \"${functionName}\"_s), returnedException)";             
-            }
-
-            if ($operation->type->name eq "undefined") {
-                push(@$contentRef, "    ${callbackInvocation};\n");
-            } else {
-                push(@$contentRef, "    auto jsResult = ${callbackInvocation};\n");
-            }
-
-            my $hasPromiseReturnType = $codeGenerator->IsPromiseType($operation->type);
-
-            $includesRef->{"JSDOMExceptionHandling.h"} = 1;
-            push(@$contentRef, "    if (returnedException) {\n");
-            if ($hasPromiseReturnType) {
-                push(@$contentRef, "        auto* jsPromise = JSC::JSPromise::create(vm, globalObject.promiseStructure());\n");
-                push(@$contentRef, "        jsPromise->reject(&globalObject, returnedException->value());\n");
-                push(@$contentRef, "        return { DOMPromise::create(globalObject, *jsPromise) };\n");
-            } elsif ($operation->extendedAttributes->{RethrowException}) {
-                push(@$contentRef, "        auto throwScope = DECLARE_THROW_SCOPE(vm);\n");
-                push(@$contentRef, "        throwException(&lexicalGlobalObject, throwScope, returnedException);\n");
-                push(@$contentRef, "        return CallbackResultType::ExceptionThrown;\n");
-            } else {
-                push(@$contentRef, "        UNUSED_PARAM(lexicalGlobalObject);\n");
-                push(@$contentRef, "        reportException(m_data->callback()->globalObject(), returnedException);\n");
-                push(@$contentRef, "        return CallbackResultType::ExceptionThrown;\n");
-            }
-            push(@$contentRef, "     }\n\n");
-
-            if ($operation->type->name eq "undefined") {
-                push(@$contentRef, "    return { };\n");
-            } else {
-                my $nativeValue = JSValueToNative($interfaceOrCallback, $operation, "jsResult", "", "&lexicalGlobalObject", "lexicalGlobalObject");
-
-                push(@$contentRef, "    auto throwScope = DECLARE_THROW_SCOPE(vm);\n");
-                push(@$contentRef, "    auto returnValue = ${nativeValue};\n");
-                push(@$contentRef, "    if (UNLIKELY(returnValue.hasException(throwScope)))\n");
-                push(@$contentRef, "        return CallbackResultType::ExceptionThrown;\n");
-                push(@$contentRef, "    return { returnValue.releaseReturnValue() };\n");
-            }
-
-            push(@$contentRef, "}\n\n");
         }
     }
 
@@ -7294,7 +7325,6 @@ sub GetNumberOfNullableMemberTypes
 
     foreach my $memberType (@{$idlUnionType->subtypes}) {
         $count++ if $memberType->isNullable;
-        $count++ if $memberType->name eq "undefined" && $undefinedAsNull;
         $count += GetNumberOfNullableMemberTypes($memberType) if $memberType->isUnion;
     }
 
@@ -7305,7 +7335,7 @@ sub GetIDLUnionMemberTypes
 {
     my ($interface, $idlUnionType) = @_;
 
-    my $numberOfNullableMembers = GetNumberOfNullableMemberTypes($idlUnionType, 1);
+    my $numberOfNullableMembers = GetNumberOfNullableMemberTypes($idlUnionType);
     assert("Union types must only have 0 or 1 nullable types.") if $numberOfNullableMembers > 1;
 
     my @idlUnionMemberTypes = ();
@@ -7313,8 +7343,7 @@ sub GetIDLUnionMemberTypes
     push(@idlUnionMemberTypes, "IDLNull") if $numberOfNullableMembers == 1;
 
     foreach my $memberType (GetFlattenedMemberTypes($idlUnionType)) {
-        my $nonnullType = GetIDLTypeExcludingNullability($interface, $memberType);
-        push(@idlUnionMemberTypes, $nonnullType) if $nonnullType ne "IDLUndefined";
+        push(@idlUnionMemberTypes, GetIDLTypeExcludingNullability($interface, $memberType));
     }
 
     return @idlUnionMemberTypes;
@@ -7704,7 +7733,8 @@ sub GenerateHashTableValueArray
     my $string = "";
 
     my $packedSize = scalar @{$keys};
-    $string .= "\nstatic const HashTableValue $nameEntries\[\] =\n\{\n";
+    my $arraySize = $packedSize || 1;
+    $string .= "\nstatic const std::array<HashTableValue, " . $arraySize . "> $nameEntries {\n";
 
     my $i = 0;
     foreach my $key (@{$keys}) {
@@ -7742,7 +7772,7 @@ sub GenerateHashTableValueArray
 
         my $hasSecondValue = $typeTag ne "Constant";
         my $secondValue = $hasSecondValue ? ", @$value2[$i]" : "";
-        $string .= "    { \"$key\"_s, ${jscAttributes}, NoIntrinsic, { HashTableValue::${typeTag}Type, @$value1[$i]$secondValue } },\n";
+        $string .= "    HashTableValue { \"$key\"_s, ${jscAttributes}, NoIntrinsic, { HashTableValue::${typeTag}Type, @$value1[$i]$secondValue } },\n";
 
         if ($readWriteConditional) {
             $string .= "#else\n";
@@ -7750,19 +7780,19 @@ sub GenerateHashTableValueArray
 
             push(@{@$specials[$i]}, "PropertyAttribute::ReadOnly");
 
-            $string .= "    { \"$key\"_s, " . StringifyJSCAttributes(@$specials[$i]) . ", NoIntrinsic, { HashTableValue::${typeTag}Type, @$value1[$i]$secondValue } },\n";
+            $string .= "    HashTableValue { \"$key\"_s, " . StringifyJSCAttributes(@$specials[$i]) . ", NoIntrinsic, { HashTableValue::${typeTag}Type, @$value1[$i]$secondValue } },\n";
             $string .= "#endif\n";
         }
 
         if ($conditional) {
             $string .= "#else\n";
-            $string .= "    { { }, 0, NoIntrinsic, { HashTableValue::End } },\n";
+            $string .= "    HashTableValue { { }, 0, NoIntrinsic, { HashTableValue::End } },\n";
             $string .= "#endif\n";
         }
         ++$i;
     }
 
-    $string .= "    { { }, 0, NoIntrinsic, { HashTableValue::End } }\n" if (!$packedSize);
+    $string .= "    HashTableValue { { }, 0, NoIntrinsic, { HashTableValue::End } }\n" if (!$packedSize);
     $string .= "};\n\n";
     return $string;
 }
@@ -7869,7 +7899,7 @@ sub GenerateHashTable
         my @seenPropertyAttributesArray = sort keys %seenPropertyAttributesHash;
         my $seenPropertyAttributesString = "static_cast<uint8_t>(" . StringifyJSCAttributes(\@seenPropertyAttributesArray) . ")";
 
-        $hashTableString .= "static const HashTable $name = { $packedSize, $compactSizeMask, $seenPropertyAttributesString, ${className}::info(), $nameEntries, $nameIndex };\n";
+        $hashTableString .= "static const HashTable $name = { $packedSize, $compactSizeMask, $seenPropertyAttributesString, ${className}::info(), $nameEntries.data(), $nameIndex };\n";
         return $hashTableString
     };
 

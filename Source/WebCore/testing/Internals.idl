@@ -206,6 +206,7 @@ enum AutoplayPolicy {
     boolean isVideoAndRequiresUserGestureForVideoRateChange;
     boolean isAudioAndRequiresUserGestureForAudioRateChange;
     boolean isVideoAndRequiresUserGestureForVideoDueToLowPowerMode;
+    boolean isVideoAndRequiresUserGestureForVideoDueToAggressiveThermalMitigation;
     boolean noUserGestureRequired;
     boolean requiresPlaybackAndIsNotPlaying;
     boolean hasEverNotifiedAboutPlaying;
@@ -590,8 +591,11 @@ enum RenderingMode {
 
     DOMString viewBaseBackgroundColor();
     undefined setViewBaseBackgroundColor(DOMString colorValue);
+    undefined setUnderPageBackgroundColorOverride(DOMString colorValue);
 
     DOMString documentBackgroundColor();
+
+    boolean displayP3Available();
 
     undefined setPagination(DOMString mode, long gap, optional long pageLength = 0);
     unsigned long long lineIndexAfterPageBreak(Element element);
@@ -601,11 +605,11 @@ enum RenderingMode {
     boolean wasLastChangeUserEdit(Element textField);
     boolean elementShouldAutoComplete(HTMLInputElement inputElement);
     undefined setAutofilled(HTMLInputElement inputElement, boolean enabled);
-    undefined setAutoFilledAndViewable(HTMLInputElement inputElement, boolean enabled);
-    undefined setAutoFilledAndObscured(HTMLInputElement inputElement, boolean enabled);
-    undefined setShowAutoFillButton(HTMLInputElement inputElement, AutoFillButtonType autoFillButtonType);
-    AutoFillButtonType autoFillButtonType(HTMLInputElement inputElement);
-    AutoFillButtonType lastAutoFillButtonType(HTMLInputElement inputElement);
+    undefined setAutofilledAndViewable(HTMLInputElement inputElement, boolean enabled);
+    undefined setAutofilledAndObscured(HTMLInputElement inputElement, boolean enabled);
+    undefined setAutofillButtonType(HTMLInputElement inputElement, AutoFillButtonType autoFillButtonType);
+    AutoFillButtonType autofillButtonType(HTMLInputElement inputElement);
+    AutoFillButtonType lastAutofillButtonType(HTMLInputElement inputElement);
     sequence<DOMString> recentSearches(HTMLInputElement inputElement);
 
     undefined setCanShowPlaceholder(Element element, boolean canShowPlaceholder);
@@ -883,6 +887,7 @@ enum RenderingMode {
     boolean areTimersThrottled();
 
     undefined setLowPowerModeEnabled(boolean enabled);
+    undefined setAggressiveThermalMitigationEnabled(boolean enabled);
     undefined setOutsideViewportThrottlingEnabled(boolean enabled);
     readonly attribute double requestAnimationFrameInterval;
     readonly attribute boolean scriptedAnimationsAreSuspended;
@@ -1161,6 +1166,7 @@ enum RenderingMode {
     [Conditional=MEDIA_STREAM] boolean isMediaStreamSourceEnded(MediaStreamTrack track);
     [Conditional=MEDIA_STREAM] boolean isMockRealtimeMediaSourceCenterEnabled();
     [Conditional=MEDIA_STREAM] boolean shouldAudioTrackPlay(AudioTrack track);
+    [Conditional=MEDIA_STREAM] DOMString mediaStreamTrackPersistentId(MediaStreamTrack track);
 
     [Conditional=WEB_RTC] readonly attribute DOMString rtcNetworkInterfaceName;
 
@@ -1260,8 +1266,6 @@ enum RenderingMode {
 
     undefined reloadWithoutContentExtensions();
     undefined disableContentExtensionsChecks();
-
-    undefined setUseSystemAppearance(boolean value);
 
     unsigned long pluginCount();
     unsigned long pluginScrollPositionX(Element element);
@@ -1413,4 +1417,6 @@ enum RenderingMode {
 
     RenderingMode? getEffectiveRenderingModeOfNewlyCreatedAcceleratedImageBuffer();
     Promise<ImageBufferResourceLimits> getImageBufferResourceLimits();
+
+    undefined setTopDocumentURLForQuirks(DOMString urlString);
 };

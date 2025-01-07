@@ -107,6 +107,9 @@ public:
     explicit WebInspectorUIProxy(WebPageProxy&);
     virtual ~WebInspectorUIProxy();
 
+    void ref() const final { API::ObjectImpl<API::Object::Type::Inspector>::ref(); }
+    void deref() const final { API::ObjectImpl<API::Object::Type::Inspector>::deref(); }
+
     void invalidate();
 
     API::InspectorClient& inspectorClient() { return *m_inspectorClient; }
@@ -339,7 +342,7 @@ private:
     RetainPtr<WKInspectorViewController> m_inspectorViewController;
     RetainPtr<NSWindow> m_inspectorWindow;
     RetainPtr<WKWebInspectorUIProxyObjCAdapter> m_objCAdapter;
-    UncheckedKeyHashMap<String, RetainPtr<NSURL>> m_suggestedToActualURLMap;
+    HashMap<String, RetainPtr<NSURL>> m_suggestedToActualURLMap;
     RunLoop::Timer m_closeFrontendAfterInactivityTimer;
     String m_urlString;
     WebCore::FloatRect m_sheetRect;

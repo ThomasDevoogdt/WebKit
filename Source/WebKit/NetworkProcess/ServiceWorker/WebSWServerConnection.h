@@ -73,11 +73,13 @@ struct SharedPreferencesForWebProcess;
 
 class WebSWServerConnection final : public WebCore::SWServer::Connection, public IPC::MessageSender, public IPC::MessageReceiver {
     WTF_MAKE_TZONE_ALLOCATED(WebSWServerConnection);
-    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebSWServerConnection);
 public:
-    WebSWServerConnection(NetworkConnectionToWebProcess&, WebCore::SWServer&, IPC::Connection&, WebCore::ProcessIdentifier);
+    static Ref<WebSWServerConnection> create(NetworkConnectionToWebProcess&, WebCore::SWServer&, IPC::Connection&, WebCore::ProcessIdentifier);
     WebSWServerConnection(const WebSWServerConnection&) = delete;
     ~WebSWServerConnection() final;
+
+    void ref() const final { WebCore::SWServer::Connection::ref(); }
+    void deref() const final { WebCore::SWServer::Connection::deref(); }
 
     USING_CAN_MAKE_WEAKPTR(WebCore::SWServer::Connection);
 
@@ -101,6 +103,8 @@ public:
     void unregisterServiceWorkerClient(const WebCore::ScriptExecutionContextIdentifier&);
 
 private:
+    WebSWServerConnection(NetworkConnectionToWebProcess&, WebCore::SWServer&, IPC::Connection&, WebCore::ProcessIdentifier);
+
     // Implement SWServer::Connection (Messages to the client WebProcess)
     void rejectJobInClient(WebCore::ServiceWorkerJobIdentifier, const WebCore::ExceptionData&) final;
     void resolveRegistrationJobInClient(WebCore::ServiceWorkerJobIdentifier, const WebCore::ServiceWorkerRegistrationData&, WebCore::ShouldNotifyWhenResolved) final;
@@ -175,8 +179,8 @@ private:
 
     WeakPtr<NetworkConnectionToWebProcess> m_networkConnectionToWebProcess;
     Ref<IPC::Connection> m_contentConnection;
-    UncheckedKeyHashMap<WebCore::ScriptExecutionContextIdentifier, WebCore::ClientOrigin> m_clientOrigins;
-    UncheckedKeyHashMap<WebCore::ServiceWorkerJobIdentifier, CompletionHandler<void(UnregisterJobResult&&)>> m_unregisterJobs;
+    HashMap<WebCore::ScriptExecutionContextIdentifier, WebCore::ClientOrigin> m_clientOrigins;
+    HashMap<WebCore::ServiceWorkerJobIdentifier, CompletionHandler<void(UnregisterJobResult&&)>> m_unregisterJobs;
     bool m_isThrottleable { true };
 };
 

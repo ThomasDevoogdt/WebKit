@@ -24,22 +24,14 @@
 from buildbot.process import factory
 from buildbot.steps import trigger
 
-from .steps import (AddReviewerToCommitMessage, ApplyPatch, ApplyWatchList, Canonicalize,
-                    CheckOutPullRequest, CheckOutSource, CheckOutSpecificRevision, CheckChangeRelevance, CheckOutLLVMProject,
-                    CheckStatusOnEWSQueues, CheckStyle, CleanGitRepo, CleanDerivedSources, CompileJSC, CompileWebKit, ConfigureBuild, DetermineLabelOwner,
-                    DownloadBuiltProduct, ExtractBuiltProduct, FetchBranches, FindModifiedLayoutTests, GetTestExpectationsBaseline, GetUpdatedTestExpectations, GitHub, InstallCMake, InstallNinja,
-                    InstallGtkDependencies, InstallHooks, InstallWpeDependencies, InstallWinDependencies, KillOldProcesses, PrintClangVersion, PrintConfiguration, PushCommitToWebKitRepo, PushPullRequestBranch,
-                    MapBranchAlias, RemoveAndAddLabels, RetrievePRDataFromLabel, RunAPITests, RunBindingsTests, RunBuildWebKitOrgUnitTests, RunBuildbotCheckConfigForBuildWebKit, RunBuildbotCheckConfigForEWS,
-                    RunEWSUnitTests, RunResultsdbpyTests, RunJavaScriptCoreTests, RunWebKit1Tests, RunWebKitPerlTests,
-                    RunWebKitPyTests, RunWebKitTests, RunWebKitTestsRedTree, RunWebKitTestsInStressMode, RunWebKitTestsInStressGuardmallocMode,
-                    ScanBuild, SetBuildSummary, ShowIdentifier, TriggerCrashLogSubmission, UpdateClang, UpdateWorkingDirectory, UpdatePullRequest,
-                    ValidateCommitMessage, ValidateChange, ValidateCommitterAndReviewer, WaitForCrashCollection,
-                    InstallBuiltProduct, ValidateRemote, ValidateSquashed, GITHUB_PROJECTS)
+from .steps import *
+from Shared.steps import *
 
 class Factory(factory.BuildFactory):
     findModifiedLayoutTests = False
     skipBuildIfNoResult = True
     branches = None
+    requiresUserValidation = False
 
     def __init__(self, platform, configuration=None, architectures=None, buildOnly=True, triggers=None, triggered_by=None, remotes=None, additionalArguments=None, checkRelevance=False, **kwargs):
         factory.BuildFactory.__init__(self)
@@ -60,6 +52,8 @@ class Factory(factory.BuildFactory):
         self.addStep(ShowIdentifier())
         self.addStep(ApplyPatch())
         self.addStep(CheckOutPullRequest())
+        if self.requiresUserValidation:
+            self.addStep(ValidateUserForQueue())
         if self.findModifiedLayoutTests:
             self.addStep(GetUpdatedTestExpectations())
             self.addStep(FindModifiedLayoutTests(skipBuildIfNoResult=self.skipBuildIfNoResult))
@@ -157,8 +151,6 @@ class BuildFactory(Factory):
         if platform in ['gtk', 'wpe']:
             self.addStep(CleanDerivedSources())
         self.addStep(CompileWebKit(skipUpload=self.skipUpload))
-        if platform == 'gtk':
-            self.addStep(InstallBuiltProduct())
 
 
 class TestFactory(Factory):
@@ -298,6 +290,12 @@ class macOSWK2Factory(TestFactory):
     LayoutTestClass = RunWebKitTests
     findModifiedLayoutTests = True
     willTriggerCrashLogSubmission = True
+
+
+class PlayStationBuildFactory(BuildFactory):
+    branches = [r'main']
+    requiresUserValidation = True
+    skipUpload = True
 
 
 class WinBuildFactory(BuildFactory):

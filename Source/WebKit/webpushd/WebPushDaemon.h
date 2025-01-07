@@ -73,6 +73,10 @@ class WebPushDaemon {
 public:
     static WebPushDaemon& singleton();
 
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
+
     void connectionEventHandler(xpc_object_t);
     void connectionAdded(xpc_connection_t);
     void connectionRemoved(xpc_connection_t);
@@ -102,6 +106,7 @@ public:
 
 #if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
     void showNotification(PushClientConnection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>, CompletionHandler<void()>&&);
+    void showNotification(const WebCore::PushSubscriptionSetIdentifier&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>, std::optional<unsigned long long> appBadge, CompletionHandler<void()>&&);
     void getNotifications(PushClientConnection&, const URL& registrationURL, const String& tag, CompletionHandler<void(Expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&&);
     void cancelNotification(PushClientConnection&, WebCore::SecurityOriginData&&, const WTF::UUID& notificationID);
 
@@ -111,6 +116,8 @@ public:
 
     void setAppBadge(PushClientConnection&, WebCore::SecurityOriginData&&, std::optional<uint64_t>);
     void getAppBadgeForTesting(PushClientConnection&, CompletionHandler<void(std::optional<uint64_t>)>&&);
+
+    void setProtocolVersionForTesting(PushClientConnection&, unsigned, CompletionHandler<void()>&&);
 
 private:
     WebPushDaemon();
@@ -136,7 +143,7 @@ private:
 
     PushClientConnection* toPushClientConnection(xpc_connection_t);
     HashSet<xpc_connection_t> m_pendingConnectionSet;
-    UncheckedKeyHashMap<xpc_connection_t, Ref<PushClientConnection>> m_connectionMap;
+    HashMap<xpc_connection_t, Ref<PushClientConnection>> m_connectionMap;
 
     RefPtr<PushService> m_pushService;
     bool m_usingMockPushService { false };

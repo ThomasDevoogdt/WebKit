@@ -72,7 +72,7 @@ JSC_DEFINE_HOST_FUNCTION(callWebAssemblyFunction, (JSGlobalObject* globalObject,
     // For wasm, we setup |codeBlock| and |this| differently.
     //     |codeBlock| : JS entry wrapper expects a JSWebAssemblyInstance* as the |codeBlock| value argument.
     ProtoCallFrame protoCallFrame;
-    protoCallFrame.init(nullptr, globalObject, wasmFunction, JSValue(), callFrame->argumentCountIncludingThis(), bitwise_cast<EncodedJSValue*>(callFrame->addressOfArgumentsStart()));
+    protoCallFrame.init(nullptr, globalObject, wasmFunction, JSValue(), callFrame->argumentCountIncludingThis(), std::bit_cast<EncodedJSValue*>(callFrame->addressOfArgumentsStart()));
     protoCallFrame.setWasmInstance(wasmFunction->instance());
 
     return vmEntryToWasm(wasmFunction->jsEntrypoint(MustCheckArity).taggedPtr(), &vm, &protoCallFrame);
@@ -95,7 +95,7 @@ Structure* WebAssemblyFunction::createStructure(VM& vm, JSGlobalObject* globalOb
 }
 
 WebAssemblyFunction::WebAssemblyFunction(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, JSWebAssemblyInstance* instance, Wasm::JSEntrypointCallee& jsEntrypoint, Wasm::Callee* wasmCallee, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex, RefPtr<const Wasm::RTT> rtt)
-    : Base { vm, executable, globalObject, structure, instance, Wasm::WasmToWasmImportableFunction { typeIndex, wasmToWasmEntrypointLoadLocation, &m_boxedWasmCallee, rtt.get() } }
+    : Base { vm, executable, globalObject, structure, instance, Wasm::WasmOrJSImportableFunction { { { &m_boxedWasmCallee, { vm, globalObject, instance }, wasmToWasmEntrypointLoadLocation }, typeIndex, rtt.get() }, { }, { }, { } }, }
     , m_boxedWasmCallee(reinterpret_cast<uint64_t>(CalleeBits::boxNativeCalleeIfExists(wasmCallee)))
     , m_jsToWasmCallee { jsEntrypoint }
 { }

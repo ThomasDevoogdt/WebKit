@@ -103,7 +103,10 @@ enum class UsedLegacyTLS : bool;
 enum class WasPrivateRelayed : bool;
 enum class FromDownloadAttribute : bool { No , Yes };
 
+struct BackForwardItemIdentifierType;
 struct StringWithDirection;
+
+using BackForwardItemIdentifier = ProcessQualified<ObjectIdentifier<BackForwardItemIdentifierType>>;
 
 class WEBCORE_EXPORT LocalFrameLoaderClient : public FrameLoaderClient {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
@@ -374,8 +377,6 @@ public:
     virtual void modelInlinePreviewUUIDs(CompletionHandler<void(Vector<String>)>&&) const { }
 #endif
 
-    virtual void broadcastMainFrameURLChangeToOtherProcesses(const URL&) = 0;
-
     virtual void dispatchLoadEventToOwnerElementInAnotherProcess() = 0;
 
 #if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
@@ -385,6 +386,12 @@ public:
     virtual void documentLoaderDetached(NavigationIdentifier, LoadWillContinueInAnotherProcess) { }
 
     virtual void frameNameChanged(const String&) { }
+
+    virtual RefPtr<HistoryItem> createHistoryItemTree(bool clipAtTarget, BackForwardItemIdentifier) const = 0;
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    virtual void didExceedNetworkUsageThreshold();
+#endif
 
 protected:
     explicit LocalFrameLoaderClient(FrameLoader&);

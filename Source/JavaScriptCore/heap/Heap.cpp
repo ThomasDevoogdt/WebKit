@@ -53,6 +53,7 @@
 #include "JITWorklistInlines.h"
 #include "JSFinalizationRegistry.h"
 #include "JSIterator.h"
+#include "JSRawJSONObject.h"
 #include "JSRemoteFunction.h"
 #include "JSVirtualMachineInternal.h"
 #include "JSWeakMap.h"
@@ -135,6 +136,25 @@ size_t proportionalHeapSize(size_t heapSize, size_t ramSize)
 {
     if (VM::isInMiniMode())
         return Options::miniVMHeapGrowthFactor() * heapSize;
+
+    bool useNewHeapGrowthFactor = true;
+
+    // Use new heuristic function for machines >= 16GB RAM.
+    // https://www.mathway.com/en/Algebra?asciimath=2%20*%20e%5E(-1%20*%20x)%20%2B%201%20%3Dy
+    size_t heapGrowthFunctionThresholdInBytes = static_cast<size_t>(Options::heapGrowthFunctionThresholdInMB()) * MB;
+    if (ramSize < heapGrowthFunctionThresholdInBytes)
+        useNewHeapGrowthFactor = false;
+
+    // Disable it for Darwin Intel machine.
+#if OS(DARWIN) && CPU(X86_64)
+    useNewHeapGrowthFactor = false;
+#endif
+
+    if (useNewHeapGrowthFactor) {
+        double x = static_cast<double>(std::min(heapSize, ramSize)) / ramSize;
+        double ratio = Options::heapGrowthMaxIncrease() * std::exp(-(Options::heapGrowthSteepnessFactor() * x)) + 1;
+        return ratio * heapSize;
+    }
 
 #if USE(BMALLOC_MEMORY_FOOTPRINT_API)
     size_t memoryFootprint = bmalloc::api::memoryFootprint();
@@ -371,17 +391,17 @@ Heap::Heap(VM& vm, HeapType heapType)
 
     // Subspaces
     , primitiveGigacageAuxiliarySpace("Primitive Gigacage Auxiliary", *this, auxiliaryHeapCellType, primitiveGigacageAllocator.get()) // Hash:0x3e7cd762
-    , auxiliarySpace("Auxiliary", *this, auxiliaryHeapCellType, fastMallocAllocator.get()) // Hash:0x241e946
-    , immutableButterflyAuxiliarySpace("ImmutableButterfly JSCellWithIndexingHeader", *this, immutableButterflyHeapCellType, fastMallocAllocator.get()) // Hash:0x7a945300
+    , auxiliarySpace("Auxiliary", *this, auxiliaryHeapCellType, fastMallocAllocator.get()) // Hash:0x96255ba1
+    , immutableButterflyAuxiliarySpace("ImmutableButterfly JSCellWithIndexingHeader", *this, immutableButterflyHeapCellType, fastMallocAllocator.get()) // Hash:0xaadcb3c1
     , cellSpace("JSCell", *this, cellHeapCellType, fastMallocAllocator.get()) // Hash:0xadfb5a79
     , variableSizedCellSpace("Variable Sized JSCell", *this, cellHeapCellType, fastMallocAllocator.get()) // Hash:0xbcd769cc
     , destructibleObjectSpace("JSDestructibleObject", *this, destructibleObjectHeapCellType, fastMallocAllocator.get()) // Hash:0x4f5ed7a9
     FOR_EACH_JSC_COMMON_ISO_SUBSPACE(INIT_SERVER_ISO_SUBSPACE)
     FOR_EACH_JSC_STRUCTURE_ISO_SUBSPACE(INIT_SERVER_STRUCTURE_ISO_SUBSPACE)
-    , codeBlockSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, CodeBlock) // Hash:0x77e66ec9
-    , functionExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, FunctionExecutable) // Hash:0x5d158f3
-    , programExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, ProgramExecutable) // Hash:0x527c77e7
-    , unlinkedFunctionExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, UnlinkedFunctionExecutable) // Hash:0xf6b828d9
+    , codeBlockSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, CodeBlock) // Hash:0x2b743c6a
+    , functionExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, FunctionExecutable) // Hash:0xbcb36268
+    , programExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, ProgramExecutable) // Hash:0x4c9208f7
+    , unlinkedFunctionExecutableSpaceAndSet ISO_SUBSPACE_INIT(*this, destructibleCellHeapCellType, UnlinkedFunctionExecutable) // Hash:0x3ba0f4e1
 
 {
     m_worldState.store(0);
@@ -1663,6 +1683,7 @@ NEVER_INLINE bool Heap::runEndPhase(GCConductor conn)
         if (vm().typeProfiler())
             vm().typeProfiler()->invalidateTypeSetCache(vm());
 
+        cancelDeferredWorkIfNeeded();
         reapWeakHandles();
         pruneStaleEntriesFromWeakGCHashTables();
         sweepArrayBuffers();
@@ -1796,7 +1817,7 @@ void Heap::stopThePeriphery(GCConductor conn)
     
     m_mutatorDidRun = false;
 
-    suspendCompilerThreads();
+    m_isCompilerThreadsSuspended = suspendCompilerThreads();
     m_worldIsStopped = true;
 
     forEachSlotVisitor(
@@ -1865,8 +1886,9 @@ NEVER_INLINE void Heap::resumeThePeriphery()
     
     for (SlotVisitor* visitor : visitorsToUpdate)
         visitor->updateMutatorIsStopped();
-    
-    resumeCompilerThreads();
+
+    if (std::exchange(m_isCompilerThreadsSuspended, false))
+        resumeCompilerThreads();
 }
 
 bool Heap::stopTheMutator()
@@ -2284,15 +2306,20 @@ void Heap::sweepInFinalize()
 #endif
 }
 
-void Heap::suspendCompilerThreads()
+bool Heap::suspendCompilerThreads()
 {
 #if ENABLE(JIT)
     // We ensure the worklists so that it's not possible for the mutator to start a new worklist
     // after we have suspended the ones that he had started before. That's not very expensive since
     // the worklists use AutomaticThreads anyway.
     if (!Options::useJIT())
-        return;
+        return false;
+    if (!vm().numberOfActiveJITPlans())
+        return false;
     JITWorklist::ensureGlobalWorklist().suspendAllThreads();
+    return true;
+#else
+    return false;
 #endif
 }
 
@@ -2338,6 +2365,11 @@ void Heap::willStartCollection()
 void Heap::prepareForMarking()
 {
     m_objectSpace.prepareForMarking();
+}
+
+void Heap::cancelDeferredWorkIfNeeded()
+{
+    vm().deferredWorkTimer->cancelPendingWork(vm());
 }
 
 void Heap::reapWeakHandles()
@@ -2494,8 +2526,6 @@ void Heap::didFinishCollection()
 void Heap::resumeCompilerThreads()
 {
 #if ENABLE(JIT)
-    if (!Options::useJIT())
-        return;
     JITWorklist::ensureGlobalWorklist().resumeAllThreads();
 #endif
 }
@@ -2538,7 +2568,7 @@ void Heap::didAllocate(size_t bytes)
 
 void Heap::addFinalizer(JSCell* cell, CFinalizer finalizer)
 {
-    WeakSet::allocate(cell, &m_cFinalizerOwner, bitwise_cast<void*>(finalizer)); // Balanced by CFinalizerOwner::finalize().
+    WeakSet::allocate(cell, &m_cFinalizerOwner, std::bit_cast<void*>(finalizer)); // Balanced by CFinalizerOwner::finalize().
 }
 
 void Heap::addFinalizer(JSCell* cell, LambdaFinalizer function)
@@ -2549,7 +2579,7 @@ void Heap::addFinalizer(JSCell* cell, LambdaFinalizer function)
 void Heap::CFinalizerOwner::finalize(Handle<Unknown> handle, void* context)
 {
     HandleSlot slot = handle.slot();
-    CFinalizer finalizer = bitwise_cast<CFinalizer>(context);
+    CFinalizer finalizer = std::bit_cast<CFinalizer>(context);
     finalizer(slot->asCell());
     WeakSet::deallocate(WeakImpl::asWeakImpl(slot));
 }
@@ -3245,14 +3275,12 @@ void Heap::runTaskInParallel(RefPtr<SharedTask<void(SlotVisitor&)>> task)
     }
 }
 
-void Heap::verifyGC()
+void Heap::verifierMark()
 {
-    RELEASE_ASSERT(m_verifierSlotVisitor);
     RELEASE_ASSERT(!m_isMarkingForGCVerifier);
-    m_isMarkingForGCVerifier = true;
 
+    SetForScope isMarkingForGCVerifierScope(m_isMarkingForGCVerifier, true);
     VerifierSlotVisitor& visitor = *m_verifierSlotVisitor;
-
     do {
         while (!visitor.isEmpty())
             visitor.drain();
@@ -3260,7 +3288,39 @@ void Heap::verifyGC()
         visitor.executeConstraintTasks();
     } while (!visitor.isEmpty());
 
-    m_isMarkingForGCVerifier = false;
+    visitor.setDoneMarking();
+}
+
+void Heap::dumpVerifierMarkerData(HeapCell* cell)
+{
+    if (!Options::verifyGC())
+        return;
+
+    if (!Heap::isMarked(cell)) {
+        dataLogLn("\n" "GC Verifier: cell ", RawPointer(cell), " was not marked by SlotVisitor");
+        return;
+    }
+
+    // Use VerifierSlotVisitorScope to keep it live.
+    RELEASE_ASSERT(m_verifierSlotVisitor && !m_isMarkingForGCVerifier);
+    VerifierSlotVisitor& visitor = *m_verifierSlotVisitor;
+    RELEASE_ASSERT(visitor.doneMarking());
+
+    if (!visitor.isMarked(cell)) {
+        dataLogLn("\n" "GC Verifier: ERROR cell ", RawPointer(cell), " was not marked by VerifierSlotVisitor");
+        return;
+    }
+
+    dataLogLn("\n" "GC Verifier: Found marked cell ", RawPointer(cell), " with MarkerData:");
+    visitor.dumpMarkerData(cell);
+}
+
+void Heap::verifyGC()
+{
+    RELEASE_ASSERT(m_verifierSlotVisitor);
+    verifierMark();
+    VerifierSlotVisitor& visitor = *m_verifierSlotVisitor;
+    RELEASE_ASSERT(visitor.doneMarking() && !m_isMarkingForGCVerifier);
 
     visitor.forEachLiveCell([&] (HeapCell* cell) {
         if (Heap::isMarked(cell))
@@ -3272,7 +3332,16 @@ void Heap::verifyGC()
         RELEASE_ASSERT(this->isMarked(cell));
     });
 
+    if (!m_keepVerifierSlotVisitor)
+        clearVerifierSlotVisitor();
+}
+
+void Heap::setKeepVerifierSlotVisitor() { m_keepVerifierSlotVisitor = true; }
+
+void Heap::clearVerifierSlotVisitor()
+{
     m_verifierSlotVisitor = nullptr;
+    m_keepVerifierSlotVisitor = false;
 }
 
 void Heap::scheduleOpportunisticFullCollection()

@@ -61,7 +61,6 @@
 // 2 - Run a test exercising that type
 
 @interface NSURLProtectionSpace (WebKitNSURLProtectionSpace)
-- (void)_setServerTrust:(SecTrustRef)serverTrust;
 - (void)_setDistinguishedNames:(NSArray<NSData *> *)distinguishedNames;
 @end
 
@@ -1320,7 +1319,7 @@ TEST(IPCSerialization, Basic)
     runTestNS({ protectionSpace3.get() });
 
     runTestNS({ [NSURLCredential credentialForTrust:trust.get()] });
-#if HAVE(DICTIONARY_SERIALIZABLE_NSURLCREDENTIAL)
+#if HAVE(DICTIONARY_SERIALIZABLE_NSURLCREDENTIAL) && !HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
     runTestNS({ [NSURLCredential credentialWithIdentity:identity.get() certificates:@[(id)cert.get()] persistence:NSURLCredentialPersistencePermanent] });
     runTestNS({ [NSURLCredential credentialWithIdentity:identity.get() certificates:nil persistence:NSURLCredentialPersistenceForSession] });
 #endif

@@ -25,11 +25,13 @@
 
 #pragma once
 
+#import <Metal/Metal.h>
 #import <wtf/FastMalloc.h>
 #import <wtf/HashMap.h>
 #import <wtf/HashSet.h>
 #import <wtf/Ref.h>
-#import <wtf/RefCounted.h>
+#import <wtf/RefCountedAndCanMakeWeakPtr.h>
+#import <wtf/RetainReleaseSwift.h>
 #import <wtf/TZoneMalloc.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakHashSet.h>
@@ -45,7 +47,7 @@ class Device;
 class TextureView;
 
 // https://gpuweb.github.io/gpuweb/#gputexture
-class Texture : public WGPUTextureImpl, public RefCounted<Texture>, public CanMakeWeakPtr<Texture> {
+class Texture : public RefCountedAndCanMakeWeakPtr<Texture>, public WGPUTextureImpl {
     WTF_MAKE_TZONE_ALLOCATED(Texture);
 public:
     static Ref<Texture> create(id<MTLTexture> texture, const WGPUTextureDescriptor& descriptor, Vector<WGPUTextureFormat>&& viewFormats, Device& device)
@@ -114,7 +116,8 @@ public:
 
     bool previouslyCleared(uint32_t mipLevel, uint32_t slice) const;
     void setPreviouslyCleared(uint32_t mipLevel, uint32_t slice, bool = true);
-    bool isDestroyed() const;
+    bool isDestroyed() const { return m_destroyed; }
+
     static bool hasStorageBindingCapability(WGPUTextureFormat, const Device&, WGPUStorageTextureAccess = WGPUStorageTextureAccess_Undefined);
     static bool supportsMultisampling(WGPUTextureFormat, const Device&);
     static bool supportsResolve(WGPUTextureFormat, const Device&);
@@ -123,7 +126,8 @@ public:
     void makeCanvasBacking();
     void setCommandEncoder(CommandEncoder&) const;
     static ASCIILiteral formatToString(WGPUTextureFormat);
-    bool isCanvasBacking() const;
+    bool isCanvasBacking() const { return m_canvasBacking; }
+
     bool waitForCommandBufferCompletion();
     void updateCompletionEvent(const std::pair<id<MTLSharedEvent>, uint64_t>&);
     id<MTLSharedEvent> sharedEvent() const;
@@ -152,7 +156,7 @@ private:
 
     const Ref<Device> m_device;
     using ClearedToZeroInnerContainer = HashSet<uint32_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
-    using ClearedToZeroContainer = UncheckedKeyHashMap<uint32_t, ClearedToZeroInnerContainer, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+    using ClearedToZeroContainer = HashMap<uint32_t, ClearedToZeroInnerContainer, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     ClearedToZeroContainer m_clearedToZero;
     Vector<WeakPtr<TextureView>> m_textureViews;
     bool m_destroyed { false };
@@ -160,6 +164,16 @@ private:
     mutable WeakHashSet<CommandEncoder> m_commandEncoders;
     id<MTLSharedEvent> m_sharedEvent { nil };
     uint64_t m_sharedEventSignalValue { 0 };
-};
+} SWIFT_SHARED_REFERENCE(refTexture, derefTexture);
 
 } // namespace WebGPU
+
+inline void refTexture(WebGPU::Texture* obj)
+{
+    WTF::ref(obj);
+}
+
+inline void derefTexture(WebGPU::Texture* obj)
+{
+    WTF::deref(obj);
+}

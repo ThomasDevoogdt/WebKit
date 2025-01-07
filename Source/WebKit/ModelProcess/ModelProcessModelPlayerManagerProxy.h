@@ -51,6 +51,9 @@ public:
 
     ~ModelProcessModelPlayerManagerProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
     ModelConnectionToWebProcess* modelConnectionToWebProcess() { return m_modelConnectionToWebProcess.get(); }
@@ -68,7 +71,7 @@ private:
     void createModelPlayer(WebCore::ModelPlayerIdentifier);
     void deleteModelPlayer(WebCore::ModelPlayerIdentifier);
 
-    UncheckedKeyHashMap<WebCore::ModelPlayerIdentifier, Ref<ModelProcessModelPlayerProxy>> m_proxies;
+    HashMap<WebCore::ModelPlayerIdentifier, Ref<ModelProcessModelPlayerProxy>> m_proxies;
     WeakPtr<ModelConnectionToWebProcess> m_modelConnectionToWebProcess;
 };
 

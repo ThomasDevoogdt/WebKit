@@ -30,6 +30,7 @@
 
 #import "Logging.h"
 #import "RestrictedOpenerType.h"
+#import "WKContentRuleListStore.h"
 #import <WebCore/DNS.h>
 #import <WebCore/LinkDecorationFilteringData.h>
 #import <WebCore/OrganizationStorageAccessPromptQuirk.h>
@@ -44,7 +45,6 @@
 #import <wtf/WeakRandom.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/MakeString.h>
-
 #import <pal/cocoa/WebPrivacySoftLink.h>
 
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
@@ -157,9 +157,6 @@ void LinkDecorationFilteringController::updateList(CompletionHandler<void()>&& c
             auto rules = [data rules];
             for (WPLinkFilteringRule *rule : rules) {
                 auto domain = WebCore::RegistrableDomain { URL { makeString("http://"_s, String { rule.domain }) } };
-                // FIXME: This should be removed with rdar://127137181
-                if ([rule.domain hasPrefix:@"http://"])
-                    domain = WebCore::RegistrableDomain { URL { String { rule.domain } } };
                 result.append(WebCore::LinkDecorationFilteringData { WTFMove(domain), [rule respondsToSelector:@selector(path)] ? rule.path : @"", rule.queryParameter });
             }
             setCachedListData(WTFMove(result));
@@ -204,9 +201,6 @@ void requestLinkDecorationFilteringData(LinkFilteringRulesCallback&& callback)
             auto rules = [data rules];
             for (WPLinkFilteringRule *rule : rules) {
                 auto domain = WebCore::RegistrableDomain { URL { makeString("http://"_s, String { rule.domain }) } };
-                // FIXME: This should be removed with rdar://127137181
-                if ([rule.domain hasPrefix:@"http://"])
-                    domain = WebCore::RegistrableDomain { URL { String { rule.domain } } };
                 result.append(WebCore::LinkDecorationFilteringData { WTFMove(domain), { }, rule.queryParameter });
             }
         }
@@ -233,9 +227,9 @@ void StorageAccessPromptQuirkController::didUpdateCachedListData()
     RELEASE_LOG(ResourceLoadStatistics, "StorageAccessPromptQuirkController::didUpdateCachedListData: Loaded %lu storage access prompt(s) quirks from WebPrivacy.", m_cachedListData.size());
 }
 
-static UncheckedKeyHashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>> quirkDomainsDictToMap(NSDictionary<NSString *, NSArray<NSString *> *> *quirkDomains)
+static HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>> quirkDomainsDictToMap(NSDictionary<NSString *, NSArray<NSString *> *> *quirkDomains)
 {
-    UncheckedKeyHashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>> map;
+    HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>> map;
     auto* topDomains = quirkDomains.allKeys;
     for (NSString *topDomain : topDomains) {
         Vector<WebCore::RegistrableDomain> subFrameDomains;
@@ -315,7 +309,7 @@ void StorageAccessUserAgentStringQuirkController::updateList(CompletionHandler<v
     [options setAfterUpdates:NO];
 
     [[PAL::getWPResourcesClass() sharedInstance] requestStorageAccessUserAgentStringQuirksData:options.get() completionHandler:^(WPStorageAccessUserAgentStringQuirksData *data, NSError *error) {
-        UncheckedKeyHashMap<WebCore::RegistrableDomain, String> result;
+        HashMap<WebCore::RegistrableDomain, String> result;
         if (error)
             RELEASE_LOG_ERROR(ResourceLoadStatistics, "Failed to request storage access user agent string quirks from WebPrivacy.");
         else {
@@ -385,7 +379,7 @@ void RestrictedOpenerDomainsController::update()
             return;
         }
 
-        UncheckedKeyHashMap<WebCore::RegistrableDomain, RestrictedOpenerType> restrictedOpenerTypes;
+        HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> restrictedOpenerTypes;
         restrictedOpenerTypes.reserveInitialCapacity(domains.count);
 
         for (WPRestrictedOpenerDomain *domainInfo in domains) {
@@ -410,6 +404,36 @@ RestrictedOpenerType RestrictedOpenerDomainsController::lookup(const WebCore::Re
 
     auto it = m_restrictedOpenerTypes.find(domain);
     return it == m_restrictedOpenerTypes.end() ? RestrictedOpenerType::Unrestricted : it->value;
+}
+
+ResourceMonitorURLsController& ResourceMonitorURLsController::singleton()
+{
+    static MainThreadNeverDestroyed<ResourceMonitorURLsController> sharedInstance;
+    return sharedInstance.get();
+}
+
+void ResourceMonitorURLsController::prepare(CompletionHandler<void(WKContentRuleList*, bool)>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+    if (!PAL::isWebPrivacyFrameworkAvailable() || ![PAL::getWPResourcesClass() instancesRespondToSelector:@selector(prepareResouceMonitorRulesForStore:completionHandler:)]) {
+        completionHandler(nullptr, false);
+        return;
+    }
+
+    static MainThreadNeverDestroyed<Vector<CompletionHandler<void(WKContentRuleList*, bool)>, 1>> lookupCompletionHandlers;
+    lookupCompletionHandlers->append(WTFMove(completionHandler));
+    if (lookupCompletionHandlers->size() > 1)
+        return;
+
+    WKContentRuleListStore *store = [WKContentRuleListStore defaultStore];
+
+    [[PAL::getWPResourcesClass() sharedInstance] prepareResouceMonitorRulesForStore:store completionHandler:^(WKContentRuleList *list, bool updated, NSError *error) {
+        if (error)
+            RELEASE_LOG_ERROR(ResourceLoadStatistics, "Failed to request resource monitor urls from WebPrivacy");
+
+        for (auto& completionHandler : std::exchange(lookupCompletionHandlers.get(), { }))
+            completionHandler(list, updated);
+    }];
 }
 
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)

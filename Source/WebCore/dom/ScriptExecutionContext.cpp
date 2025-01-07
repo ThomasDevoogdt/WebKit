@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2024 Apple Inc. All Rights Reserved.
  * Copyright (C) 2012 Google Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -104,7 +104,7 @@ static UncheckedKeyHashMap<ScriptExecutionContextIdentifier, ScriptExecutionCont
 }
 
 struct ScriptExecutionContext::PendingException {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(PendingException);
+    WTF_MAKE_TZONE_ALLOCATED(PendingException);
 public:
     PendingException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, RefPtr<ScriptCallStack>&& callStack)
         : m_errorMessage(errorMessage)
@@ -120,6 +120,9 @@ public:
     String m_sourceURL;
     RefPtr<ScriptCallStack> m_callStack;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScriptExecutionContext::PendingException);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScriptExecutionContext::Task);
 
 ScriptExecutionContext::ScriptExecutionContext(Type type, std::optional<ScriptExecutionContextIdentifier> contextIdentifier)
     : m_identifier(contextIdentifier ? *contextIdentifier : ScriptExecutionContextIdentifier::generate())
@@ -753,6 +756,13 @@ bool ScriptExecutionContext::postTaskForModeToWorkerOrWorklet(ScriptExecutionCon
     return true;
 }
 
+bool ScriptExecutionContext::isContextThread(ScriptExecutionContextIdentifier identifier)
+{
+    Locker locker { allScriptExecutionContextsMapLock };
+    auto* context = allScriptExecutionContextsMap().get(identifier);
+    return context && context->isContextThread();
+}
+
 bool ScriptExecutionContext::ensureOnContextThread(ScriptExecutionContextIdentifier identifier, Task&& task)
 {
     ScriptExecutionContext* context = nullptr;
@@ -918,11 +928,14 @@ GuaranteedSerialFunctionDispatcher& ScriptExecutionContext::nativePromiseDispatc
 
 bool ScriptExecutionContext::requiresScriptExecutionTelemetry(ScriptTelemetryCategory category)
 {
-    Ref vm = this->vm();
+    RefPtr vm = vmIfExists();
+    if (!vm)
+        return false;
+
     if (!vm->topCallFrame)
         return false;
 
-    auto [taintedness, taintedURL] = JSC::sourceTaintedOriginFromStack(vm, vm->topCallFrame);
+    auto [taintedness, taintedURL] = JSC::sourceTaintedOriginFromStack(*vm, vm->topCallFrame);
     switch (taintedness) {
     case JSC::SourceTaintedOrigin::Untainted:
     case JSC::SourceTaintedOrigin::IndirectlyTaintedByHistory:
@@ -948,6 +961,15 @@ bool ScriptExecutionContext::requiresScriptExecutionTelemetry(ScriptTelemetryCat
 
     addConsoleMessage(MessageSource::JS, MessageLevel::Info, makeLogMessage(taintedURL, category));
     return true;
+}
+
+bool ScriptExecutionContext::isAlwaysOnLoggingAllowed() const
+{
+    auto sessionID = this->sessionID();
+    if (!sessionID)
+        return false;
+
+    return sessionID->isAlwaysOnLoggingAllowed() || settingsValues().allowPrivacySensitiveOperationsInNonPersistentDataStores;
 }
 
 WebCoreOpaqueRoot root(ScriptExecutionContext* context)

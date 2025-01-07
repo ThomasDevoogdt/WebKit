@@ -49,7 +49,7 @@ class ServiceWorkerThread;
 class WorkerClient;
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-class PushNotificationEvent;
+class DeclarativePushEvent;
 #endif
 
 enum class NotificationEventType : bool;
@@ -80,7 +80,7 @@ public:
     const ServiceWorkerContextData::ImportedScript* scriptResource(const URL&) const;
     void setScriptResource(const URL&, ServiceWorkerContextData::ImportedScript&&);
 
-    void didSaveScriptsToDisk(ScriptBuffer&&, UncheckedKeyHashMap<URL, ScriptBuffer>&& importedScripts);
+    void didSaveScriptsToDisk(ScriptBuffer&&, HashMap<URL, ScriptBuffer>&& importedScripts);
 
     const ServiceWorkerContextData& contextData() const { return m_contextData; }
     const CertificateInfo& certificateInfo() const { return m_contextData.certificateInfo; }
@@ -93,9 +93,9 @@ public:
     PushEvent* pushEvent() { return m_pushEvent.get(); }
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-    void dispatchPushNotificationEvent(PushNotificationEvent&);
-    PushNotificationEvent* pushNotificationEvent() { return m_pushNotificationEvent.get(); }
-    void clearPushNotificationEvent();
+    void dispatchDeclarativePushEvent(PushEvent&);
+    PushEvent* declarativePushEvent() { return m_declarativePushEvent.get(); }
+    void clearDeclarativePushEvent();
 #endif
 
     bool hasPendingSilentPushEvent() const { return m_hasPendingSilentPushEvent; }
@@ -143,14 +143,14 @@ private:
     Vector<Ref<ExtendableEvent>> m_extendedEvents;
 
     uint64_t m_lastRequestIdentifier { 0 };
-    UncheckedKeyHashMap<uint64_t, RefPtr<DeferredPromise>> m_pendingSkipWaitingPromises;
+    HashMap<uint64_t, RefPtr<DeferredPromise>> m_pendingSkipWaitingPromises;
     std::unique_ptr<NotificationClient> m_notificationClient;
     bool m_hasPendingSilentPushEvent { false };
     bool m_isProcessingUserGesture { false };
     Timer m_userGestureTimer;
     RefPtr<PushEvent> m_pushEvent;
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-    RefPtr<PushNotificationEvent> m_pushNotificationEvent;
+    RefPtr<PushEvent> m_declarativePushEvent;
 #endif
     MonotonicTime m_lastPushEventTime;
     bool m_consoleMessageReportingEnabled { false };
@@ -160,7 +160,7 @@ private:
         RefPtr<ServiceWorkerFetch::Client> client;
         std::variant<std::nullptr_t, Ref<FetchEvent>, UniqueRef<ResourceError>, UniqueRef<ResourceResponse>> navigationPreload;
     };
-    UncheckedKeyHashMap<FetchKey, FetchTask> m_ongoingFetchTasks;
+    HashMap<FetchKey, FetchTask> m_ongoingFetchTasks;
 };
 
 } // namespace WebCore

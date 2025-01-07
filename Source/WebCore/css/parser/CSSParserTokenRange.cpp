@@ -52,6 +52,7 @@ CSSParserTokenRange CSSParserTokenRange::makeSubRange(const CSSParserToken* firs
     return CSSParserTokenRange(first, last);
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 CSSParserTokenRange CSSParserTokenRange::consumeBlock()
 {
     ASSERT(peek().getBlockType() == CSSParserToken::BlockStart);
@@ -127,5 +128,6 @@ String CSSParserTokenRange::serialize(CSSParserToken::SerializationMode mode) co
         it->serialize(builder, it + 1 == m_last ? nullptr : it + 1, mode);
     return builder.toString();
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 } // namespace WebCore

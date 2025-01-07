@@ -34,8 +34,6 @@
 #include <wtf/PrintStream.h>
 #include <wtf/StdLibExtras.h>
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 namespace WTF {
 class StringBuilder;
 }
@@ -170,8 +168,7 @@ private:
     static unsigned computeNumberOfWorkerThreads(int maxNumberOfWorkerThreads, int minimum = 1);
     static int32_t computePriorityDeltaOfWorkerThreads(int32_t twoCorePriorityDelta, int32_t multiCorePriorityDelta);
     static constexpr bool jitEnabledByDefault() { return is32Bit() || isAddress64Bit(); }
+    static constexpr bool ipintEnabledByDefault() { return isARM64() || isARM64E() || isX86_64(); }
 };
 
 } // namespace JSC
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

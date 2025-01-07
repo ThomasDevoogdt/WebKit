@@ -42,7 +42,7 @@ class PictureInPictureObserver;
 class VideoFrameRequestCallback;
 
 enum class ImageBufferPixelFormat : uint8_t;
-enum class RenderingMode : bool;
+enum class RenderingMode : uint8_t;
 
 class HTMLVideoElement final : public HTMLMediaElement, public Supplementable<HTMLVideoElement> {
     WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLVideoElement);
@@ -59,6 +59,7 @@ public:
     WEBCORE_EXPORT void webkitExitFullscreen();
     WEBCORE_EXPORT bool webkitSupportsFullscreen();
     WEBCORE_EXPORT bool webkitDisplayingFullscreen();
+    WEBCORE_EXPORT ExceptionOr<void> enterFullscreenIgnoringPermissionsPolicy();
 
     void ancestorWillEnterFullscreen() final;
 
@@ -92,6 +93,7 @@ public:
 
     URL posterImageURL() const;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const RenderStyle&) const final { return true; }
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     enum class VideoPresentationMode { Inline, Fullscreen, PictureInPicture, InWindow };
@@ -105,6 +107,7 @@ public:
     WEBCORE_EXPORT void didEnterFullscreenOrPictureInPicture(const FloatSize&);
     WEBCORE_EXPORT void didExitFullscreenOrPictureInPicture();
     WEBCORE_EXPORT bool isChangingPresentationMode() const;
+    WEBCORE_EXPORT void setPresentationModeIgnoringPermissionsPolicy(VideoPresentationMode);
 
     void setVideoFullscreenFrame(const FloatRect&) final;
 

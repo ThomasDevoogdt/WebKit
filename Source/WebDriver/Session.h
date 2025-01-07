@@ -47,19 +47,25 @@ namespace WebDriver {
 class CommandResult;
 class SessionHost;
 
-class Session : public RefCounted<Session> {
+class Session :
+#if ENABLE(WEBDRIVER_BIDI)
+public BiDiEventHandler // Inherits RefCounted
+#else
+public RefCounted<Session>
+#endif
+{
 public:
-    static Ref<Session> create(std::unique_ptr<SessionHost>&& host)
+    static Ref<Session> create(Ref<SessionHost>&& host)
     {
         return adoptRef(*new Session(WTFMove(host)));
     }
-    ~Session();
 #if ENABLE(WEBDRIVER_BIDI)
-    static Ref<Session> create(std::unique_ptr<SessionHost>&& host, WeakPtr<WebSocketServer> bidiServer)
+    static Ref<Session> create(Ref<SessionHost>&& host, WeakPtr<WebSocketServer> bidiServer)
     {
         return adoptRef(*new Session(WTFMove(host), WTFMove(bidiServer)));
     }
 #endif
+    virtual ~Session();
 
     const String& id() const;
     const Capabilities& capabilities() const;
@@ -150,10 +156,16 @@ public:
     void sendAlertText(const String&, Function<void(CommandResult&&)>&&);
     void takeScreenshot(std::optional<String> elementID, std::optional<bool> scrollIntoView, Function<void(CommandResult&&)>&&);
 
-private:
-    Session(std::unique_ptr<SessionHost>&&);
 #if ENABLE(WEBDRIVER_BIDI)
-    Session(std::unique_ptr<SessionHost>&&, WeakPtr<WebSocketServer>&&);
+    void enableGlobalEvent(const String&);
+    void disableGlobalEvent(const String&);
+    void dispatchEvent(RefPtr<JSON::Object>&&);
+#endif
+
+private:
+    Session(Ref<SessionHost>&&);
+#if ENABLE(WEBDRIVER_BIDI)
+    Session(Ref<SessionHost>&&, WeakPtr<WebSocketServer>&&);
 #endif
 
     void switchToTopLevelBrowsingContext(const String&);
@@ -247,19 +259,28 @@ private:
     };
     InputSourceState& inputSourceState(const String& id);
 
-    std::unique_ptr<SessionHost> m_host;
+    RefPtr<SessionHost> m_host;
     double m_scriptTimeout;
     double m_pageLoadTimeout;
     double m_implicitWaitTimeout;
     std::optional<String> m_toplevelBrowsingContext;
     std::optional<String> m_currentBrowsingContext;
     std::optional<String> m_currentParentBrowsingContext;
-    UncheckedKeyHashMap<String, InputSource> m_activeInputSources;
-    UncheckedKeyHashMap<String, InputSourceState> m_inputStateTable;
+    HashMap<String, InputSource> m_activeInputSources;
+    HashMap<String, InputSourceState> m_inputStateTable;
 #if ENABLE(WEBDRIVER_BIDI)
     bool m_hasBiDiEnabled { false };
 
+    // https://w3c.github.io/webdriver-bidi/#events
+    HashSet<String> m_globalEventSet;
     WeakPtr<WebSocketServer> m_bidiServer;
+
+    bool eventIsEnabled(const String&, const Vector<String>&);
+    void emitEvent(const String&, RefPtr<JSON::Object>&&);
+    String toInternalEventName(const String&);
+
+    // Actual event handlers
+    void doLogEntryAdded(RefPtr<JSON::Object>&&);
 #endif
 };
 

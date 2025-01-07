@@ -29,7 +29,7 @@ using namespace WebCore;
 
 API::ContentWorld& webkitContentWorld(const char* worldName)
 {
-    static NeverDestroyed<UncheckedKeyHashMap<CString, RefPtr<API::ContentWorld>>> map;
+    static NeverDestroyed<HashMap<CString, RefPtr<API::ContentWorld>>> map;
     return *map.get().ensure(worldName, [worldName = String::fromUTF8(worldName)] {
         return API::ContentWorld::sharedWorldWithName(worldName);
     }).iterator->value;
@@ -81,7 +81,7 @@ static inline Vector<String> toStringVector(const char* const* strv)
 
     Vector<String> result;
 
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE port
     for (auto str = strv; *str; ++str)
         result.append(String::fromUTF8(*str));
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
@@ -178,7 +178,7 @@ WebKitUserStyleSheet* webkit_user_style_sheet_new(const gchar* source, WebKitUse
 {
     g_return_val_if_fail(source, nullptr);
     WebKitUserStyleSheet* userStyleSheet = static_cast<WebKitUserStyleSheet*>(fastMalloc(sizeof(WebKitUserStyleSheet)));
-    new (userStyleSheet) WebKitUserStyleSheet(source, injectedFrames, level, allowList, blockList, API::ContentWorld::pageContentWorld());
+    new (userStyleSheet) WebKitUserStyleSheet(source, injectedFrames, level, allowList, blockList, API::ContentWorld::pageContentWorldSingleton());
     return userStyleSheet;
 }
 
@@ -304,7 +304,7 @@ WebKitUserScript* webkit_user_script_new(const gchar* source, WebKitUserContentI
 {
     g_return_val_if_fail(source, nullptr);
     WebKitUserScript* userScript = static_cast<WebKitUserScript*>(fastMalloc(sizeof(WebKitUserScript)));
-    new (userScript) WebKitUserScript(source, injectedFrames, injectionTime, allowList, blockList, API::ContentWorld::pageContentWorld());
+    new (userScript) WebKitUserScript(source, injectedFrames, injectionTime, allowList, blockList, API::ContentWorld::pageContentWorldSingleton());
     return userScript;
 }
 

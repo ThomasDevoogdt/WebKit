@@ -27,7 +27,7 @@
 
 #include "MediaEngineConfigurationFactory.h"
 #include <wtf/HashMap.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -35,7 +35,7 @@ namespace WebCore {
 class DeferredPromise;
 class ScriptExecutionContext;
 
-class MediaCapabilities : public RefCounted<MediaCapabilities>, public CanMakeWeakPtr<MediaCapabilities> {
+class MediaCapabilities : public RefCountedAndCanMakeWeakPtr<MediaCapabilities> {
 public:
     static Ref<MediaCapabilities> create() { return adoptRef(*new MediaCapabilities); }
 
@@ -46,8 +46,8 @@ private:
     MediaCapabilities() = default;
 
     uint64_t m_nextTaskIdentifier { 0 };
-    UncheckedKeyHashMap<uint64_t, MediaEngineConfigurationFactory::DecodingConfigurationCallback> m_decodingTasks;
-    UncheckedKeyHashMap<uint64_t, MediaEngineConfigurationFactory::EncodingConfigurationCallback> m_encodingTasks;
+    HashMap<uint64_t, MediaEngineConfigurationFactory::DecodingConfigurationCallback> m_decodingTasks;
+    HashMap<uint64_t, MediaEngineConfigurationFactory::EncodingConfigurationCallback> m_encodingTasks;
 };
 
 } // namespace WebCore

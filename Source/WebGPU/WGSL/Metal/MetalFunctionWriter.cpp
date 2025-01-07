@@ -47,7 +47,7 @@ namespace Metal {
 
 class FunctionDefinitionWriter : public AST::Visitor {
 public:
-    FunctionDefinitionWriter(ShaderModule& shaderModule, StringBuilder& stringBuilder, PrepareResult& prepareResult, const UncheckedKeyHashMap<String, ConstantValue>& constantValues)
+    FunctionDefinitionWriter(ShaderModule& shaderModule, StringBuilder& stringBuilder, PrepareResult& prepareResult, const HashMap<String, ConstantValue>& constantValues)
         : m_stringBuilder(stringBuilder)
         , m_shaderModule(shaderModule)
         , m_prepareResult(prepareResult)
@@ -143,7 +143,7 @@ private:
     AST::Continuing*m_continuing { nullptr };
     HashSet<AST::Function*> m_visitedFunctions;
     PrepareResult& m_prepareResult;
-    const UncheckedKeyHashMap<String, ConstantValue>& m_constantValues;
+    const HashMap<String, ConstantValue>& m_constantValues;
 };
 
 static ASCIILiteral serializeAddressSpace(AddressSpace addressSpace)
@@ -603,11 +603,20 @@ void FunctionDefinitionWriter::visit(AST::Structure& structDecl)
         for (auto& member : structDecl.members()) {
             auto& name = member.name();
             auto* type = member.type().inferredType();
-            if (isPrimitiveReference(type, Types::Primitive::TextureExternal)) {
-                m_stringBuilder.append(m_indent, "texture2d<float> __"_s, name, "_FirstPlane;\n"_s,
-                    m_indent, "texture2d<float> __"_s, name, "_SecondPlane;\n"_s,
-                    m_indent, "float3x2 __"_s, name, "_UVRemapMatrix;\n"_s,
-                    m_indent, "float4x3 __"_s, name, "_ColorSpaceConversionMatrix;\n"_s);
+            if (isPrimitive(type, Types::Primitive::TextureExternal) || isPrimitiveReference(type, Types::Primitive::TextureExternal))  {
+                decltype(std::declval<ConstantValue>().integerValue()) bindingIndex = 0;
+                for (auto& attribute : member.attributes()) {
+                    if (auto* bindingAttribute = dynamicDowncast<AST::BindingAttribute>(attribute)) {
+                        if (auto bindingIndexValue = bindingAttribute->binding().constantValue()) {
+                            bindingIndex = bindingIndexValue->integerValue();
+                            break;
+                        }
+                    }
+                }
+                m_stringBuilder.append(m_indent, "texture2d<float> __"_s, name, "_FirstPlane [[id("_s, bindingIndex, ")]];\n"_s,
+                    m_indent, "texture2d<float> __"_s, name, "_SecondPlane [[id("_s, (bindingIndex + 1), ")]];\n"_s,
+                    m_indent, "float3x2 __"_s, name, "_UVRemapMatrix [[id("_s, (bindingIndex + 2), ")]];\n"_s,
+                    m_indent, "float4x3 __"_s, name, "_ColorSpaceConversionMatrix [[id("_s, (bindingIndex + 3), ")]];\n"_s);
                 continue;
             }
 
@@ -941,6 +950,8 @@ static ASCIILiteral convertToSampleMode(InterpolationType type, InterpolationSam
         return "flat"_s;
     case InterpolationType::Linear:
         switch (sampleType) {
+        case InterpolationSampling::First:
+        case InterpolationSampling::Either:
         case InterpolationSampling::Center:
             return "center_no_perspective"_s;
         case InterpolationSampling::Centroid:
@@ -950,6 +961,8 @@ static ASCIILiteral convertToSampleMode(InterpolationType type, InterpolationSam
         }
     case InterpolationType::Perspective:
         switch (sampleType) {
+        case InterpolationSampling::First:
+        case InterpolationSampling::Either:
         case InterpolationSampling::Center:
             return "center_perspective"_s;
         case InterpolationSampling::Centroid:
@@ -1928,50 +1941,50 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
 
     if (auto* target = dynamicDowncast<AST::IdentifierExpression>(call.target())) {
         static constexpr std::pair<ComparableASCIILiteral, void(*)(FunctionDefinitionWriter*, AST::CallExpression&)> builtinMappings[] {
-            { "__dynamicOffset", emitDynamicOffset },
-            { "arrayLength", emitArrayLength },
-            { "atomicAdd", emitAtomicAdd },
-            { "atomicAnd", emitAtomicAnd },
-            { "atomicExchange", emitAtomicExchange },
-            { "atomicLoad", emitAtomicLoad },
-            { "atomicMax", emitAtomicMax },
-            { "atomicMin", emitAtomicMin },
-            { "atomicOr", emitAtomicOr },
-            { "atomicStore", emitAtomicStore },
-            { "atomicSub", emitAtomicSub },
-            { "atomicXor", emitAtomicXor },
-            { "degrees", emitDegrees },
-            { "distance", emitDistance },
-            { "length", emitLength },
-            { "pack2x16float", emitPack2x16Float },
-            { "pack4xI8", emitPack4xI8 },
-            { "pack4xI8Clamp", emitPack4xI8Clamp },
-            { "pack4xU8", emitPack4xU8 },
-            { "pack4xU8Clamp", emitPack4xU8Clamp },
-            { "quantizeToF16", emitQuantizeToF16 },
-            { "radians", emitRadians },
-            { "storageBarrier", emitStorageBarrier },
-            { "textureBarrier", emitTextureBarrier },
-            { "textureDimensions", emitTextureDimensions },
-            { "textureGather", emitTextureGather },
-            { "textureGatherCompare", emitTextureGatherCompare },
-            { "textureLoad", emitTextureLoad },
-            { "textureNumLayers", emitTextureNumLayers },
-            { "textureNumLevels", emitTextureNumLevels },
-            { "textureNumSamples", emitTextureNumSamples },
-            { "textureSample", emitTextureSample },
-            { "textureSampleBaseClampToEdge", emitTextureSampleBaseClampToEdge },
-            { "textureSampleBias", emitTextureSampleBias },
-            { "textureSampleCompare", emitTextureSampleCompare },
-            { "textureSampleCompareLevel", emitTextureSampleCompare },
-            { "textureSampleGrad", emitTextureSampleGrad },
-            { "textureSampleLevel", emitTextureSampleLevel },
-            { "textureStore", emitTextureStore },
-            { "unpack2x16float", emitUnpack2x16Float },
-            { "unpack4xI8", emitUnpack4xI8 },
-            { "unpack4xU8", emitUnpack4xU8 },
-            { "workgroupBarrier", emitWorkgroupBarrier },
-            { "workgroupUniformLoad", emitWorkgroupUniformLoad },
+            { "__dynamicOffset"_s, emitDynamicOffset },
+            { "arrayLength"_s, emitArrayLength },
+            { "atomicAdd"_s, emitAtomicAdd },
+            { "atomicAnd"_s, emitAtomicAnd },
+            { "atomicExchange"_s, emitAtomicExchange },
+            { "atomicLoad"_s, emitAtomicLoad },
+            { "atomicMax"_s, emitAtomicMax },
+            { "atomicMin"_s, emitAtomicMin },
+            { "atomicOr"_s, emitAtomicOr },
+            { "atomicStore"_s, emitAtomicStore },
+            { "atomicSub"_s, emitAtomicSub },
+            { "atomicXor"_s, emitAtomicXor },
+            { "degrees"_s, emitDegrees },
+            { "distance"_s, emitDistance },
+            { "length"_s, emitLength },
+            { "pack2x16float"_s, emitPack2x16Float },
+            { "pack4xI8"_s, emitPack4xI8 },
+            { "pack4xI8Clamp"_s, emitPack4xI8Clamp },
+            { "pack4xU8"_s, emitPack4xU8 },
+            { "pack4xU8Clamp"_s, emitPack4xU8Clamp },
+            { "quantizeToF16"_s, emitQuantizeToF16 },
+            { "radians"_s, emitRadians },
+            { "storageBarrier"_s, emitStorageBarrier },
+            { "textureBarrier"_s, emitTextureBarrier },
+            { "textureDimensions"_s, emitTextureDimensions },
+            { "textureGather"_s, emitTextureGather },
+            { "textureGatherCompare"_s, emitTextureGatherCompare },
+            { "textureLoad"_s, emitTextureLoad },
+            { "textureNumLayers"_s, emitTextureNumLayers },
+            { "textureNumLevels"_s, emitTextureNumLevels },
+            { "textureNumSamples"_s, emitTextureNumSamples },
+            { "textureSample"_s, emitTextureSample },
+            { "textureSampleBaseClampToEdge"_s, emitTextureSampleBaseClampToEdge },
+            { "textureSampleBias"_s, emitTextureSampleBias },
+            { "textureSampleCompare"_s, emitTextureSampleCompare },
+            { "textureSampleCompareLevel"_s, emitTextureSampleCompare },
+            { "textureSampleGrad"_s, emitTextureSampleGrad },
+            { "textureSampleLevel"_s, emitTextureSampleLevel },
+            { "textureStore"_s, emitTextureStore },
+            { "unpack2x16float"_s, emitUnpack2x16Float },
+            { "unpack4xI8"_s, emitUnpack4xI8 },
+            { "unpack4xU8"_s, emitUnpack4xU8 },
+            { "workgroupBarrier"_s, emitWorkgroupBarrier },
+            { "workgroupUniformLoad"_s, emitWorkgroupUniformLoad },
         };
         static constexpr SortedArrayMap builtins { builtinMappings };
         const auto& targetName = target->identifier().id();
@@ -1981,40 +1994,40 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
         }
 
         static constexpr std::pair<ComparableASCIILiteral, ASCIILiteral> directMappings[] {
-            { "atomicCompareExchangeWeak", "__wgslAtomicCompareExchangeWeak"_s },
-            { "countLeadingZeros", "clz"_s },
-            { "countOneBits", "popcount"_s },
-            { "countTrailingZeros", "ctz"_s },
-            { "dot", "__wgslDot"_s },
-            { "dot4I8Packed", "__wgslDot4I8Packed"_s },
-            { "dot4U8Packed", "__wgslDot4U8Packed"_s },
-            { "dpdx", "dfdx"_s },
-            { "dpdxCoarse", "dfdx"_s },
-            { "dpdxFine", "dfdx"_s },
-            { "dpdy", "dfdy"_s },
-            { "dpdyCoarse", "dfdy"_s },
-            { "dpdyFine", "dfdy"_s },
-            { "extractBits", "__wgslExtractBits"_s },
-            { "faceForward", "faceforward"_s },
-            { "firstLeadingBit", "__wgslFirstLeadingBit"_s },
-            { "firstTrailingBit", "__wgslFirstTrailingBit"_s },
-            { "frexp", "__wgslFrexp"_s },
-            { "fwidthCoarse", "fwidth"_s },
-            { "fwidthFine", "fwidth"_s },
-            { "insertBits", "insert_bits"_s },
-            { "inverseSqrt", "rsqrt"_s },
-            { "modf", "__wgslModf"_s },
-            { "pack2x16snorm", "pack_float_to_snorm2x16"_s },
-            { "pack2x16unorm", "pack_float_to_unorm2x16"_s },
-            { "pack4x8snorm", "pack_float_to_snorm4x8"_s },
-            { "pack4x8unorm", "pack_float_to_unorm4x8"_s },
-            { "reverseBits", "reverse_bits"_s },
-            { "round", "rint"_s },
-            { "sign", "__wgslSign"_s },
-            { "unpack2x16snorm", "unpack_snorm2x16_to_float"_s },
-            { "unpack2x16unorm", "unpack_unorm2x16_to_float"_s },
-            { "unpack4x8snorm", "unpack_snorm4x8_to_float"_s },
-            { "unpack4x8unorm", "unpack_unorm4x8_to_float"_s },
+            { "atomicCompareExchangeWeak"_s, "__wgslAtomicCompareExchangeWeak"_s },
+            { "countLeadingZeros"_s, "clz"_s },
+            { "countOneBits"_s, "popcount"_s },
+            { "countTrailingZeros"_s, "ctz"_s },
+            { "dot"_s, "__wgslDot"_s },
+            { "dot4I8Packed"_s, "__wgslDot4I8Packed"_s },
+            { "dot4U8Packed"_s, "__wgslDot4U8Packed"_s },
+            { "dpdx"_s, "dfdx"_s },
+            { "dpdxCoarse"_s, "dfdx"_s },
+            { "dpdxFine"_s, "dfdx"_s },
+            { "dpdy"_s, "dfdy"_s },
+            { "dpdyCoarse"_s, "dfdy"_s },
+            { "dpdyFine"_s, "dfdy"_s },
+            { "extractBits"_s, "__wgslExtractBits"_s },
+            { "faceForward"_s, "faceforward"_s },
+            { "firstLeadingBit"_s, "__wgslFirstLeadingBit"_s },
+            { "firstTrailingBit"_s, "__wgslFirstTrailingBit"_s },
+            { "frexp"_s, "__wgslFrexp"_s },
+            { "fwidthCoarse"_s, "fwidth"_s },
+            { "fwidthFine"_s, "fwidth"_s },
+            { "insertBits"_s, "insert_bits"_s },
+            { "inverseSqrt"_s, "rsqrt"_s },
+            { "modf"_s, "__wgslModf"_s },
+            { "pack2x16snorm"_s, "pack_float_to_snorm2x16"_s },
+            { "pack2x16unorm"_s, "pack_float_to_unorm2x16"_s },
+            { "pack4x8snorm"_s, "pack_float_to_snorm4x8"_s },
+            { "pack4x8unorm"_s, "pack_float_to_unorm4x8"_s },
+            { "reverseBits"_s, "reverse_bits"_s },
+            { "round"_s, "rint"_s },
+            { "sign"_s, "__wgslSign"_s },
+            { "unpack2x16snorm"_s, "unpack_snorm2x16_to_float"_s },
+            { "unpack2x16unorm"_s, "unpack_unorm2x16_to_float"_s },
+            { "unpack4x8snorm"_s, "unpack_snorm4x8_to_float"_s },
+            { "unpack4x8unorm"_s, "unpack_unorm4x8_to_float"_s },
         };
         static constexpr SortedArrayMap mappedNames { directMappings };
         if (call.isConstructor()) {
@@ -2222,25 +2235,19 @@ void FunctionDefinitionWriter::visit(AST::Unsigned32Literal& literal)
 void FunctionDefinitionWriter::visit(AST::AbstractFloatLiteral& literal)
 {
     NumberToStringBuffer buffer;
-    WTF::numberToStringWithTrailingPoint(literal.value(), buffer);
-
-    m_stringBuilder.append(span(&buffer[0]));
+    m_stringBuilder.append(WTF::numberToStringWithTrailingPoint(literal.value(), buffer));
 }
 
 void FunctionDefinitionWriter::visit(AST::Float32Literal& literal)
 {
     NumberToStringBuffer buffer;
-    WTF::numberToStringWithTrailingPoint(literal.value(), buffer);
-
-    m_stringBuilder.append(span(&buffer[0]));
+    m_stringBuilder.append(WTF::numberToStringWithTrailingPoint(literal.value(), buffer));
 }
 
 void FunctionDefinitionWriter::visit(AST::Float16Literal& literal)
 {
     NumberToStringBuffer buffer;
-    WTF::numberToStringWithTrailingPoint(literal.value(), buffer);
-
-    m_stringBuilder.append(span(&buffer[0]));
+    m_stringBuilder.append(WTF::numberToStringWithTrailingPoint(literal.value(), buffer));
 }
 
 void FunctionDefinitionWriter::visit(AST::Statement& statement)
@@ -2427,13 +2434,14 @@ void FunctionDefinitionWriter::visit(AST::ForStatement& statement)
         m_stringBuilder.append(' ');
         visit(*update);
     }
-    m_stringBuilder.append(") "_s);
+    m_stringBuilder.append(") { volatile bool __wgslEnsureForwardProgress = true; "_s);
     visit(statement.body());
+    m_stringBuilder.append('}');
 }
 
 void FunctionDefinitionWriter::visit(AST::LoopStatement& statement)
 {
-    m_stringBuilder.append("while (true) {\n"_s);
+    m_stringBuilder.append("while (true) { volatile bool __wgslEnsureForwardProgress = true; \n"_s);
     {
         if (statement.containsSwitch())
             m_stringBuilder.append("bool __continuing = false;\n"_s, m_indent);
@@ -2477,8 +2485,9 @@ void FunctionDefinitionWriter::visit(AST::WhileStatement& statement)
 {
     m_stringBuilder.append("while ("_s);
     visit(statement.test());
-    m_stringBuilder.append(") "_s);
+    m_stringBuilder.append(") { volatile bool __wgslEnsureForwardProgress = true; "_s);
     visit(statement.body());
+    m_stringBuilder.append('}');
 }
 
 void FunctionDefinitionWriter::visit(AST::SwitchStatement& statement)
@@ -2559,20 +2568,17 @@ void FunctionDefinitionWriter::serializeConstant(const Type* type, ConstantValue
                 break;
             case Primitive::AbstractFloat: {
                 NumberToStringBuffer buffer;
-                WTF::numberToStringWithTrailingPoint(std::get<double>(value), buffer);
-                m_stringBuilder.append(span(&buffer[0]));
+                m_stringBuilder.append(WTF::numberToStringWithTrailingPoint(std::get<double>(value), buffer));
                 break;
             }
             case Primitive::F32: {
                 NumberToStringBuffer buffer;
-                WTF::numberToStringWithTrailingPoint(std::get<float>(value), buffer);
-                m_stringBuilder.append(span(&buffer[0]));
+                m_stringBuilder.append(WTF::numberToStringWithTrailingPoint(std::get<float>(value), buffer));
                 break;
             }
             case Primitive::F16: {
                 NumberToStringBuffer buffer;
-                WTF::numberToStringWithTrailingPoint(std::get<half>(value), buffer);
-                m_stringBuilder.append(span(&buffer[0]), 'h');
+                m_stringBuilder.append(WTF::numberToStringWithTrailingPoint(std::get<half>(value), buffer), 'h');
                 break;
             }
             case Primitive::Bool:
@@ -2693,7 +2699,7 @@ void FunctionDefinitionWriter::serializeConstant(const Type* type, ConstantValue
         });
 }
 
-void emitMetalFunctions(StringBuilder& stringBuilder, ShaderModule& shaderModule, PrepareResult& prepareResult, const UncheckedKeyHashMap<String, ConstantValue>& constantValues)
+void emitMetalFunctions(StringBuilder& stringBuilder, ShaderModule& shaderModule, PrepareResult& prepareResult, const HashMap<String, ConstantValue>& constantValues)
 {
     FunctionDefinitionWriter functionDefinitionWriter(shaderModule, stringBuilder, prepareResult, constantValues);
     functionDefinitionWriter.write();

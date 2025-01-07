@@ -25,7 +25,7 @@
 #pragma once
 
 #include "AccessibilityObject.h"
-#include <wtf/TZoneMallocInlines.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
@@ -81,7 +81,7 @@ struct TextMarkerData {
     // For an example of such byte-comparison, see the TestRunner WTR::AccessibilityTextMarker::isEqual.
     TextMarkerData()
     {
-        memset(static_cast<void*>(this), 0, sizeof(*this));
+        zeroBytes(*this);
     }
 
     TextMarkerData(std::optional<AXID> axTreeID, std::optional<AXID> axObjectID,
@@ -90,7 +90,7 @@ struct TextMarkerData {
         Affinity affinityParam = Affinity::Downstream,
         unsigned charStart = 0, unsigned charOffset = 0, bool ignoredParam = false)
     {
-        memset(static_cast<void*>(this), 0, sizeof(*this));
+        zeroBytes(*this);
         treeID = axTreeID ? axTreeID->toUInt64() : 0;
         objectID = axObjectID ? axObjectID->toUInt64() : 0;
         offset = offsetParam;
@@ -193,6 +193,8 @@ public:
     AXTextMarker previousWordEnd(std::optional<AXID> stopAtID = std::nullopt) const { return findMarker(AXDirection::Previous, AXTextUnit::Word, AXTextUnitBoundary::End, stopAtID); }
     AXTextMarker previousSentenceStart(std::optional<AXID> stopAtID = std::nullopt) const { return findMarker(AXDirection::Previous, AXTextUnit::Sentence, AXTextUnitBoundary::Start, stopAtID); }
     AXTextMarker nextSentenceEnd(std::optional<AXID> stopAtID = std::nullopt) const { return findMarker(AXDirection::Next, AXTextUnit::Sentence, AXTextUnitBoundary::End, stopAtID); }
+    AXTextMarker previousParagraphStart(std::optional<AXID> stopAtID = std::nullopt) const;
+    AXTextMarker nextParagraphEnd(std::optional<AXID> stopAtID = std::nullopt) const;
 
     // Creates a range for the line this marker points to.
     AXTextMarkerRange lineRange(LineRangeType) const;
@@ -200,6 +202,10 @@ public:
     AXTextMarkerRange wordRange(WordRangeType) const;
     // Creates a range for the sentence specified by the sentence range type;
     AXTextMarkerRange sentenceRange(SentenceRangeType) const;
+    // Creates a range for the paragraph at the current marker.
+    AXTextMarkerRange paragraphRange() const;
+    // Returns a range pointing to the start and end positions that have the same text styles as `this`.
+    AXTextMarkerRange rangeWithSameStyle() const;
     // Given a character offset relative to this marker, find the next marker the offset points to.
     AXTextMarker nextMarkerFromOffset(unsigned) const;
     // Returns the number of intermediate text markers between this and the root.
@@ -240,13 +246,14 @@ private:
 };
 
 class AXTextMarkerRange {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(AXTextMarkerRange);
+    WTF_MAKE_TZONE_ALLOCATED(AXTextMarkerRange);
     friend bool operator==(const AXTextMarkerRange&, const AXTextMarkerRange&);
     friend bool operator<(const AXTextMarkerRange&, const AXTextMarkerRange&);
     friend bool operator>(const AXTextMarkerRange&, const AXTextMarkerRange&);
 public:
     // Constructors.
     AXTextMarkerRange(const VisiblePositionRange&);
+    AXTextMarkerRange(const VisibleSelection&);
     AXTextMarkerRange(const std::optional<SimpleRange>&);
     AXTextMarkerRange(const AXTextMarker&, const AXTextMarker&);
     AXTextMarkerRange(AXTextMarker&&, AXTextMarker&&);
@@ -280,13 +287,17 @@ public:
 
     AXTextMarker start() const { return m_start; }
     AXTextMarker end() const { return m_end; }
+    bool isCollapsed() const { return m_start.isEqual(m_end); }
     bool isConfinedTo(std::optional<AXID>) const;
     bool isConfined() const;
 
 #if ENABLE(AX_THREAD_TEXT_APIS)
     // Traverses from m_start to m_end, collecting all text along the way.
     String toString() const;
-#endif
+#if PLATFORM(COCOA)
+    RetainPtr<NSAttributedString> toAttributedString(AXCoreObject::SpellCheck) const;
+#endif // PLATFORM(COCOA)
+#endif // ENABLE(AX_THREAD_TEXT_APIS)
 
     String debugDescription() const;
 private:
@@ -334,5 +345,13 @@ inline bool operator>=(const AXTextMarkerRange& range1, const AXTextMarkerRange&
 {
     return range1 == range2 || range1 > range2;
 }
+
+namespace Accessibility {
+
+#if ENABLE(AX_THREAD_TEXT_APIS)
+AXIsolatedObject* findObjectWithRuns(AXIsolatedObject& start, AXDirection direction, std::optional<AXID> stopAtID = std::nullopt, const std::function<void(AXIsolatedObject&)>& exitObject = [] (AXIsolatedObject&) { });
+#endif // ENABLE(AX_THREAD_TEXT_APIS)
+
+} // namespace Accessibility
 
 } // namespace WebCore

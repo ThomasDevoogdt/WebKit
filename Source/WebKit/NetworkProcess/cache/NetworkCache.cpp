@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,6 +43,7 @@
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/SharedBuffer.h>
+#include <WebCore/ThermalMitigationNotifier.h>
 #include <wtf/FileSystem.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
@@ -60,7 +61,7 @@ namespace NetworkCache {
 
 using namespace FileSystem;
 
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(CacheRetrieveInfo, Cache::RetrieveInfo);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Cache::RetrieveInfo);
 
 static const AtomString& resourceType()
 {
@@ -111,17 +112,16 @@ Cache::Cache(NetworkProcess& networkProcess, const String& storageDirectory, Ref
 {
 #if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
     if (options.contains(CacheOption::SpeculativeRevalidation)) {
-        m_lowPowerModeNotifier = makeUnique<WebCore::LowPowerModeNotifier>([this](bool isLowPowerModeEnabled) {
-            ASSERT(WTF::RunLoop::isMain());
-            if (isLowPowerModeEnabled)
-                m_speculativeLoadManager = nullptr;
-            else {
-                ASSERT(!m_speculativeLoadManager);
-                m_speculativeLoadManager = makeUnique<SpeculativeLoadManager>(*this, m_storage.get());
-            }
+        m_lowPowerModeNotifier = makeUnique<WebCore::LowPowerModeNotifier>([this, weakThis = WeakPtr { *this }](bool) {
+            if (RefPtr protectedThis = weakThis.get())
+                updateSpeculativeLoadManagerEnabledState();
         });
-        if (!m_lowPowerModeNotifier->isLowPowerModeEnabled())
-            m_speculativeLoadManager = makeUnique<SpeculativeLoadManager>(*this, m_storage.get());
+        m_thermalMitigationNotifier = makeUnique<WebCore::ThermalMitigationNotifier>([this, weakThis = WeakPtr { *this }](bool) {
+            if (RefPtr protectedThis = weakThis.get())
+                updateSpeculativeLoadManagerEnabledState();
+        });
+        if (shouldUseSpeculativeLoadManager())
+            m_speculativeLoadManager = makeUnique<SpeculativeLoadManager>(*this, protectedStorage());
     }
 #endif
 
@@ -329,6 +329,27 @@ static StoreDecision makeStoreDecision(const WebCore::ResourceRequest& originalR
 }
 
 #if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
+bool Cache::shouldUseSpeculativeLoadManager() const
+{
+    bool isLowPowerModeEnabled = m_lowPowerModeNotifier && m_lowPowerModeNotifier->isLowPowerModeEnabled();
+    bool isThermalMitigationEnabled = m_thermalMitigationNotifier && m_thermalMitigationNotifier->isThermalMitigationEnabled();
+    return !isLowPowerModeEnabled && !isThermalMitigationEnabled;
+}
+
+void Cache::updateSpeculativeLoadManagerEnabledState()
+{
+    ASSERT(WTF::RunLoop::isMain());
+
+    bool shouldEnable = shouldUseSpeculativeLoadManager();
+    if (!shouldEnable && m_speculativeLoadManager) {
+        m_speculativeLoadManager = nullptr;
+        RELEASE_LOG(NetworkCacheSpeculativePreloading, "%p - Cache::updateSpeculativeLoadManagerEnabledState: disabling speculative loads due to low power mode or thermal change", this);
+    } else if (shouldEnable && !m_speculativeLoadManager) {
+        m_speculativeLoadManager = makeUnique<SpeculativeLoadManager>(*this, protectedStorage());
+        RELEASE_LOG(NetworkCacheSpeculativePreloading, "%p - Cache::updateSpeculativeLoadManagerEnabledState: enabling speculative loads due to low power mode or thermal change", this);
+    }
+}
+
 static bool inline canRequestUseSpeculativeRevalidation(const WebCore::ResourceRequest& request)
 {
     if (request.isConditional())
@@ -427,15 +448,15 @@ void Cache::retrieve(const WebCore::ResourceRequest& request, std::optional<Glob
     m_storage->retrieve(storageKey, priority, [this, protectedThis = Ref { *this }, request, completionHandler = WTFMove(completionHandler), info = WTFMove(info), storageKey, networkProcess = Ref { networkProcess() }, sessionID = m_sessionID, frameID, isNavigatingToAppBoundDomain, allowPrivacyProxy, advancedPrivacyProtections](auto record, auto timings) mutable {
         info.storageTimings = timings;
 
-        if (!record) {
+        if (record.isNull()) {
             LOG(NetworkCache, "(NetworkProcess) not found in storage");
             completeRetrieve(WTFMove(completionHandler), nullptr, info);
             return false;
         }
 
-        ASSERT(record->key == storageKey);
+        ASSERT(record.key == storageKey);
 
-        auto entry = Entry::decodeStorageRecord(*record);
+        auto entry = Entry::decodeStorageRecord(record);
 
         auto useDecision = entry ? makeUseDecision(networkProcess, sessionID, *entry, request) : UseDecision::NoDueToDecodeFailure;
         switch (useDecision) {
@@ -718,7 +739,7 @@ String Cache::recordsPathIsolatedCopy() const
 
 void Cache::fetchData(bool shouldComputeSize, CompletionHandler<void(Vector<WebsiteData::Entry>&&)>&& completionHandler)
 {
-    UncheckedKeyHashMap<WebCore::SecurityOriginData, uint64_t> originsAndSizes;
+    HashMap<WebCore::SecurityOriginData, uint64_t> originsAndSizes;
     traverse([protectedThis = Ref { *this }, shouldComputeSize, completionHandler = WTFMove(completionHandler), originsAndSizes = WTFMove(originsAndSizes)](auto* traversalEntry) mutable {
         if (traversalEntry) {
             auto url = traversalEntry->entry.response().url();

@@ -184,7 +184,7 @@ void ApplicationCacheGroup::selectCache(LocalFrame& frame, const URL& passedMani
             // as part of the initial load.
             // The navigation will not result in the same resource being loaded, because "foreign" entries are never picked during navigation.
             RefPtr document = frame.document();
-            frame.checkedNavigationScheduler()->scheduleLocationChange(*document, document->protectedSecurityOrigin(), documentLoader.url(), frame.loader().referrer());
+            frame.protectedNavigationScheduler()->scheduleLocationChange(*document, document->protectedSecurityOrigin(), documentLoader.url(), frame.loader().referrer());
         }
         return;
     }
@@ -754,7 +754,7 @@ void ApplicationCacheGroup::manifestNotFound()
     m_manifestResource = nullptr;
 
     while (!m_pendingMasterResourceLoaders.isEmpty()) {
-        HashSet<DocumentLoader*>::iterator it = m_pendingMasterResourceLoaders.begin();
+        auto it = m_pendingMasterResourceLoaders.begin();
         
         ASSERT((*it)->applicationCacheHost().candidateApplicationCacheGroup() == this);
         ASSERT(!(*it)->applicationCacheHost().applicationCache());
@@ -1025,7 +1025,7 @@ void ApplicationCacheGroup::scheduleReachedMaxAppCacheSizeCallback()
     // The timer will delete itself once it fires.
 }
 
-void ApplicationCacheGroup::postListenerTask(const AtomString& eventType, int progressTotal, int progressDone, const HashSet<DocumentLoader*>& loaderSet)
+void ApplicationCacheGroup::postListenerTask(const AtomString& eventType, int progressTotal, int progressDone, const UncheckedKeyHashSet<DocumentLoader*>& loaderSet)
 {
     for (auto& loader : loaderSet)
         postListenerTask(eventType, progressTotal, progressDone, *loader);

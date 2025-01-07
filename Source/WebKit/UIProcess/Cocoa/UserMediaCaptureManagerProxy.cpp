@@ -35,7 +35,6 @@
 #include "SharedCARingBuffer.h"
 #include "UserMediaCaptureManagerMessages.h"
 #include "UserMediaCaptureManagerProxyMessages.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebProcessProxy.h"
 #include <WebCore/AudioSession.h>
 #include <WebCore/AudioUtilities.h>
@@ -110,12 +109,14 @@ public:
         });
     }
 
+    bool isUsingSource(const RealtimeMediaSource& source) const { return m_source.ptr() == &source; }
     Ref<RealtimeMediaSource> protectedSource() { return m_source; }
 
     void audioUnitWillStart() final
     {
-        AudioSession::sharedSession().setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::VideoChat, RouteSharingPolicy::Default);
-        AudioSession::sharedSession().tryToSetActive(true);
+        Ref session = AudioSession::sharedSession();
+        session->setCategory(AudioSession::CategoryType::PlayAndRecord, AudioSession::Mode::VideoChat, RouteSharingPolicy::Default);
+        session->tryToSetActive(true);
     }
 
     void start()
@@ -305,10 +306,10 @@ private:
     }
 
     // CheckedPtr interface
-    uint32_t ptrCount() const final { return CanMakeCheckedPtr::ptrCount(); }
-    uint32_t ptrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::ptrCountWithoutThreadCheck(); }
-    void incrementPtrCount() const final { CanMakeCheckedPtr::incrementPtrCount(); }
-    void decrementPtrCount() const final { CanMakeCheckedPtr::decrementPtrCount(); }
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
 
     void sourceStopped() final
     {
@@ -352,7 +353,7 @@ private:
             ASSERT(description.platformDescription().type == PlatformDescription::CAAudioStreamBasicType);
             m_description = *std::get<const AudioStreamBasicDescription*>(description.platformDescription().description);
 
-            m_frameChunkSize = std::max(WebCore::AudioUtilities::renderQuantumSize, AudioSession::sharedSession().preferredBufferSize());
+            m_frameChunkSize = std::max(WebCore::AudioUtilities::renderQuantumSize, AudioSession::protectedSharedSession()->preferredBufferSize());
 
             // Allocate a ring buffer large enough to contain 2 seconds of audio.
             auto result = ProducerSharedCARingBuffer::allocate(*m_description, m_description->sampleRate() * 2);
@@ -460,6 +461,11 @@ private:
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(UserMediaCaptureManagerProxy);
 
+Ref<UserMediaCaptureManagerProxy> UserMediaCaptureManagerProxy::create(UniqueRef<ConnectionProxy>&& connectionProxy)
+{
+    return adoptRef(*new UserMediaCaptureManagerProxy(WTFMove(connectionProxy)));
+}
+
 UserMediaCaptureManagerProxy::UserMediaCaptureManagerProxy(UniqueRef<ConnectionProxy>&& connectionProxy)
     : m_connectionProxy(WTFMove(connectionProxy))
 {
@@ -536,7 +542,7 @@ CaptureSourceOrError UserMediaCaptureManagerProxy::createCameraSource(const Capt
 
 void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstraints(RealtimeMediaSourceIdentifier id, const CaptureDevice& device, WebCore::MediaDeviceHashSalts&& hashSalts, MediaConstraints&& mediaConstraints, bool shouldUseGPUProcessRemoteFrames, PageIdentifier pageIdentifier, CreateSourceCallback&& completionHandler)
 {
-    if (!m_connectionProxy->willStartCapture(device.type())) {
+    if (!m_connectionProxy->willStartCapture(device.type(), pageIdentifier)) {
         completionHandler({ "Request is not allowed"_s, WebCore::MediaAccessDenialReason::PermissionDenied }, { }, { });
         return;
     }
@@ -642,11 +648,18 @@ void UserMediaCaptureManagerProxy::stopProducingData(RealtimeMediaSourceIdentifi
 
 void UserMediaCaptureManagerProxy::removeSource(RealtimeMediaSourceIdentifier id)
 {
-    RefPtr proxy = m_proxies.get(id);
-    if (!proxy)
+    auto iterator = m_proxies.find(id);
+    if (iterator == m_proxies.end())
         return;
 
-    Ref source = proxy->protectedSource();
+    Ref source = iterator->value->protectedSource();
+    m_proxies.remove(iterator);
+
+    for (Ref proxy : m_proxies.values()) {
+        if (proxy->isUsingSource(source))
+            return;
+    }
+
     if (auto pageIdentifier = source->pageIdentifier()) {
         auto iterator = m_pageSources.find(*pageIdentifier);
         if (iterator != m_pageSources.end()) {
@@ -666,7 +679,6 @@ void UserMediaCaptureManagerProxy::removeSource(RealtimeMediaSourceIdentifier id
             }
         }
     }
-    m_proxies.remove(id);
 }
 
 void UserMediaCaptureManagerProxy::capabilities(RealtimeMediaSourceIdentifier id, CompletionHandler<void(RealtimeMediaSourceCapabilities&&)>&& completionHandler)
@@ -803,6 +815,12 @@ void UserMediaCaptureManagerProxy::rotationAngleForCaptureDeviceChanged(const St
 bool UserMediaCaptureManagerProxy::hasSourceProxies() const
 {
     return !m_proxies.isEmpty();
+}
+
+std::optional<SharedPreferencesForWebProcess> UserMediaCaptureManagerProxy::sharedPreferencesForWebProcess() const
+{
+    auto& connectionProxy = m_connectionProxy;
+    return connectionProxy->sharedPreferencesForWebProcess();
 }
 
 }

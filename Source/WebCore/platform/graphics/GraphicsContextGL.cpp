@@ -36,10 +36,13 @@
 #include "GraphicsContext.h"
 #include "HostWindow.h"
 #include "Image.h"
+#include "ImageBuffer.h"
 #include "ImageObserver.h"
 #include "NotImplemented.h"
 #include "PixelBuffer.h"
 #include "VideoFrame.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WebCore {
 
@@ -629,7 +632,7 @@ void GraphicsContextGL::forceContextLost()
 RefPtr<Image> GraphicsContextGL::videoFrameToImage(VideoFrame& frame)
 {
     IntSize size { static_cast<int>(frame.presentationSize().width()), static_cast<int>(frame.presentationSize().height()) };
-    auto imageBuffer = ImageBuffer::create(size, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8);
+    auto imageBuffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8);
     if (!imageBuffer)
         return { };
     imageBuffer->context().drawVideoFrame(frame, { { }, size }, ImageOrientation::Orientation::None, true);
@@ -638,5 +641,7 @@ RefPtr<Image> GraphicsContextGL::videoFrameToImage(VideoFrame& frame)
 #endif
 
 } // namespace WebCore
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBGL)

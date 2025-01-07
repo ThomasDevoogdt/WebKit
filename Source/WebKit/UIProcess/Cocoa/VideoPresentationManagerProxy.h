@@ -167,6 +167,9 @@ public:
     static Ref<VideoPresentationManagerProxy> create(WebPageProxy&, PlaybackSessionManagerProxy&);
     virtual ~VideoPresentationManagerProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void invalidate();
 
     void requestHideAndExitFullscreen();
@@ -281,8 +284,8 @@ private:
 
     WeakPtr<WebPageProxy> m_page;
     Ref<PlaybackSessionManagerProxy> m_playbackSessionManagerProxy;
-    UncheckedKeyHashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
-    UncheckedKeyHashMap<PlaybackSessionContextIdentifier, int> m_clientCounts;
+    HashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
+    HashMap<PlaybackSessionContextIdentifier, int> m_clientCounts;
     Vector<CompletionHandler<void()>> m_closeCompletionHandlers;
     WeakHashSet<VideoInPictureInPictureDidChangeObserver> m_pipChangeObservers;
 };

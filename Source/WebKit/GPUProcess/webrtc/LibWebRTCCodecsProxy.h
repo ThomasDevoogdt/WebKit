@@ -70,6 +70,10 @@ class LibWebRTCCodecsProxy final : public IPC::WorkQueueMessageReceiver {
 public:
     static Ref<LibWebRTCCodecsProxy> create(GPUConnectionToWebProcess&, SharedPreferencesForWebProcess&);
     ~LibWebRTCCodecsProxy();
+
+    void ref() const final { IPC::WorkQueueMessageReceiver::ref(); }
+    void deref() const final { IPC::WorkQueueMessageReceiver::deref(); }
+
     void stopListeningForIPC(Ref<LibWebRTCCodecsProxy>&& refFromConnection);
     bool allowsExitUnderMemoryPressure() const;
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const { return m_sharedPreferencesForWebProcess; }
@@ -126,8 +130,8 @@ private:
     Ref<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
     WebCore::ProcessIdentity m_resourceOwner;
     SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
-    UncheckedKeyHashMap<VideoDecoderIdentifier, Decoder> m_decoders WTF_GUARDED_BY_CAPABILITY(workQueue());
-    UncheckedKeyHashMap<VideoEncoderIdentifier, Encoder> m_encoders WTF_GUARDED_BY_CAPABILITY(workQueue());
+    HashMap<VideoDecoderIdentifier, Decoder> m_decoders WTF_GUARDED_BY_CAPABILITY(workQueue());
+    HashMap<VideoEncoderIdentifier, Encoder> m_encoders WTF_GUARDED_BY_CAPABILITY(workQueue());
     std::atomic<bool> m_hasEncodersOrDecoders { false };
 
     std::unique_ptr<WebCore::PixelBufferConformerCV> m_pixelBufferConformer;

@@ -96,18 +96,29 @@ void RemotePageProxy::injectPageIntoNewProcess()
                 URL(page->pageLoadState().url()),
                 page->mainFrame()->frameTreeCreationParameters(),
                 page->mainFrameWebsitePoliciesData() ? std::make_optional(*page->mainFrameWebsitePoliciesData()) : std::nullopt
-            })),
-        0);
+            })
+        ), 0
+    );
 }
 
-void RemotePageProxy::processDidTerminate(WebCore::ProcessIdentifier processIdentifier)
+void RemotePageProxy::removePageFromProcess()
+{
+    if (!m_drawingArea)
+        return;
+    m_drawingArea = nullptr;
+    m_visitedLinkStoreRegistration = nullptr;
+    m_process->send(Messages::WebPage::Close(), m_webPageID);
+}
+
+void RemotePageProxy::processDidTerminate(WebProcessProxy& process, ProcessTerminationReason reason)
 {
     if (!m_page)
         return;
     if (auto* drawingArea = m_page->drawingArea())
-        drawingArea->remotePageProcessDidTerminate(processIdentifier);
+        drawingArea->remotePageProcessDidTerminate(process.coreProcessIdentifier());
     if (RefPtr mainFrame = m_page->mainFrame())
-        mainFrame->remoteProcessDidTerminate(process());
+        mainFrame->remoteProcessDidTerminate(process);
+    m_page->dispatchProcessDidTerminate(process, reason);
 }
 
 RemotePageProxy::~RemotePageProxy()

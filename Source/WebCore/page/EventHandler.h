@@ -216,7 +216,7 @@ public:
     WEBCORE_EXPORT HandleUserInputEventResult handleMouseReleaseEvent(const PlatformMouseEvent&);
     WEBCORE_EXPORT bool handleMouseForceEvent(const PlatformMouseEvent&);
 
-    WEBCORE_EXPORT HandleUserInputEventResult handleWheelEvent(const PlatformWheelEvent&, OptionSet<WheelEventProcessingSteps>);
+    WEBCORE_EXPORT std::pair<HandleUserInputEventResult, OptionSet<EventHandling>> handleWheelEvent(const PlatformWheelEvent&, OptionSet<WheelEventProcessingSteps>);
     void defaultWheelEventHandler(Node*, WheelEvent&);
     void wheelEventWasProcessedByMainThread(const PlatformWheelEvent&, OptionSet<EventHandling>);
 
@@ -230,7 +230,7 @@ public:
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS) || ENABLE(IOS_GESTURE_EVENTS) || ENABLE(MAC_GESTURE_EVENTS)
-    using EventTargetSet = HashSet<RefPtr<EventTarget>>;
+    using EventTargetSet = UncheckedKeyHashSet<RefPtr<EventTarget>>;
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -238,7 +238,7 @@ public:
     enum class InMotion : bool { No, Yes };
     void updateTouchLastGlobalPositionAndDelta(PointerID, const IntPoint&, InTouchEventHandling, InMotion);
     bool dispatchTouchEvent(const PlatformTouchEvent&, const AtomString&, const EventTargetTouchArrayMap&, float, float);
-    bool dispatchSimulatedTouchEvent(IntPoint location);
+    WEBCORE_EXPORT bool dispatchSimulatedTouchEvent(IntPoint location);
     Frame* touchEventTargetSubframe() const { return m_touchEventTargetSubframe.get(); }
     const TouchArray& touches() const { return m_touches; }
 #endif
@@ -384,14 +384,17 @@ private:
 #if ENABLE(DRAG_SUPPORT)
     static DragState& dragState();
     static const Seconds TextDragDelay;
+    void setDragStateSource(Element*) const;
+    SimpleRange createSimpleRangeFromDragStartSelection() const;
+    std::optional<WeakSimpleRange> getWeakSimpleRangeFromSelection(const VisibleSelection&) const;
 #endif
 
     bool eventActivatedView(const PlatformMouseEvent&) const;
     bool updateSelectionForMouseDownDispatchingSelectStart(Node*, const VisibleSelection&, TextGranularity);
+    bool expandAndUpdateSelectionForMouseDownIfNeeded(Node& targetNode, const VisibleSelection&, TextGranularity);
     void selectClosestWordFromHitTestResult(const HitTestResult&, AppendTrailingWhitespace);
     VisibleSelection selectClosestWordFromHitTestResultBasedOnLookup(const HitTestResult&);
     void selectClosestContextualWordFromHitTestResult(const HitTestResult&, AppendTrailingWhitespace);
-    
 
     bool handleMouseDoubleClickEvent(const PlatformMouseEvent&);
 
@@ -672,7 +675,7 @@ private:
 
 #if ENABLE(DRAG_SUPPORT)
     LayoutPoint m_dragStartPosition;
-    std::optional<SimpleRange> m_dragStartSelection;
+    std::optional<WeakSimpleRange> m_dragStartSelection;
     RefPtr<Element> m_dragTarget;
     bool m_mouseDownMayStartDrag { false };
     bool m_dragMayStartSelectionInstead { false };
@@ -728,8 +731,9 @@ private:
 #if PLATFORM(IOS_FAMILY)
     bool m_shouldAllowMouseDownToStartDrag { false };
     bool m_isAutoscrolling { false };
-    IntPoint m_targetAutoscrollPositionInUnscrolledRootViewCoordinates;
-    std::optional<IntPoint> m_initialTargetAutoscrollPositionInUnscrolledRootViewCoordinates;
+    IntPoint m_targetAutoscrollPositionInRootView;
+    IntPoint m_targetAutoscrollPositionInUnscrolledRootView;
+    std::optional<IntPoint> m_initialAutoscrollPositionInUnscrolledRootView;
 #endif
 };
 

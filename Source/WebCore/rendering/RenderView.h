@@ -107,7 +107,7 @@ public:
 
     LayoutRect viewRect() const;
 
-    void updateHitTestResult(HitTestResult&, const LayoutPoint&) override;
+    void updateHitTestResult(HitTestResult&, const LayoutPoint&) const override;
 
     void setPageLogicalSize(LayoutSize);
     LayoutUnit pageOrViewLogicalHeight() const;
@@ -215,6 +215,10 @@ public:
     SingleThreadWeakPtr<RenderElement> viewTransitionRoot() const;
     void setViewTransitionRoot(RenderElement& renderer);
 
+    void addViewTransitionGroup(const AtomString&, RenderElement&);
+    void removeViewTransitionGroup(const AtomString&);
+    RenderElement* viewTransitionGroupForName(const AtomString&);
+
 private:
     void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
 
@@ -285,6 +289,7 @@ private:
     SingleThreadWeakHashSet<const RenderBoxModelObject> m_anchors;
 
     SingleThreadWeakPtr<RenderElement> m_viewTransitionRoot;
+    HashMap<AtomString, SingleThreadWeakPtr<RenderElement>> m_viewTransitionGroups;
 };
 
 } // namespace WebCore

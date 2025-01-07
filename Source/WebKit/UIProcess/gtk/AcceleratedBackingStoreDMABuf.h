@@ -61,9 +61,10 @@ class UnixFileDescriptor;
 namespace WebKit {
 
 class WebPageProxy;
+class WebProcessProxy;
 enum class DMABufRendererBufferMode : uint8_t;
 
-class AcceleratedBackingStoreDMABuf final : public AcceleratedBackingStore, public IPC::MessageReceiver {
+class AcceleratedBackingStoreDMABuf final : public AcceleratedBackingStore, public IPC::MessageReceiver, public RefCounted<AcceleratedBackingStoreDMABuf> {
     WTF_MAKE_TZONE_ALLOCATED(AcceleratedBackingStoreDMABuf);
     WTF_MAKE_NONCOPYABLE(AcceleratedBackingStoreDMABuf);
 public:
@@ -72,8 +73,11 @@ public:
 #if USE(GBM)
     static Vector<DMABufRendererBufferFormat> preferredBufferFormats();
 #endif
-    static std::unique_ptr<AcceleratedBackingStoreDMABuf> create(WebPageProxy&);
+    static Ref<AcceleratedBackingStoreDMABuf> create(WebPageProxy&);
     ~AcceleratedBackingStoreDMABuf();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
 private:
     AcceleratedBackingStoreDMABuf(WebPageProxy&);
@@ -90,13 +94,14 @@ private:
     bool swapBuffersIfNeeded();
 
 #if USE(GTK4)
-    void snapshot(GtkSnapshot*) override;
+    bool snapshot(GtkSnapshot*) override;
 #else
     bool paint(cairo_t*, const WebCore::IntRect&) override;
 #endif
     void unrealize() override;
     void update(const LayerTreeContext&) override;
     RendererBufferFormat bufferFormat() const override;
+    RefPtr<WebCore::NativeImage> bufferAsNativeImageForTesting() const override;
 
     class Buffer : public RefCounted<Buffer> {
     public:
@@ -123,6 +128,7 @@ private:
         virtual cairo_surface_t* surface() const { return nullptr; }
 
         virtual RendererBufferFormat format() const = 0;
+        virtual RefPtr<WebCore::NativeImage> asNativeImageForTesting() const = 0;
         virtual void release() = 0;
 
         uint64_t id() const { return m_id; }
@@ -158,6 +164,7 @@ private:
         void didUpdateContents(Buffer*, const WebCore::Region&) override;
         GdkTexture* texture() const override { return m_texture.get(); }
         RendererBufferFormat format() const override;
+        RefPtr<WebCore::NativeImage> asNativeImageForTesting() const override;
         void release() override;
 
         Vector<WTF::UnixFileDescriptor> m_fds;
@@ -182,6 +189,7 @@ private:
         unsigned textureID() const override { return m_textureID; }
 #endif
         RendererBufferFormat format() const override;
+        RefPtr<WebCore::NativeImage> asNativeImageForTesting() const override;
         void release() override;
 
         Vector<WTF::UnixFileDescriptor> m_fds;
@@ -208,6 +216,7 @@ private:
         void didUpdateContents(Buffer*, const WebCore::Region&) override;
         cairo_surface_t* surface() const override { return m_surface.get(); }
         RendererBufferFormat format() const override;
+        RefPtr<WebCore::NativeImage> asNativeImageForTesting() const override;
         void release() override;
 
         WTF::UnixFileDescriptor m_fd;
@@ -228,6 +237,7 @@ private:
         void didUpdateContents(Buffer*, const WebCore::Region&) override;
         cairo_surface_t* surface() const override { return m_surface.get(); }
         RendererBufferFormat format() const override;
+        RefPtr<WebCore::NativeImage> asNativeImageForTesting() const override;
         void release() override;
 
         RefPtr<WebCore::ShareableBitmap> m_bitmap;
@@ -238,10 +248,11 @@ private:
     GRefPtr<GdkGLContext> m_gdkGLContext;
     bool m_glContextInitialized { false };
     uint64_t m_surfaceID { 0 };
+    WeakPtr<WebProcessProxy> m_legacyMainFrameProcess;
     RefPtr<Buffer> m_pendingBuffer;
     RefPtr<Buffer> m_committedBuffer;
     WebCore::Region m_pendingDamageRegion;
-    UncheckedKeyHashMap<uint64_t, RefPtr<Buffer>> m_buffers;
+    HashMap<uint64_t, RefPtr<Buffer>> m_buffers;
 };
 
 } // namespace WebKit

@@ -175,7 +175,7 @@ header: <WebCore/PlatformXR.h>
 
 [Nested] struct PlatformXR::FrameData::InputSource {
     int handle;
-    PlatformXR::XRHandedness handeness;
+    PlatformXR::XRHandedness handedness;
     PlatformXR::XRTargetRayMode targetRayMode;
     Vector<String> profiles;
     PlatformXR::FrameData::InputSourcePose pointerOrigin;
@@ -198,7 +198,7 @@ header: <WebCore/PlatformXR.h>
     std::optional<PlatformXR::FrameData::Pose> floorTransform;
     PlatformXR::FrameData::StageParameters stageParameters;
     Vector<PlatformXR::FrameData::View> views;
-    UncheckedKeyHashMap<PlatformXR::LayerHandle, UniqueRef<PlatformXR::FrameData::LayerData>> layers;
+    HashMap<PlatformXR::LayerHandle, UniqueRef<PlatformXR::FrameData::LayerData>> layers;
     Vector<PlatformXR::FrameData::InputSource> inputSources;
 };
 

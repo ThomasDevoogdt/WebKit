@@ -146,7 +146,7 @@ public:
     void setCustomUserAgent(JSStringRef);
 
     // Special DOM functions.
-    void clearBackForwardList();
+    void clearBackForwardList(JSContextRef, JSValueRef callback);
     void execCommand(JSStringRef name, JSStringRef showUI, JSStringRef value);
     bool isCommandEnabled(JSStringRef name);
     unsigned windowCount();
@@ -155,7 +155,7 @@ public:
     void testRepaint() { m_testRepaint = true; }
     void repaintSweepHorizontally() { m_testRepaintSweepHorizontally = true; }
     void display();
-    void displayAndTrackRepaints();
+    void displayAndTrackRepaints(JSContextRef, JSValueRef callback);
     void displayOnLoadFinish() { m_displayOnLoadFinish = true; }
     bool shouldDisplayOnLoadFinish() { return m_displayOnLoadFinish; }
     void dontForceRepaint() { m_forceRepaint = false; }
@@ -370,6 +370,7 @@ public:
     void setShouldDecideResponsePolicyAfterDelay(bool);
     void setNavigationGesturesEnabled(bool);
     void setIgnoresViewportScaleLimits(bool);
+    void setUseDarkAppearanceForTesting(bool);
     void setShouldDownloadUndisplayableMIMETypes(bool);
     void setShouldAllowDeviceOrientationAndMotionAccess(bool);
     void stopLoading();
@@ -454,7 +455,7 @@ public:
     void setStatisticsCacheMaxAgeCap(double seconds);
     bool hasStatisticsIsolatedSession(JSStringRef hostName);
     void setStatisticsShouldDowngradeReferrer(JSContextRef, bool, JSValueRef callback);
-    void setStatisticsShouldBlockThirdPartyCookies(JSContextRef, bool value, JSValueRef callback, bool onlyOnSitesWithoutUserInteraction);
+    void setStatisticsShouldBlockThirdPartyCookies(JSContextRef, bool value, JSValueRef callback, bool onlyOnSitesWithoutUserInteraction, bool onlyUnpartitionedCookies);
     void setStatisticsFirstPartyWebsiteDataRemovalMode(JSContextRef, bool value, JSValueRef callback);
     void statisticsSetToSameSiteStrictCookies(JSContextRef, JSStringRef hostName, JSValueRef callback);
     void statisticsSetFirstPartyHostCNAMEDomain(JSContextRef, JSStringRef firstPartyURLString, JSStringRef cnameURLString, JSValueRef completionHandler);
@@ -503,7 +504,7 @@ public:
     void removeMockMediaDevice(JSStringRef persistentId);
     void setMockMediaDeviceIsEphemeral(JSStringRef persistentId, bool isEphemeral);
     void resetMockMediaDevices();
-    void setMockCameraOrientation(unsigned);
+    void setMockCameraOrientation(unsigned, JSStringRef persistentId);
     bool isMockRealtimeMediaSourceCenterEnabled();
     void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
     void triggerMockCaptureConfigurationChange(bool forMicrophone, bool forDisplay);

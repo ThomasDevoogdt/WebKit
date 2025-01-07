@@ -28,10 +28,12 @@
 
 #include "CommandResult.h"
 #include "HTTPServer.h"
+#include "Logging.h"
 #include <cstdio>
 #include <libsoup/soup-websocket-connection.h>
 #include <libsoup/soup.h>
 #include <optional>
+#include <span>
 #include <tuple>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/WTFString.h>
@@ -77,7 +79,7 @@ static void handleIncomingHandshake(SoupServer*, SoupServerMessage* message, con
         return;
 
     HTTPRequestHandler::Response errorResponse = { 503, "Service Unavailable", "text/plain"_s };
-    WTFLogAlways("Error during handshake, sending error response: %s", errorResponse.data.data());
+    RELEASE_LOG(WebDriverBiDi, "Error during handshake, sending error response: %s", errorResponse.data.data());
     soup_server_message_set_status(message, errorResponse.statusCode, nullptr);
     auto* responseHeaders = soup_server_message_get_response_headers(message);
     soup_message_headers_append(responseHeaders, "Content-Type", errorResponse.contentType.utf8().data());
@@ -90,9 +92,9 @@ static void handleWebSocketMessage(SoupWebsocketConnection* connection, SoupWebs
 {
     // https://w3c.github.io/webdriver-bidi/#handle-an-incoming-message
     if (messageType != SOUP_WEBSOCKET_DATA_TEXT) {
-        WTFLogAlways("websocket message handler received non-text message. error return");
+        RELEASE_LOG(WebDriverBiDi, "websocket message handler received non-text message. error return");
         auto errorReply = WebSocketMessageHandler::Message::fail(CommandResult::ErrorCode::InvalidArgument, std::nullopt, { "Non-text message received"_s });
-        GRefPtr<GBytes> rawMessage = adoptGRef(g_bytes_new(errorReply.data, errorReply.dataLength));
+        GRefPtr<GBytes> rawMessage = adoptGRef(g_bytes_new(errorReply.payload.data(), errorReply.payload.length()));
         soup_websocket_connection_send_message(connection, SOUP_WEBSOCKET_DATA_TEXT, rawMessage.get());
         return;
     }
@@ -100,13 +102,13 @@ static void handleWebSocketMessage(SoupWebsocketConnection* connection, SoupWebs
 
     gsize messageSize;
     gconstpointer messageData = g_bytes_get_data(message, &messageSize);
-    WebSocketMessageHandler::Message messageObj = { connection, static_cast<const char*>(messageData), messageSize };
+    WebSocketMessageHandler::Message messageObj = { connection, { std::span<const char>(static_cast<const char*>(messageData), messageSize) } };
     webSocketServer->messageHandler().handleMessage(WTFMove(messageObj), [](WebSocketMessageHandler::Message&& message) {
         if (!message.connection) {
-            WTFLogAlways("No connection found when trying to send message: %s", message.data);
+            RELEASE_LOG(WebDriverBiDi, "No connection found when trying to send message: %s", message.payload.data());
             return;
         }
-        GRefPtr<GBytes> rawMessage = adoptGRef(g_bytes_new(message.data, message.dataLength));
+        GRefPtr<GBytes> rawMessage = adoptGRef(g_bytes_new(message.payload.data(), message.payload.length()));
         // Using send_message to avoid dealing with null chars in the middle of the message
         soup_websocket_connection_send_message(message.connection.get(), SOUP_WEBSOCKET_DATA_TEXT, rawMessage.get());
     });
@@ -135,14 +137,14 @@ static void handleWebSocketConnection(SoupServer*, SoupServerMessage*, const cha
 std::optional<String> WebSocketServer::listen(const String& host, unsigned port)
 {
 #if USE(SOUP2)
-    WTFLogAlways("WebSockets support not implemented yet with libsoup2");
+    RELEASE_LOG(WebDriverBiDi, "WebSockets support not implemented yet with libsoup2");
     return stf::nullopt;
 #endif
 
     m_soupServer = adoptGRef(soup_server_new("server-header", "WebKitWebDriver-WSS", nullptr));
     GUniqueOutPtr<GError> error;
     if (!soupServerListen(m_soupServer.get(), host, port, &error.outPtr())) {
-        WTFLogAlways("Failed to start WebSocket server at port %u: %s", port, error->message);
+        RELEASE_LOG(WebDriverBiDi, "Failed to start WebSocket server at port %u: %s", port, error->message);
         return std::nullopt;
     }
 
@@ -160,6 +162,17 @@ std::optional<String> WebSocketServer::listen(const String& host, unsigned port)
         { "/session"_s }
     );
     return getWebSocketURL(m_listener, nullString());
+}
+
+void WebSocketServer::sendMessage(const String& session, const String& message)
+{
+    for (const auto& pair : m_connectionToSession) {
+        if (pair.value == session) {
+            GRefPtr<GBytes> rawMessage = adoptGRef(g_bytes_new(message.utf8().data(), message.utf8().length()));
+            soup_websocket_connection_send_message(pair.key.get(), SOUP_WEBSOCKET_DATA_TEXT, rawMessage.get());
+            return;
+        }
+    }
 }
 
 void WebSocketServer::disconnect()

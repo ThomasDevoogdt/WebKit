@@ -29,7 +29,6 @@
 
 #include "MessageReceiver.h"
 #include "RemoteImageDecoderAVFManager.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/ImageDecoder.h>
 #include <WebCore/ImageDecoderIdentifier.h>
 #include <wtf/Function.h>
@@ -95,7 +94,7 @@ private:
     String m_uti;
     bool m_isAllDataReceived { false };
     WTF::Function<void(WebCore::EncodedDataStatus)> m_encodedDataStatusChangedCallback;
-    UncheckedKeyHashMap<int, WebCore::PlatformImagePtr, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_frameImages;
+    HashMap<int, WebCore::PlatformImagePtr, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_frameImages;
     Vector<ImageDecoder::FrameInfo> m_frameInfos;
     size_t m_frameCount { 0 };
     std::optional<WebCore::IntSize> m_size;

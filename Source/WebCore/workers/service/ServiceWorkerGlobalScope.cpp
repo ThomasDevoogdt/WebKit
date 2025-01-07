@@ -38,7 +38,6 @@
 #include "Logging.h"
 #include "NotificationEvent.h"
 #include "PushEvent.h"
-#include "PushNotificationEvent.h"
 #include "SWContextManager.h"
 #include "SWServer.h"
 #include "ServiceWorker.h"
@@ -88,7 +87,7 @@ ServiceWorkerGlobalScope::~ServiceWorkerGlobalScope()
 void ServiceWorkerGlobalScope::dispatchPushEvent(PushEvent& pushEvent)
 {
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-    ASSERT(!m_pushNotificationEvent && !m_pushEvent);
+    ASSERT(!m_declarativePushEvent && !m_pushEvent);
 #else
     ASSERT(!m_pushEvent);
 #endif
@@ -100,18 +99,18 @@ void ServiceWorkerGlobalScope::dispatchPushEvent(PushEvent& pushEvent)
 }
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-void ServiceWorkerGlobalScope::dispatchPushNotificationEvent(PushNotificationEvent& event)
+void ServiceWorkerGlobalScope::dispatchDeclarativePushEvent(PushEvent& event)
 {
-    ASSERT(!m_pushNotificationEvent && !m_pushEvent);
-    m_pushNotificationEvent = &event;
+    ASSERT(!m_declarativePushEvent && !m_pushEvent);
+    m_declarativePushEvent = &event;
     m_lastPushEventTime = MonotonicTime::now();
     dispatchEvent(event);
 }
 
-void ServiceWorkerGlobalScope::clearPushNotificationEvent()
+void ServiceWorkerGlobalScope::clearDeclarativePushEvent()
 {
-    ASSERT(m_pushNotificationEvent);
-    m_pushNotificationEvent = nullptr;
+    ASSERT(m_declarativePushEvent);
+    m_declarativePushEvent = nullptr;
 }
 #endif
 
@@ -232,7 +231,7 @@ void ServiceWorkerGlobalScope::setScriptResource(const URL& url, ServiceWorkerCo
     m_contextData.scriptResourceMap.set(url, WTFMove(script));
 }
 
-void ServiceWorkerGlobalScope::didSaveScriptsToDisk(ScriptBuffer&& script, UncheckedKeyHashMap<URL, ScriptBuffer>&& importedScripts)
+void ServiceWorkerGlobalScope::didSaveScriptsToDisk(ScriptBuffer&& script, HashMap<URL, ScriptBuffer>&& importedScripts)
 {
     // These scripts should be identical to the ones we have. However, these are mmap'd so using them helps reduce dirty memory usage.
     updateSourceProviderBuffers(script, importedScripts);

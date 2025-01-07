@@ -61,6 +61,11 @@ public:
     void setIFrameFullscreenFlag(bool value) { m_IFrameFullscreenFlag = value; }
 #endif
 
+#if ENABLE(CONTENT_EXTENSIONS)
+    const URL& initiatorSourceURL() const { return m_initiatorSourceURL; }
+    void setInitiatorSourceURL(URL&& url) { m_initiatorSourceURL = WTFMove(url); }
+#endif
+
 private:
     HTMLIFrameElement(const QualifiedName&, Document&);
 
@@ -73,6 +78,7 @@ private:
 
     bool rendererIsNeeded(const RenderStyle&) final;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const RenderStyle&) const final { return true; }
 
     bool shouldLoadFrameLazily() final;
     bool isLazyLoadObserverActive() const final;
@@ -82,6 +88,9 @@ private:
     bool m_IFrameFullscreenFlag { false };
 #endif
     std::unique_ptr<LazyLoadFrameObserver> m_lazyLoadFrameObserver;
+#if ENABLE(CONTENT_EXTENSIONS)
+    URL m_initiatorSourceURL;
+#endif
 };
 
 } // namespace WebCore

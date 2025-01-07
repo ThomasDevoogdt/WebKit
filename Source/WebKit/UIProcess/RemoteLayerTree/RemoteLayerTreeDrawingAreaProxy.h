@@ -33,6 +33,7 @@
 #include <WebCore/FloatPoint.h>
 #include <WebCore/IntPoint.h>
 #include <WebCore/IntSize.h>
+#include <wtf/RefCounted.h>
 #include <wtf/WeakHashMap.h>
 
 namespace WebKit {
@@ -43,16 +44,15 @@ class RemoteScrollingCoordinatorProxy;
 class RemoteScrollingCoordinatorProxy;
 class RemoteScrollingCoordinatorTransaction;
 
-class RemoteLayerTreeDrawingAreaProxy : public DrawingAreaProxy {
+class RemoteLayerTreeDrawingAreaProxy : public DrawingAreaProxy, public RefCounted<RemoteLayerTreeDrawingAreaProxy> {
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerTreeDrawingAreaProxy);
     WTF_MAKE_NONCOPYABLE(RemoteLayerTreeDrawingAreaProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteLayerTreeDrawingAreaProxy);
 public:
-    RemoteLayerTreeDrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
     virtual ~RemoteLayerTreeDrawingAreaProxy();
 
-    virtual bool isRemoteLayerTreeDrawingAreaProxyMac() const { return false; }
-    virtual bool isRemoteLayerTreeDrawingAreaProxyIOS() const { return false; }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     const RemoteLayerTreeHost& remoteLayerTreeHost() const { return *m_remoteLayerTreeHost; }
     std::unique_ptr<RemoteLayerTreeHost> detachRemoteLayerTreeHost();
@@ -86,6 +86,8 @@ public:
     unsigned countOfTransactionsWithNonEmptyLayerChanges() const { return m_countOfTransactionsWithNonEmptyLayerChanges; }
 
 protected:
+    RemoteLayerTreeDrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
+
     void updateDebugIndicatorPosition();
 
     bool shouldCoalesceVisualEditorStateUpdates() const override { return true; }
@@ -113,7 +115,7 @@ protected:
 
     ProcessState& processStateForConnection(IPC::Connection&);
     const ProcessState& processStateForIdentifier(WebCore::ProcessIdentifier) const;
-    IPC::Connection& connectionForIdentifier(WebCore::ProcessIdentifier);
+    IPC::Connection* connectionForIdentifier(WebCore::ProcessIdentifier);
     void forEachProcessState(Function<void(ProcessState&, WebProcessProxy&)>&&);
 
 private:
@@ -129,6 +131,8 @@ private:
 
     virtual void scheduleDisplayRefreshCallbacks() { }
     virtual void pauseDisplayRefreshCallbacks() { }
+
+    virtual void dispatchSetTopContentInset() { }
 
     float indicatorScale(WebCore::IntSize contentsSize) const;
     void updateDebugIndicator() final;
@@ -163,7 +167,7 @@ private:
 
     void willCommitLayerTree(IPC::Connection&, TransactionID);
     void commitLayerTreeNotTriggered(IPC::Connection&, TransactionID);
-    void commitLayerTree(IPC::Connection&, const Vector<std::pair<RemoteLayerTreeTransaction, RemoteScrollingCoordinatorTransaction>>&, UncheckedKeyHashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&&);
+    void commitLayerTree(IPC::Connection&, const Vector<std::pair<RemoteLayerTreeTransaction, RemoteScrollingCoordinatorTransaction>>&, HashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&&);
     void commitLayerTreeTransaction(IPC::Connection&, const RemoteLayerTreeTransaction&, const RemoteScrollingCoordinatorTransaction&);
     virtual void didCommitLayerTree(IPC::Connection&, const RemoteLayerTreeTransaction&, const RemoteScrollingCoordinatorTransaction&) { }
 
@@ -179,7 +183,7 @@ private:
     bool maybePauseDisplayRefreshCallbacks();
 
     ProcessState m_webPageProxyProcessState;
-    UncheckedKeyHashMap<WebCore::ProcessIdentifier, ProcessState> m_remotePageProcessState;
+    HashMap<WebCore::ProcessIdentifier, ProcessState> m_remotePageProcessState;
 
     WebCore::IntSize m_lastSentSize;
     WebCore::IntSize m_lastSentMinimumSizeForAutoLayout;

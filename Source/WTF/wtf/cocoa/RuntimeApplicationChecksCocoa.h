@@ -128,6 +128,8 @@ enum class SDKAlignedBehavior {
     BlockOptionallyBlockableMixedContent,
     UseCFNetworkNetworkLoader,
     BlockCrossOriginRedirectDownloads,
+    BlobFileAccessEnforcement,
+    DevolvableWidgets,
 
     NumberOfBehaviors
 };
@@ -183,6 +185,7 @@ WTF_EXPORT_PRIVATE bool isMimeoPhotoProject();
 
 namespace IOSApplication {
 
+WTF_EXPORT_PRIVATE bool isAmazon();
 WTF_EXPORT_PRIVATE bool isAppleApplication();
 WTF_EXPORT_PRIVATE bool isCardiogram();
 WTF_EXPORT_PRIVATE bool isCrunchyroll();

@@ -38,6 +38,8 @@
 #include "DFGPhase.h"
 #include <wtf/TZoneMallocInlines.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace DFG {
 
 // This file contains two CSE implementations: local and global. LocalCSE typically runs when we're
@@ -103,7 +105,7 @@ struct ImpureDataTranslator {
 };
 
 class ImpureMap {
-    WTF_MAKE_TZONE_ALLOCATED(ImpureMap);
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(ImpureMap);
     WTF_MAKE_NONCOPYABLE(ImpureMap);
 public:
     ImpureMap() = default;
@@ -217,7 +219,7 @@ public:
     }
 
 private:
-    typedef HashSet<std::unique_ptr<ImpureDataSlot>, ImpureDataSlotHash> Map;
+    typedef UncheckedKeyHashSet<std::unique_ptr<ImpureDataSlot>, ImpureDataSlotHash> Map;
 
     const ImpureDataSlot* addImpl(const HeapLocation& location, const LazyNode& node)
     {
@@ -524,6 +526,7 @@ private:
     
         bool run(BasicBlock* block)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "Starting block: ", block->index);
             m_maps.clear();
             m_changed = false;
             m_block = block;
@@ -607,11 +610,13 @@ private:
     
         void write(AbstractHeap heap)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "\tWrite to heap ", heap);
             m_maps.write(heap);
         }
         
         void def(PureValue value)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "\tDef of value ", value, " at node ", m_node->index());
             Node* match = m_maps.addPure(value, m_node);
             if (!match)
                 return;
@@ -622,6 +627,7 @@ private:
     
         void def(const HeapLocation& location, const LazyNode& value)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "\tDef to ", location, " of value ", value, " at node ", m_node->index());
             LazyNode match = m_maps.addImpure(location, value);
             if (!match)
                 return;
@@ -1007,5 +1013,7 @@ bool performGlobalCSE(Graph& graph)
 }
 
 } } // namespace JSC::DFG
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(DFG_JIT)

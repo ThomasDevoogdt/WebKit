@@ -41,10 +41,12 @@
 #include <wtf/ListDump.h>
 #include <wtf/TZoneMallocInlines.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 { namespace Air {
 
 namespace GenerateAndAllocateRegistersInternal {
-static bool verbose = false;
+static constexpr bool verbose = false;
 }
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(GenerateAndAllocateRegisters);
@@ -505,8 +507,8 @@ void GenerateAndAllocateRegisters::prepareForGeneration()
         UnifiedTmpLiveness liveness(m_code);
         for (BasicBlock* block : m_code) {
             auto assertLivenessAreEqual = [&] (auto a, auto b) {
-                HashSet<Tmp> livenessA;
-                HashSet<Tmp> livenessB;
+                UncheckedKeyHashSet<Tmp> livenessA;
+                UncheckedKeyHashSet<Tmp> livenessB;
                 for (Tmp tmp : a) {
                     if (tmp.isReg() && isDisallowedRegister(tmp.reg()))
                         continue;
@@ -1033,5 +1035,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
 }
 
 } } } // namespace JSC::B3::Air
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

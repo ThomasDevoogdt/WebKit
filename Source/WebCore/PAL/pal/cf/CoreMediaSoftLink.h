@@ -141,6 +141,9 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_YCbC
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCVImageBufferYCbCrMatrix_ITU_R_709_2, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCVImageBufferYCbCrMatrix_ITU_R_601_4, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionExtension_PixelAspectRatio, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing, CFStringRef)
+SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing, CFStringRef)
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTextMarkupAlignmentType_End, CFStringRef)
 #define kCMTextMarkupAlignmentType_End get_CoreMedia_kCMTextMarkupAlignmentType_End()
@@ -252,6 +255,8 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimebaseSetTimerDispatchSourceTo
 #define CMTimebaseSetTimerDispatchSourceToFireImmediately softLink_CoreMedia_CMTimebaseSetTimerDispatchSourceToFireImmediately
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimeCopyAsDictionary, CFDictionaryRef, (CMTime time, CFAllocatorRef allocator), (time, allocator))
 #define CMTimeCopyAsDictionary softLink_CoreMedia_CMTimeCopyAsDictionary
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMTimeMakeFromDictionary, CMTime, (CFDictionaryRef dictionaryRepresentation), (dictionaryRepresentation))
+#define CMTimeMakeFromDictionary softLink_CoreMedia_CMTimeMakeFromDictionary
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMVideoFormatDescriptionCreate, OSStatus, (CFAllocatorRef allocator, CMVideoCodecType codecType, int32_t width, int32_t height, CFDictionaryRef extensions, CMVideoFormatDescriptionRef* formatDescriptionOut), (allocator, codecType, width, height, extensions, formatDescriptionOut))
 #define CMVideoFormatDescriptionCreate softLink_CoreMedia_CMVideoFormatDescriptionCreate
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMVideoFormatDescriptionCreateForImageBuffer, OSStatus, (CFAllocatorRef allocator, CVImageBufferRef imageBuffer, CMVideoFormatDescriptionRef* outDesc), (allocator, imageBuffer, outDesc))
@@ -290,6 +295,8 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMBufferQueueMarkEndOfData, OSStat
 #define CMBufferQueueMarkEndOfData softLink_CoreMedia_CMBufferQueueMarkEndOfData
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMBufferQueueGetDuration, CMTime, (CMBufferQueueRef queue), (queue))
 #define CMBufferQueueGetDuration softLink_CoreMedia_CMBufferQueueGetDuration
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMBufferQueueCallForEachBuffer, OSStatus, (CMBufferQueueRef queue, OSStatus (* CF_NOESCAPE callback)(CMBufferRef buffer, void* refcon ), void* refcon), (queue, callback, refcon))
+#define CMBufferQueueCallForEachBuffer softLink_CoreMedia_CMBufferQueueCallForEachBuffer
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleAttachmentKey_DoNotDisplay, CFStringRef)
 #define kCMSampleAttachmentKey_DoNotDisplay get_CoreMedia_kCMSampleAttachmentKey_DoNotDisplay()
@@ -319,6 +326,8 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_Gradu
 #define kCMSampleBufferAttachmentKey_GradualDecoderRefresh get_CoreMedia_kCMSampleBufferAttachmentKey_GradualDecoderRefresh()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_TrimDurationAtStart, CFStringRef)
 #define kCMSampleBufferAttachmentKey_TrimDurationAtStart get_CoreMedia_kCMSampleBufferAttachmentKey_TrimDurationAtStart()
+SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_TrimDurationAtEnd, CFStringRef)
+#define kCMSampleBufferAttachmentKey_TrimDurationAtEnd get_CoreMedia_kCMSampleBufferAttachmentKey_TrimDurationAtEnd()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_FillDiscontinuitiesWithSilence, CFStringRef)
 #define kCMSampleBufferAttachmentKey_FillDiscontinuitiesWithSilence get_CoreMedia_kCMSampleBufferAttachmentKey_FillDiscontinuitiesWithSilence()
 

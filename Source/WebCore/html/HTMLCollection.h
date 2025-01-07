@@ -27,13 +27,11 @@
 #include "HTMLNames.h"
 #include "LiveNodeList.h"
 #include <wtf/HashMap.h>
-#include <wtf/TZoneMalloc.h>
-#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class CollectionNamedElementCache {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(CollectionNamedElementCache);
+    WTF_MAKE_TZONE_ALLOCATED(CollectionNamedElementCache);
 public:
     inline const Vector<WeakRef<Element, WeakPtrImplWithEventTargetData>>* findElementsWithId(const AtomString& id) const;
     inline const Vector<WeakRef<Element, WeakPtrImplWithEventTargetData>>* findElementsWithName(const AtomString& name) const;
@@ -101,7 +99,7 @@ protected:
 
     void invalidateNamedElementCache(Document&) const;
 
-    enum RootType { IsRootedAtNode, IsRootedAtTreeScope };
+    enum class RootType : bool { AtNode, AtTreeScope };
     static RootType rootTypeFromCollectionType(CollectionType);
 
     mutable Lock m_namedElementCacheAssignmentLock;

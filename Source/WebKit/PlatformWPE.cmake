@@ -301,6 +301,7 @@ GENERATE_GLIB_API_HEADERS(WebKit WPE_API_HEADER_TEMPLATES
     "-DWTF_PLATFORM_WPE=1"
     "-DUSE_GTK4=0"
     "-DENABLE_2022_GLIB_API=$<BOOL:${ENABLE_2022_GLIB_API}>"
+    "-DENABLE_WPE_PLATFORM=$<BOOL:${ENABLE_WPE_PLATFORM}>"
     "-DUSE_GI_FINISH_FUNC_ANNOTATION=${USE_GI_FINISH_FUNC_ANNOTATION}"
 )
 unset(USE_GI_FINISH_FUNC_ANNOTATION)
@@ -393,7 +394,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/libwpe"
     "${WEBKIT_DIR}/Shared/soup"
     "${WEBKIT_DIR}/Shared/wpe"
-    "${WEBKIT_DIR}/UIProcess/API/C/cairo"
     "${WEBKIT_DIR}/UIProcess/API/C/glib"
     "${WEBKIT_DIR}/UIProcess/API/C/wpe"
     "${WEBKIT_DIR}/UIProcess/API/glib"
@@ -451,15 +451,9 @@ if (USE_ATK)
 endif ()
 
 if (USE_CAIRO)
+    include(Platform/Cairo.cmake)
     list(APPEND WebKit_LIBRARIES
-        Cairo::Cairo
         Freetype::Freetype
-    )
-
-    list(APPEND WebKit_SOURCES
-        Shared/API/c/cairo/WKImageCairo.cpp
-
-        UIProcess/Automation/cairo/WebAutomationSessionCairo.cpp
     )
 endif ()
 
@@ -532,9 +526,12 @@ if (ENABLE_BREAKPAD)
     )
 endif ()
 
-WEBKIT_BUILD_INSPECTOR_GRESOURCES(${WebInspectorUI_DERIVED_SOURCES_DIR} "inspector.gresource")
+WEBKIT_BUILD_INSPECTOR_GRESOURCES(
+    "${WebInspectorUI_DERIVED_SOURCES_DIR}"
+    "${CMAKE_BINARY_DIR}/share/inspector.gresource"
+)
 
-install(FILES ${WebInspectorUI_DERIVED_SOURCES_DIR}/inspector.gresource DESTINATION "${CMAKE_INSTALL_FULL_DATADIR}/wpe-webkit-${WPE_API_VERSION}")
+install(FILES "${CMAKE_BINARY_DIR}/share/inspector.gresource" DESTINATION "${CMAKE_INSTALL_FULL_DATADIR}/wpe-webkit-${WPE_API_VERSION}")
 
 add_library(WPEInjectedBundle MODULE "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitInjectedBundleMain.cpp")
 ADD_WEBKIT_PREFIX_HEADER(WPEInjectedBundle)
@@ -762,7 +759,11 @@ GI_INTROSPECT(WPEWebKit ${WPE_API_VERSION} wpe/webkit.h
         UIProcess/API/glib
     NO_IMPLICIT_SOURCES
 )
-GI_DOCGEN(WPEWebKit wpe/wpewebkit.toml.in)
+GI_DOCGEN(WPEWebKit wpe/wpewebkit.toml.in
+    CONTENT_TEMPLATES
+        glib/environment-variables.md
+        glib/profiling.md
+)
 
 if (ENABLE_2022_GLIB_API)
     set(WPE_WEB_PROCESS_EXTENSION_API_NAME "WPEWebProcessExtension")

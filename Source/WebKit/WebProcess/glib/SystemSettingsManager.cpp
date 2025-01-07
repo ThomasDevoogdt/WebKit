@@ -42,6 +42,7 @@ using namespace WebCore;
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SystemSettingsManager);
 
 SystemSettingsManager::SystemSettingsManager(WebProcess& process)
+    : m_process(process)
 {
     process.addMessageReceiver(Messages::SystemSettingsManager::messageReceiverName(), *this);
 
@@ -63,12 +64,25 @@ SystemSettingsManager::SystemSettingsManager(WebProcess& process)
             fontRenderOptions.setAntialias(systemSettings.antialiasMode());
         }
 
+        if (state.followFontSystemSettings)
+            fontRenderOptions.setFollowSystemSettings(systemSettings.followFontSystemSettings());
+
         if (state.overlayScrolling || state.themeName)
             ScrollbarTheme::theme().themeChanged();
 
-        if (themeDidChange || antialiasSettingsDidChange || hintingSettingsDidChange)
+        if (themeDidChange || antialiasSettingsDidChange || hintingSettingsDidChange || state.followFontSystemSettings)
             Page::updateStyleForAllPagesAfterGlobalChangeInEnvironment();
     }, this);
+}
+
+void SystemSettingsManager::ref() const
+{
+    m_process->ref();
+}
+
+void SystemSettingsManager::deref() const
+{
+    m_process->deref();
 }
 
 SystemSettingsManager::~SystemSettingsManager()

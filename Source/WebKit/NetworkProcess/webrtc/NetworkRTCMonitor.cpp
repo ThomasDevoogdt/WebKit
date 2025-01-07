@@ -39,6 +39,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Scope.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/WorkQueue.h>
 
@@ -52,7 +53,7 @@ namespace WebKit {
 
 class CallbackAggregator final : public ThreadSafeRefCounted<CallbackAggregator, WTF::DestructionThread::MainRunLoop> {
 public:
-    using Callback = CompletionHandler<void(RTCNetwork::IPAddress&&, RTCNetwork::IPAddress&&, UncheckedKeyHashMap<String, RTCNetwork>&&)>;
+    using Callback = CompletionHandler<void(RTCNetwork::IPAddress&&, RTCNetwork::IPAddress&&, HashMap<String, RTCNetwork>&&)>;
     static Ref<CallbackAggregator> create(Callback&& callback) { return adoptRef(*new CallbackAggregator(WTFMove(callback))); }
 
     ~CallbackAggregator()
@@ -62,7 +63,7 @@ public:
 
     void setIPv4(RTCNetwork::IPAddress&& ipv4) { m_ipv4 = WTFMove(ipv4); }
     void setIPv6(RTCNetwork::IPAddress&& ipv6) { m_ipv6 = WTFMove(ipv6); }
-    void setNetworkMap(UncheckedKeyHashMap<String, RTCNetwork>&& networkMap) { m_networkMap = crossThreadCopy(WTFMove(networkMap)); }
+    void setNetworkMap(HashMap<String, RTCNetwork>&& networkMap) { m_networkMap = crossThreadCopy(WTFMove(networkMap)); }
 
 private:
     explicit CallbackAggregator(Callback&& callback)
@@ -72,7 +73,7 @@ private:
 
     Callback m_callback;
 
-    UncheckedKeyHashMap<String, RTCNetwork> m_networkMap;
+    HashMap<String, RTCNetwork> m_networkMap;
     RTCNetwork::IPAddress m_ipv4;
     RTCNetwork::IPAddress m_ipv6;
 };
@@ -94,7 +95,7 @@ private:
     void updateNetworks();
     void updateNetworksOnQueue();
 
-    void onGatheredNetworks(RTCNetwork::IPAddress&&, RTCNetwork::IPAddress&&, UncheckedKeyHashMap<String, RTCNetwork>&&);
+    void onGatheredNetworks(RTCNetwork::IPAddress&&, RTCNetwork::IPAddress&&, HashMap<String, RTCNetwork>&&);
 
     WeakHashSet<NetworkRTCMonitor> m_observers;
 
@@ -106,7 +107,7 @@ private:
     RTCNetwork::IPAddress m_ipv4;
     RTCNetwork::IPAddress m_ipv6;
     int m_networkLastIndex { 0 };
-    UncheckedKeyHashMap<String, RTCNetwork> m_networkMap;
+    HashMap<String, RTCNetwork> m_networkMap;
 };
 
 static NetworkManager& networkManager()
@@ -179,7 +180,7 @@ static rtc::AdapterType interfaceAdapterType(const char* interfaceName)
 #endif
 }
 
-static UncheckedKeyHashMap<String, RTCNetwork> gatherNetworkMap()
+static HashMap<String, RTCNetwork> gatherNetworkMap()
 {
     struct ifaddrs* interfaces;
     int error = getifaddrs(&interfaces);
@@ -188,7 +189,7 @@ static UncheckedKeyHashMap<String, RTCNetwork> gatherNetworkMap()
 
     std::unique_ptr<struct ifaddrs> toBeFreed(interfaces);
 
-    UncheckedKeyHashMap<String, RTCNetwork> networkMap;
+    HashMap<String, RTCNetwork> networkMap;
     for (auto* iterator = interfaces; iterator != nullptr; iterator = iterator->ifa_next) {
         if (!iterator->ifa_addr || !iterator->ifa_netmask)
             continue;
@@ -228,7 +229,7 @@ static bool connectToRemoteAddress(int socket, bool useIPv4)
     const int publicPort = 53;
 
     sockaddr_storage remoteAddressStorage;
-    memset(&remoteAddressStorage, 0, sizeof(sockaddr_storage));
+    zeroBytes(remoteAddressStorage);
     size_t remoteAddressStorageLength = 0;
     if (useIPv4) {
         auto& remoteAddress = *reinterpret_cast<sockaddr_in*>(&remoteAddressStorage);
@@ -266,7 +267,7 @@ static bool connectToRemoteAddress(int socket, bool useIPv4)
 static std::optional<RTCNetwork::IPAddress> getSocketLocalAddress(int socket, bool useIPv4)
 {
     sockaddr_storage localAddressStorage;
-    memset(&localAddressStorage, 0, sizeof(sockaddr_storage));
+    zeroBytes(localAddressStorage);
     socklen_t localAddressStorageLength = sizeof(sockaddr_storage);
     if (::getsockname(socket, reinterpret_cast<sockaddr*>(&localAddressStorage), &localAddressStorageLength) < 0) {
         RELEASE_LOG_ERROR(WebRTC, "getDefaultIPAddress getsockname failed, useIPv4=%d", useIPv4);
@@ -363,7 +364,7 @@ static bool sortNetworks(const RTCNetwork& a, const RTCNetwork& b)
     return codePointCompare(StringView { a.description.span() }, StringView { b.description.span() }) < 0;
 }
 
-void NetworkManager::onGatheredNetworks(RTCNetwork::IPAddress&& ipv4, RTCNetwork::IPAddress&& ipv6, UncheckedKeyHashMap<String, RTCNetwork>&& networkMap)
+void NetworkManager::onGatheredNetworks(RTCNetwork::IPAddress&& ipv4, RTCNetwork::IPAddress&& ipv6, HashMap<String, RTCNetwork>&& networkMap)
 {
     if (!m_didReceiveResults) {
         m_didReceiveResults = true;

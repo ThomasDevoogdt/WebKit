@@ -33,6 +33,7 @@
 #import "LayerProperties.h"
 #import "NativeWebWheelEvent.h"
 #import "NavigationState.h"
+#import "PointerTouchCompatibilitySimulator.h"
 #import "RemoteLayerTreeDrawingAreaProxy.h"
 #import "RemoteLayerTreeScrollingPerformanceData.h"
 #import "RemoteLayerTreeViews.h"
@@ -1142,7 +1143,7 @@ static void changeContentOffsetBoundedInValidRange(UIScrollView *scrollView, Web
     }
 
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
-    if ([_configuration _overlayRegionsEnabled])
+    if (_page && _page->preferences().overlayRegionsEnabled())
         [self _updateOverlayRegions:layerTreeTransaction.changedLayerProperties() destroyedLayers:layerTreeTransaction.destroyedLayers()];
 #endif
 }
@@ -1162,7 +1163,7 @@ static void addOverlayEventRegions(WebCore::PlatformLayerIdentifier layerID, con
 
     const auto& layerProperties = *it->value;
     if (layerProperties.changedProperties & WebKit::LayerChange::EventRegionChanged) {
-        CGRect rect = layerProperties.eventRegion.region().bounds();
+        CGRect rect = layerProperties.eventRegion.scrollOverlayRegion().bounds();
         if (!CGRectIsEmpty(rect))
             overlayRegionsIDs.add(layerID);
     }
@@ -1211,8 +1212,8 @@ static void configureScrollViewWithOverlayRegionsIDs(WKBaseScrollView* scrollVie
         HashSet<UIView *> overlayAncestorsChain;
         for (UIView *overlayAncestor = (UIView *)overlayView; overlayAncestor; overlayAncestor = [overlayAncestor superview]) {
             overlayAncestorsChain.add(overlayAncestor);
-            if ([overlayAncestor isKindOfClass:[WKBaseScrollView class]]) {
-                enclosingScrollView = (WKBaseScrollView *)overlayAncestor;
+            if (auto *layer = dynamic_objc_cast<WKBaseScrollView>(overlayAncestor)) {
+                enclosingScrollView = layer;
                 break;
             }
         }
@@ -1367,7 +1368,7 @@ static void configureScrollViewWithOverlayRegionsIDs(WKBaseScrollView* scrollVie
 
 - (void)_updateOverlayRegionsForCustomContentView
 {
-    if (![_configuration _overlayRegionsEnabled])
+    if (!_page || !_page->preferences().overlayRegionsEnabled())
         return;
 
     if (![self _scrollViewCanHaveOverlayRegions:_scrollView.get()]) {
@@ -2188,7 +2189,15 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
 
 - (void)scrollView:(WKBaseScrollView *)scrollView handleScrollUpdate:(WKBEScrollViewScrollUpdate *)update completion:(void (^)(BOOL handled))completion
 {
-    BOOL isHandledByDefault = !scrollView.scrollEnabled;
+    if (_pointerTouchCompatibilitySimulator->handleScrollUpdate(scrollView, update))
+        return completion(YES);
+
+    BOOL isHandledByDefault = [self, update] -> BOOL {
+        RetainPtr hitView = [_scrollView hitTest:[update locationInView:_scrollView.get()] withEvent:nil];
+        return ![_contentView _hasEnclosingScrollView:hitView.get() matchingCriteria:[](UIScrollView *scroller) {
+            return scroller.scrollEnabled;
+        }];
+    }();
 
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
     if (update._scrollDeviceCategory == _UIScrollDeviceCategoryOverlayScroll) {
@@ -2240,17 +2249,18 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
     auto event = WebKit::WebIOSEventFactory::createWebWheelEvent(update, _contentView.get(), overridePhase);
 
     _wheelEventCountInCurrentScrollGesture++;
-    _page->dispatchWheelEventWithoutScrolling(event, [weakSelf = WeakObjCPtr<WKWebView>(self), strongCompletion = makeBlockPtr(completion), isCancelable, isHandledByDefault](bool handled) {
-        auto strongSelf = weakSelf.get();
+    _page->dispatchWheelEventWithoutScrolling(event, [weakSelf = WeakObjCPtr<WKWebView>(self), strongCompletion = makeBlockPtr(completion), isCancelable, isHandledByDefault](bool defaultPrevented) {
+        RetainPtr strongSelf = weakSelf.get();
         if (!strongSelf) {
-            strongCompletion(isHandledByDefault);
+            if (isCancelable)
+                strongCompletion(isHandledByDefault);
             return;
         }
 
         if (isCancelable) {
             if (!strongSelf->_currentScrollGestureState)
-                strongSelf->_currentScrollGestureState = handled ? WebCore::WheelScrollGestureState::Blocking : WebCore::WheelScrollGestureState::NonBlocking;
-            strongCompletion(isHandledByDefault || handled);
+                strongSelf->_currentScrollGestureState = defaultPrevented ? WebCore::WheelScrollGestureState::Blocking : WebCore::WheelScrollGestureState::NonBlocking;
+            strongCompletion(isHandledByDefault || defaultPrevented);
         }
     });
 
@@ -3812,7 +3822,22 @@ static bool isLockdownModeWarningNeeded()
     [self _scheduleVisibleContentRectUpdate];
 }
 
+- (void)_setPointerTouchCompatibilitySimulatorEnabled:(BOOL)enabled
+{
+    _pointerTouchCompatibilitySimulator->setEnabled(enabled);
+}
+
+- (BOOL)_isSimulatingCompatibilityPointerTouches
+{
+    return _pointerTouchCompatibilitySimulator->isSimulatingTouches();
+}
+
 #pragma mark - WKBaseScrollViewDelegate
+
+- (BOOL)shouldAllowPanGestureRecognizerToReceiveTouchesInScrollView:(WKBaseScrollView *)scrollView
+{
+    return !self._isSimulatingCompatibilityPointerTouches;
+}
 
 - (UIAxis)axesToPreventScrollingForPanGestureInScrollView:(WKBaseScrollView *)scrollView
 {

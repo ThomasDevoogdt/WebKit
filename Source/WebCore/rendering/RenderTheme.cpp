@@ -188,11 +188,20 @@ static bool isAppearanceAllowedForAllElements(StyleAppearance appearance)
     return false;
 }
 
+static bool devolvableWidgetsEnabledAndSupported(const Element* element)
+{
+    bool devolvableWidgetsEnabled = element->document().settings().devolvableWidgetsEnabled();
+#if PLATFORM(COCOA)
+    return devolvableWidgetsEnabled && WTF::linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DevolvableWidgets);
+#else
+    return devolvableWidgetsEnabled;
+#endif
+}
+
 void RenderTheme::adjustStyle(RenderStyle& style, const Element* element, const RenderStyle* userAgentAppearanceStyle)
 {
     auto autoAppearance = autoAppearanceForElement(style, element);
     auto appearance = adjustAppearanceForElement(style, element, autoAppearance);
-
     if (appearance == StyleAppearance::None || appearance == StyleAppearance::Base)
         return;
 
@@ -205,11 +214,20 @@ void RenderTheme::adjustStyle(RenderStyle& style, const Element* element, const 
     else if (style.display() == DisplayType::ListItem || style.display() == DisplayType::Table)
         style.setEffectiveDisplay(DisplayType::Block);
 
-    if (userAgentAppearanceStyle && isControlStyled(style, *userAgentAppearanceStyle)) {
+    bool widgetMayDevolve = devolvableWidgetsEnabledAndSupported(element);
+    bool widgetHasNativeAppearanceDisabled = widgetMayDevolve && element->isDevolvableWidget() && style.nativeAppearanceDisabled() && !isAppearanceAllowedForAllElements(appearance);
+
+    if (widgetHasNativeAppearanceDisabled || (userAgentAppearanceStyle && isControlStyled(style, *userAgentAppearanceStyle))) {
         switch (appearance) {
         case StyleAppearance::Menulist:
             appearance = StyleAppearance::MenulistButton;
             break;
+        case StyleAppearance::MenulistButton:
+            appearance = widgetMayDevolve ? StyleAppearance::MenulistButton : StyleAppearance::None;
+            break;
+#if PLATFORM(IOS_FAMILY) && ENABLE(DATALIST_ELEMENT)
+        case StyleAppearance::ListButton:
+#endif
         default:
             appearance = StyleAppearance::None;
             break;
@@ -218,7 +236,7 @@ void RenderTheme::adjustStyle(RenderStyle& style, const Element* element, const 
         style.setUsedAppearance(appearance);
     }
 
-    if (appearance == StyleAppearance::SearchField && searchFieldShouldAppearAsTextField(style)) {
+    if (!widgetMayDevolve && appearance == StyleAppearance::SearchField && searchFieldShouldAppearAsTextField(style)) {
         appearance = StyleAppearance::TextField;
         style.setUsedAppearance(appearance);
     }
@@ -338,7 +356,7 @@ StyleAppearance RenderTheme::autoAppearanceForElement(RenderStyle& style, const 
 #endif
 
         if (input->isRangeControl())
-            return style.isHorizontalWritingMode() ? StyleAppearance::SliderHorizontal : StyleAppearance::SliderVertical;
+            return style.writingMode().isHorizontal() ? StyleAppearance::SliderHorizontal : StyleAppearance::SliderVertical;
 
         if (input->isTextField())
             return StyleAppearance::TextField;
@@ -709,7 +727,7 @@ OptionSet<ControlStyle::State> RenderTheme::extractControlStyleStatesForRenderer
             states.add(ControlStyle::State::ListButtonPressed);
     }
 #endif
-    if (!renderer.style().isHorizontalWritingMode())
+    if (!renderer.writingMode().isHorizontal())
         states.add(ControlStyle::State::VerticalWritingMode);
     return states;
 }
@@ -1262,7 +1280,7 @@ void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle
             || appearance == StyleAppearance::PushButton;
     };
     // Transpose for vertical writing mode:
-    if (!style.isHorizontalWritingMode() && supportsVerticalWritingMode(appearance))
+    if (!style.writingMode().isHorizontal() && supportsVerticalWritingMode(appearance))
         borderBox = LengthBox(borderBox.left().value(), borderBox.top().value(), borderBox.right().value(), borderBox.bottom().value());
 
     if (borderBox.top().value() != static_cast<int>(style.borderTopWidth())) {
@@ -1323,8 +1341,7 @@ void RenderTheme::adjustButtonOrCheckboxOrColorWellOrInnerSpinButtonOrRadioStyle
     if (auto themeFont = Theme::singleton().controlFont(appearance, style.fontCascade(), style.usedZoom())) {
         // If overriding the specified font with the theme font, also override the line height with the standard line height.
         style.setLineHeight(RenderStyle::initialLineHeight());
-        if (style.setFontDescription(WTFMove(themeFont.value())))
-            style.fontCascade().update(nullptr);
+        style.setFontDescription(WTFMove(themeFont.value()));
     }
 
     // Special style that tells enabled default buttons in active windows to use the ActiveButtonText color.
@@ -1460,7 +1477,7 @@ void RenderTheme::paintSliderTicks(const RenderObject& renderer, const PaintInfo
     }
     GraphicsContextStateSaver stateSaver(paintInfo.context());
     paintInfo.context().setFillColor(renderer.style().visitedDependentColorWithColorFilter(CSSPropertyColor));
-    bool isReversedInlineDirection = (!isHorizontal && renderer.style().isHorizontalWritingMode()) || !renderer.style().isLeftToRightDirection();
+    bool isReversedInlineDirection = (!isHorizontal && renderer.writingMode().isHorizontal()) || !renderer.style().isLeftToRightDirection();
     for (auto& optionElement : dataList->suggestions()) {
         if (auto optionValue = input->listOptionValueAsDouble(optionElement)) {
             double tickFraction = (*optionValue - min) / (max - min);

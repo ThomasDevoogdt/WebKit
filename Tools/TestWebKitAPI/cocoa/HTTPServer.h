@@ -30,6 +30,7 @@
 #import <wtf/Forward.h>
 #import <wtf/HashMap.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/StringHash.h>
 
 OBJC_CLASS NSURLRequest;
@@ -92,15 +93,17 @@ struct HTTPResponse {
         : body(WTFMove(body)) { }
     HTTPResponse(const String& body)
         : body(bodyFromString(body)) { }
-    HTTPResponse(UncheckedKeyHashMap<String, String>&& headerFields, const String& body)
+    HTTPResponse(HashMap<String, String>&& headerFields, const String& body)
         : headerFields(WTFMove(headerFields))
         , body(bodyFromString(body)) { }
-    HTTPResponse(unsigned statusCode, UncheckedKeyHashMap<String, String>&& headerFields = { }, const String& body = { })
+    HTTPResponse(unsigned statusCode, HashMap<String, String>&& headerFields = { }, const String& body = { })
         : statusCode(statusCode)
         , headerFields(WTFMove(headerFields))
         , body(bodyFromString(body)) { }
     HTTPResponse(Behavior behavior)
         : behavior(behavior) { }
+    HTTPResponse(NSData *data)
+        : body(makeVector(data)) { }
 
     HTTPResponse(const HTTPResponse&) = default;
     HTTPResponse(HTTPResponse&&) = default;
@@ -113,7 +116,7 @@ struct HTTPResponse {
     static Vector<uint8_t> bodyFromString(const String&);
 
     unsigned statusCode { 200 };
-    UncheckedKeyHashMap<String, String> headerFields;
+    HashMap<String, String> headerFields;
     Vector<uint8_t> body;
     Behavior behavior { Behavior::SendResponseNormally };
 };
@@ -178,3 +181,4 @@ private:
 RetainPtr<SecCertificateRef> testCertificate();
 RetainPtr<SecIdentityRef> testIdentity();
 RetainPtr<SecIdentityRef> testIdentity2();
+void verifyCertificateAndPublicKey(SecTrustRef);

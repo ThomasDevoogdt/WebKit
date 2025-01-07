@@ -23,7 +23,65 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-public func copySpan(destination: SpanUInt8, source: SpanConstUInt8) {
-    precondition(source.size_bytes() <= destination.size_bytes(), "Destination buffer not big enough.")
-    memcpy(destination.__dataUnsafe(), source.__dataUnsafe(), source.size_bytes())
+import WebGPU_Internal
+
+extension WebGPU.Buffer {
+    var bufferContents: UnsafeMutableRawBufferPointer {
+        UnsafeMutableRawBufferPointer(start: m_buffer.contents(), count: m_buffer.length)
+    }
+
+    func copy(from data: SpanConstUInt8, offset: Int) {
+        let slice = bufferContents[offset...]
+        // copyBytes(from:) checks bounds in debug builds only.
+        // FIXME: Use a bounds-checking implementation when one is available.
+        precondition(slice.count >= data.size_bytes())
+        slice.copyBytes(from: data)
+    }
+}
+
+// FIXME(emw): Find a way to generate thunks like these, maybe via a macro?
+@_expose(Cxx)
+public func Buffer_copyFrom_thunk(_ buffer: WebGPU.Buffer, from data: SpanConstUInt8, offset: Int) {
+    buffer.copy(from: data, offset: offset)
+}
+
+@_expose(Cxx)
+public func Buffer_getMappedRange_thunk(_ buffer: WebGPU.Buffer, offset: Int, size: Int) -> SpanUInt8 {
+    return buffer.getMappedRange(offset: offset, size: size)
+}
+
+internal func computeRangeSize(size: Int, offset: Int) -> Int
+{
+    let result = checkedDifferenceSizeT(size, offset)
+    if result.hasOverflowed() {
+        return 0
+    }
+    return result.value()
+}
+
+extension WebGPU.Buffer {
+    public func getMappedRange(offset: Int, size: Int) -> SpanUInt8
+    {
+        if !isValid() {
+            return SpanUInt8()
+        }
+
+        var rangeSize = size
+        if size == WGPU_WHOLE_MAP_SIZE {
+            rangeSize = computeRangeSize(size: Int(currentSize()), offset: offset)
+        }
+
+        if !validateGetMappedRange(offset, rangeSize) {
+            return SpanUInt8()
+        }
+
+        m_mappedRanges.add(WTFRangeSizeT(UInt(offset), UInt(offset + rangeSize)))
+        m_mappedRanges.compact()
+
+        if m_buffer.storageMode == .private || m_buffer.storageMode == .memoryless || m_buffer.length == 0 {
+            return SpanUInt8()
+        }
+
+        return getBufferContents().subspan(offset, stdDynamicExtent)
+    }
 }

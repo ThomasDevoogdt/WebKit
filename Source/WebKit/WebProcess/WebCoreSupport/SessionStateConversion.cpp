@@ -92,11 +92,14 @@ Ref<FrameState> toFrameState(const HistoryItem& historyItem)
         frameState->httpBody = WTFMove(httpBody);
     }
 
-    frameState->identifier = historyItem.identifier();
+    frameState->itemID = historyItem.itemID();
+    frameState->frameItemID = historyItem.frameItemID();
     frameState->hasCachedPage = historyItem.isInBackForwardCache();
     frameState->shouldOpenExternalURLsPolicy = historyItem.shouldOpenExternalURLsPolicy();
     frameState->sessionStateObject = historyItem.stateObject();
     frameState->wasCreatedByJSWithoutUserInteraction = historyItem.wasCreatedByJSWithoutUserInteraction();
+    frameState->wasRestoredFromSession = historyItem.wasRestoredFromSession();
+    frameState->policyContainer = historyItem.policyContainer();
 
     static constexpr auto maxTitleLength = 1000u; // Closest power of 10 above the W3C recommendation for Title length.
     frameState->title = historyItem.title().left(maxTitleLength);
@@ -164,6 +167,10 @@ static void applyFrameState(HistoryItemClient& client, HistoryItem& historyItem,
 
     historyItem.setShouldOpenExternalURLsPolicy(frameState.shouldOpenExternalURLsPolicy);
     historyItem.setStateObject(frameState.sessionStateObject.get());
+    historyItem.setWasCreatedByJSWithoutUserInteraction(frameState.wasCreatedByJSWithoutUserInteraction);
+    historyItem.setWasRestoredFromSession(frameState.wasRestoredFromSession);
+    if (auto policyContainer = frameState.policyContainer)
+        historyItem.setPolicyContainer(*policyContainer);
 
 #if PLATFORM(IOS_FAMILY)
     historyItem.setExposedContentRect(frameState.exposedContentRect);
@@ -175,7 +182,7 @@ static void applyFrameState(HistoryItemClient& client, HistoryItem& historyItem,
 #endif
 
     for (auto& childFrameState : frameState.children) {
-        Ref childHistoryItem = HistoryItem::create(client, childFrameState->urlString, { }, { }, childFrameState->identifier);
+        Ref childHistoryItem = HistoryItem::create(client, childFrameState->urlString, { }, { }, childFrameState->itemID, childFrameState->frameItemID);
         applyFrameState(client, childHistoryItem, childFrameState);
 
         historyItem.addChildItem(WTFMove(childHistoryItem));
@@ -184,7 +191,7 @@ static void applyFrameState(HistoryItemClient& client, HistoryItem& historyItem,
 
 Ref<HistoryItem> toHistoryItem(HistoryItemClient& client, const FrameState& frameState)
 {
-    Ref historyItem = HistoryItem::create(client, frameState.urlString, frameState.title, { }, frameState.identifier);
+    Ref historyItem = HistoryItem::create(client, frameState.urlString, frameState.title, { }, frameState.itemID, frameState.frameItemID);
     applyFrameState(client, historyItem, frameState);
     return historyItem;
 }

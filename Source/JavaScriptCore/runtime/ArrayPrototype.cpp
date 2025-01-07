@@ -45,6 +45,8 @@
 #include <wtf/Assertions.h>
 #include <wtf/StdMap.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncToLocaleString);
@@ -62,6 +64,10 @@ static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncUnShift);
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncIndexOf);
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncLastIndexOf);
 static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncConcat);
+static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncFill);
+static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncToReversed);
+static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncToSorted);
+static JSC_DECLARE_HOST_FUNCTION(arrayProtoFuncWith);
 
 // ------------------------------ ArrayPrototype ----------------------------
 
@@ -91,7 +97,7 @@ void ArrayPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->toLocaleString, arrayProtoFuncToLocaleString, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().concatPublicName(), arrayProtoFuncConcat, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().fillPublicName(), arrayPrototypeFillCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->fill, arrayProtoFuncFill, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->join, arrayProtoFuncJoin, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("pop"_s, arrayProtoFuncPop, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public, ArrayPopIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().pushPublicName(), arrayProtoFuncPush, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, ArrayPushIntrinsic);
@@ -122,10 +128,10 @@ void ArrayPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().includesPublicName(), arrayPrototypeIncludesCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().copyWithinPublicName(), arrayPrototypeCopyWithinCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().atPublicName(), arrayPrototypeAtCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().toReversedPublicName(), arrayPrototypeToReversedCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().toSortedPublicName(), arrayPrototypeToSortedCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->toReversed, arrayProtoFuncToReversed, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->toSorted, arrayProtoFuncToSorted, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().toSplicedPublicName(), arrayPrototypeToSplicedCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().withPublicName(), arrayPrototypeWithCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->with, arrayProtoFuncWith, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public);
     putDirectWithoutTransition(vm, vm.propertyNames->builtinNames().entriesPrivateName(), getDirect(vm, vm.propertyNames->builtinNames().entriesPublicName()), static_cast<unsigned>(PropertyAttribute::ReadOnly));
     putDirectWithoutTransition(vm, vm.propertyNames->builtinNames().forEachPrivateName(), getDirect(vm, vm.propertyNames->builtinNames().forEachPublicName()), static_cast<unsigned>(PropertyAttribute::ReadOnly));
     putDirectWithoutTransition(vm, vm.propertyNames->builtinNames().includesPrivateName(), getDirect(vm, vm.propertyNames->builtinNames().includesPublicName()), static_cast<unsigned>(PropertyAttribute::ReadOnly));
@@ -141,7 +147,7 @@ void ArrayPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
         &vm.propertyNames->builtinNames().atPublicName(),
         &vm.propertyNames->builtinNames().copyWithinPublicName(),
         &vm.propertyNames->builtinNames().entriesPublicName(),
-        &vm.propertyNames->builtinNames().fillPublicName(),
+        &vm.propertyNames->fill,
         &vm.propertyNames->builtinNames().findPublicName(),
         &vm.propertyNames->builtinNames().findIndexPublicName(),
         &vm.propertyNames->builtinNames().findLastPublicName(),
@@ -150,8 +156,8 @@ void ArrayPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
         &vm.propertyNames->builtinNames().flatMapPublicName(),
         &vm.propertyNames->builtinNames().includesPublicName(),
         &vm.propertyNames->builtinNames().keysPublicName(),
-        &vm.propertyNames->builtinNames().toReversedPublicName(),
-        &vm.propertyNames->builtinNames().toSortedPublicName(),
+        &vm.propertyNames->toReversed,
+        &vm.propertyNames->toSorted,
         &vm.propertyNames->builtinNames().toSplicedPublicName(),
         &vm.propertyNames->builtinNames().valuesPublicName()
     };
@@ -187,6 +193,26 @@ static inline uint64_t argumentClampedIndexFromStartOrEnd(JSGlobalObject* global
     return indexDouble > length ? length : static_cast<uint64_t>(indexDouble);
 }
 
+static inline int64_t argumentUnclampedIndexFromStartOrEnd(JSGlobalObject* globalObject, JSValue value, uint64_t length, uint64_t undefinedValue = 0)
+{
+    if (value.isUndefined())
+        return undefinedValue;
+
+    if (LIKELY(value.isInt32())) {
+        int64_t indexInt64 = value.asInt32();
+        if (indexInt64 < 0)
+            indexInt64 += length;
+        return indexInt64;
+    }
+
+    double indexDouble = value.toIntegerOrInfinity(globalObject);
+    if (indexDouble < 0)
+        indexDouble += length;
+    if (UNLIKELY(std::isinf(indexDouble)))
+        return std::signbit(indexDouble) ? std::numeric_limits<int64_t>::min() : std::numeric_limits<int64_t>::max();
+    return static_cast<int64_t>(indexDouble);
+}
+
 inline bool canUseFastJoin(const JSObject* thisObject)
 {
     switch (thisObject->indexingType()) {
@@ -204,26 +230,6 @@ inline bool canUseFastJoin(const JSObject* thisObject)
 inline bool holesMustForwardToPrototype(JSObject* object)
 {
     return object->structure()->holesMustForwardToPrototype(object);
-}
-
-inline bool isHole(double value)
-{
-    return std::isnan(value);
-}
-
-inline bool isHole(const WriteBarrier<Unknown>& value)
-{
-    return !value;
-}
-
-template<typename T>
-inline bool containsHole(T* data, unsigned length)
-{
-    for (unsigned i = 0; i < length; ++i) {
-        if (isHole(data[i]))
-            return true;
-    }
-    return false;
 }
 
 inline JSValue fastJoin(JSGlobalObject* globalObject, JSObject* thisObject, StringView separator, unsigned length, bool& sawHoles, bool& genericCase)
@@ -1153,6 +1159,51 @@ static ALWAYS_INLINE void sortCommit(JSGlobalObject* globalObject, JSObject* thi
     }
 }
 
+static ALWAYS_INLINE void sortImpl(JSGlobalObject* globalObject, JSObject* thisObject, uint64_t length, JSValue comparatorValue)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    // For compatibility with Firefox and Chrome, do nothing observable
+    // to the target array if it has 0 or 1 sortable properties.
+    if (length < 2)
+        return;
+
+    bool isStringSort = comparatorValue.isUndefined();
+
+    SortJSValueVector compactedRoot;
+    SortJSValueVector sortedRoot;
+
+    auto [undefinedCount, indexingType, compacted] = sortCompact(globalObject, thisObject, length, compactedRoot);
+    RETURN_IF_EXCEPTION(scope, void());
+
+    sortedRoot.fill(vm, compacted.size(), [](JSValue*) { });
+    if (UNLIKELY(sortedRoot.hasOverflowed())) {
+        throwOutOfMemoryError(globalObject, scope);
+        return;
+    }
+    std::span<EncodedJSValue> sorted { sortedRoot.data(), sortedRoot.size() };
+    std::span<EncodedJSValue> dest;
+    if (isStringSort) {
+        SortEntryVector entries; // Keep in mind that all JSValues are also stored in SortJSValueVector (compacted). Thus, we do not need to keep them marked here.
+        entries.reserveInitialCapacity(compacted.size());
+        for (EncodedJSValue encodedValue : compacted) {
+            JSValue value = JSValue::decode(encodedValue);
+            String string = value.toWTFString(globalObject);
+            RETURN_IF_EXCEPTION(scope, void());
+            entries.append(std::tuple { value, WTFMove(string) });
+        }
+        sortBucketSort(sorted, 0, entries, 0);
+        dest = sorted;
+    } else {
+        dest = sortStableSort(globalObject, sorted, compacted, asObject(comparatorValue));
+        RETURN_IF_EXCEPTION(scope, void());
+    }
+
+    scope.release();
+    sortCommit(globalObject, thisObject, length, indexingType, dest, undefinedCount);
+}
+
 JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncSort, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     // https://tc39.es/ecma262/#sec-array.prototype.sort
@@ -1164,49 +1215,14 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncSort, (JSGlobalObject* globalObject, Call
     if (UNLIKELY(!comparatorValue.isUndefined() && !comparatorValue.isCallable()))
         return throwVMTypeError(globalObject, scope, "Array.prototype.sort requires the comparator argument to be a function or undefined"_s);
 
-    bool isStringSort = comparatorValue.isUndefined();
     JSObject* thisObject = callFrame->thisValue().toThis(globalObject, ECMAMode::strict()).toObject(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
 
     uint64_t length = toLength(globalObject, thisObject);
     RETURN_IF_EXCEPTION(scope, { });
 
-    // For compatibility with Firefox and Chrome, do nothing observable
-    // to the target array if it has 0 or 1 sortable properties.
-    if (length < 2)
-        return JSValue::encode(thisObject);
-
-    SortJSValueVector compactedRoot;
-    SortJSValueVector sortedRoot;
-
-    auto [undefinedCount, indexingType, compacted] = sortCompact(globalObject, thisObject, length, compactedRoot);
-    RETURN_IF_EXCEPTION(scope, { });
-
-    sortedRoot.fill(vm, compacted.size(), [](JSValue*) { });
-    if (UNLIKELY(sortedRoot.hasOverflowed())) {
-        throwOutOfMemoryError(globalObject, scope);
-        return { };
-    }
-    std::span<EncodedJSValue> sorted { sortedRoot.data(), sortedRoot.size() };
-    std::span<EncodedJSValue> dest;
-    if (isStringSort) {
-        SortEntryVector entries; // Keep in mind that all JSValues are also stored in SortJSValueVector (compacted). Thus, we do not need to keep them marked here.
-        entries.reserveInitialCapacity(compacted.size());
-        for (EncodedJSValue encodedValue : compacted) {
-            JSValue value = JSValue::decode(encodedValue);
-            String string = value.toWTFString(globalObject);
-            RETURN_IF_EXCEPTION(scope, { });
-            entries.append(std::tuple { value, WTFMove(string) });
-        }
-        sortBucketSort(sorted, 0, entries, 0);
-        dest = sorted;
-    } else {
-        dest = sortStableSort(globalObject, sorted, compacted, asObject(comparatorValue));
-        RETURN_IF_EXCEPTION(scope, { });
-    }
-
     scope.release();
-    sortCommit(globalObject, thisObject, length, indexingType, dest, undefinedCount);
+    sortImpl(globalObject, thisObject, length, comparatorValue);
 
     return JSValue::encode(thisObject);
 }
@@ -1407,7 +1423,7 @@ ALWAYS_INLINE JSValue fastIndexOf(JSGlobalObject* globalObject, VM& vm, JSArray*
 
         if (direction == IndexOfDirection::Forward) {
             if (searchElement.isObject()) {
-                auto* result = bitwise_cast<const WriteBarrier<Unknown>*>(WTF::find64(bitwise_cast<const uint64_t*>(data + index), JSValue::encode(searchElement), length - index));
+                auto* result = std::bit_cast<const WriteBarrier<Unknown>*>(WTF::find64(std::bit_cast<const uint64_t*>(data + index), JSValue::encode(searchElement), length - index));
                 if (result)
                     return jsNumber(result - data);
                 return jsNumber(-1);
@@ -1523,15 +1539,27 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncLastIndexOf, (JSGlobalObject* globalObjec
     uint64_t index = length - 1;
     if (callFrame->argumentCount() >= 2) {
         JSValue fromValue = callFrame->uncheckedArgument(1);
-        double fromDouble = fromValue.toIntegerOrInfinity(globalObject);
-        RETURN_IF_EXCEPTION(scope, { });
-        if (fromDouble < 0) {
-            fromDouble += length;
-            if (fromDouble < 0)
-                return JSValue::encode(jsNumber(-1));
+        if (LIKELY(fromValue.isInt32())) {
+            int64_t fromInt = fromValue.asInt32();
+            if (fromInt < 0) {
+                fromInt += length;
+                if (fromInt < 0)
+                    return JSValue::encode(jsNumber(-1));
+            }
+            uint64_t fromUint = static_cast<uint64_t>(fromInt);
+            if (fromUint < length)
+                index = fromUint;
+        } else {
+            double fromDouble = fromValue.toIntegerOrInfinity(globalObject);
+            RETURN_IF_EXCEPTION(scope, { });
+            if (fromDouble < 0) {
+                fromDouble += length;
+                if (fromDouble < 0)
+                    return JSValue::encode(jsNumber(-1));
+            }
+            if (fromDouble < length)
+                index = static_cast<uint64_t>(fromDouble);
         }
-        if (fromDouble < length)
-            index = static_cast<uint64_t>(fromDouble);
     }
 
     JSValue searchElement = callFrame->argument(0);
@@ -1898,4 +1926,195 @@ JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncConcat, (JSGlobalObject* globalObject, Ca
     return JSValue::encode(result);
 }
 
+JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncFill, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto thisValue = callFrame->thisValue().toThis(globalObject, ECMAMode::strict());
+    RETURN_IF_EXCEPTION(scope, { });
+    if (UNLIKELY(thisValue.isUndefinedOrNull()))
+        return throwVMTypeError(globalObject, scope, "Array.prototype.fill requires that |this| not be null or undefined"_s);
+    auto* thisObject = thisValue.toObject(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    uint64_t length = toLength(globalObject, thisObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    JSValue argStart = callFrame->argument(1);
+    uint64_t k = argumentClampedIndexFromStartOrEnd(globalObject, argStart, length, 0);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    JSValue argEnd = callFrame->argument(2);
+    uint64_t finalIndex = argumentClampedIndexFromStartOrEnd(globalObject, argEnd, length, length);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (k > finalIndex)
+        return JSValue::encode(thisObject);
+
+    JSValue value = callFrame->argument(0);
+    if (isJSArray(thisValue)) {
+        auto* array = jsCast<JSArray*>(thisValue);
+        if (array->fastFill(vm, k, finalIndex, value))
+            return JSValue::encode(array);
+    }
+
+    for (; k < finalIndex; k++) {
+        thisObject->putByIndexInline(globalObject, k, value, true);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    return JSValue::encode(thisObject);
+}
+
+JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncToReversed, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto thisValue = callFrame->thisValue().toThis(globalObject, ECMAMode::strict());
+    RETURN_IF_EXCEPTION(scope, { });
+    if (UNLIKELY(thisValue.isUndefinedOrNull()))
+        return throwVMTypeError(globalObject, scope, "Array.prototype.toReversed requires that |this| not be null or undefined"_s);
+    auto* thisObject = thisValue.toObject(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    uint64_t length = toLength(globalObject, thisObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (UNLIKELY(length > std::numeric_limits<uint32_t>::max())) {
+        throwRangeError(globalObject, scope, "Array length must be a positive integer of safe magnitude."_s);
+        return { };
+    }
+
+    if (isJSArray(thisObject)) {
+        JSArray* thisArray = jsCast<JSArray*>(thisObject);
+        if (auto fastResult = thisArray->fastToReversed(globalObject, length))
+            return JSValue::encode(fastResult);
+    }
+
+    JSArray* result = JSArray::tryCreate(vm, globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithUndecided), length);
+    if (UNLIKELY(!result)) {
+        throwOutOfMemoryError(globalObject, scope);
+        return { };
+    }
+
+    for (uint32_t k = 0; k < length; k++) {
+        auto fromValue = thisObject->getIndex(globalObject, length - k - 1);
+        RETURN_IF_EXCEPTION(scope, { });
+        result->putDirectIndex(globalObject, k, fromValue, 0, PutDirectIndexShouldThrow);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    return JSValue::encode(result);
+}
+
+JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncToSorted, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue comparatorValue = callFrame->argument(0);
+    if (UNLIKELY(!comparatorValue.isUndefined() && !comparatorValue.isCallable()))
+        return throwVMTypeError(globalObject, scope, "Array.prototype.toSorted requires the comparator argument to be a function or undefined"_s);
+
+    JSValue thisValue = callFrame->thisValue().toThis(globalObject, ECMAMode::strict());
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (UNLIKELY(thisValue.isUndefinedOrNull()))
+        return throwVMTypeError(globalObject, scope, "Array.prototype.toSorted requires that |this| not be null or undefined"_s);
+    auto* thisObject = thisValue.toObject(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    uint64_t length = toLength(globalObject, thisObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (UNLIKELY(length > std::numeric_limits<uint32_t>::max())) {
+        throwRangeError(globalObject, scope, "Array length must be a positive integer of safe magnitude."_s);
+        return { };
+    }
+
+    JSArray* result = nullptr;
+    if (LIKELY(isJSArray(thisValue))) {
+        result = tryCloneArrayFromFast<ArrayFillMode::Undefined>(globalObject, thisValue);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+    if (!result) {
+        result = JSArray::tryCreate(vm, globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithUndecided), length);
+        if (UNLIKELY(!result)) {
+            throwOutOfMemoryError(globalObject, scope);
+            return { };
+        }
+        for (uint32_t k = 0; k < length; k++) {
+            auto fromValue = thisObject->getIndex(globalObject, k);
+            RETURN_IF_EXCEPTION(scope, { });
+            result->putDirectIndex(globalObject, k, fromValue, 0, PutDirectIndexShouldThrow);
+            RETURN_IF_EXCEPTION(scope, { });
+        }
+    }
+
+    scope.release();
+    sortImpl(globalObject, result, length, comparatorValue);
+
+    return JSValue::encode(result);
+}
+
+JSC_DEFINE_HOST_FUNCTION(arrayProtoFuncWith, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue thisValue = callFrame->thisValue().toThis(globalObject, ECMAMode::strict());
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (UNLIKELY(thisValue.isUndefinedOrNull()))
+        return throwVMTypeError(globalObject, scope, "Array.prototype.with requires that |this| not be null or undefined"_s);
+    auto* thisObject = thisValue.toObject(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    uint64_t length = toLength(globalObject, thisObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    int64_t actualIndex = argumentUnclampedIndexFromStartOrEnd(globalObject, callFrame->argument(0), length);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (UNLIKELY(actualIndex >= static_cast<int64_t>(length) || actualIndex < 0)) {
+        throwRangeError(globalObject, scope, "Array index out of range"_s);
+        return { };
+    }
+
+    if (UNLIKELY(length > std::numeric_limits<uint32_t>::max())) {
+        throwRangeError(globalObject, scope, "Array length must be a positive integer of safe magnitude."_s);
+        return { };
+    }
+    JSValue value = callFrame->argument(1);
+    if (LIKELY(isJSArray(thisObject))) {
+        JSArray* thisArray = jsCast<JSArray*>(thisObject);
+        if (auto fastResult = thisArray->fastWith(globalObject, actualIndex, value, length))
+            return JSValue::encode(fastResult);
+    }
+
+    JSArray* result = JSArray::tryCreate(vm, globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithUndecided), length);
+    if (UNLIKELY(!result)) {
+        throwOutOfMemoryError(globalObject, scope);
+        return { };
+    }
+
+    for (uint32_t k = 0; k < length; k++) {
+        if (k == actualIndex) {
+            result->putDirectIndex(globalObject, k, value, 0, PutDirectIndexShouldThrow);
+            RETURN_IF_EXCEPTION(scope, { });
+        } else {
+            auto fromValue = thisObject->getIndex(globalObject, k);
+            RETURN_IF_EXCEPTION(scope, { });
+            result->putDirectIndex(globalObject, k, fromValue, 0, PutDirectIndexShouldThrow);
+            RETURN_IF_EXCEPTION(scope, { });
+        }
+    }
+
+    return JSValue::encode(result);
+}
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -128,7 +128,7 @@
 
 #endif
 
-#if !COMPILER(CLANG) && !COMPILER(MSVC)
+#if !COMPILER(CLANG)
 #define WTF_COMPILER_QUIRK_CONSIDERS_UNREACHABLE_CODE 1
 #endif
 
@@ -241,10 +241,12 @@
 /* LIFETIME_BOUND */
 
 #if !defined(LIFETIME_BOUND) && defined(__cplusplus)
-#if defined(__has_cpp_attribute) && __has_cpp_attribute(clang::lifetimebound)
+#if __has_cpp_attribute(clang::lifetimebound)
 #define LIFETIME_BOUND [[clang::lifetimebound]]
-#elif COMPILER_HAS_ATTRIBUTE(lifetimebound)
-#define LIFETIME_BOUND __attribute__((lifetimebound))
+#elif __has_cpp_attribute(msvc::lifetimebound)
+#define LIFETIME_BOUND [[msvc::lifetimebound]]
+#elif __has_cpp_attribute(lifetimebound)
+#define LIFETIME_BOUND [[lifetimebound]]
 #endif
 #endif
 
@@ -287,11 +289,13 @@
 // 32-bit platforms use different calling conventions, so a MUST_TAIL_CALL function
 // written for 64-bit may fail to tail call on 32-bit.
 // It also doesn't work on ppc64le: https://github.com/llvm/llvm-project/issues/98859
+// and on Windows: https://github.com/llvm/llvm-project/issues/116568
 #if COMPILER(CLANG)
 #if __SIZEOF_POINTER__ == 8
 #if !defined(MUST_TAIL_CALL) && defined(__cplusplus) && defined(__has_cpp_attribute)
-#if __has_cpp_attribute(clang::musttail) && !defined(__powerpc__)
+#if __has_cpp_attribute(clang::musttail) && !defined(__powerpc__) && !defined(_WIN32)
 #define MUST_TAIL_CALL [[clang::musttail]]
+#define HAVE_MUST_TAIL_CALL 1
 #endif
 #endif
 #endif
@@ -299,6 +303,7 @@
 
 #if !defined(MUST_TAIL_CALL)
 #define MUST_TAIL_CALL
+#define HAVE_MUST_TAIL_CALL 0
 #endif
 
 /* RETURNS_NONNULL */
@@ -556,11 +561,26 @@
 #define SUPPRESS_REFCOUNTED_WITHOUT_VIRTUAL_DESTRUCTOR \
     IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE_ON_CLASS("webkit.RefCntblBaseVirtualDtor")
 
+#define SUPPRESS_MEMORY_UNSAFE_CAST \
+    IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("alpha.webkit.MemoryUnsafeCastChecker")
+
 #define IGNORE_RETURN_TYPE_WARNINGS_BEGIN IGNORE_WARNINGS_BEGIN("return-type")
 #define IGNORE_RETURN_TYPE_WARNINGS_END IGNORE_WARNINGS_END
 
 #define IGNORE_NULL_CHECK_WARNINGS_BEGIN IGNORE_WARNINGS_BEGIN("nonnull")
 #define IGNORE_NULL_CHECK_WARNINGS_END IGNORE_WARNINGS_END
+
+/* NOESCAPE */
+/* This attribute promises that a function argumemnt will only be used for the duration of the function,
+   and not stored to the heap or in a global state for later use. The compiler does not verify this claim. */
+
+#if !defined(NOESCAPE) && defined(__has_cpp_attribute)
+#if __has_cpp_attribute(clang::noescape)
+#define NOESCAPE [[clang::noescape]]
+#else
+#define NOESCAPE
+#endif
+#endif
 
 /* NO_UNIQUE_ADDRESS */
 
@@ -588,11 +608,7 @@
 
 /* UNREACHABLE */
 
-#if COMPILER(MSVC)
-#define WTF_UNREACHABLE(...) __assume(0)
-#else
 #define WTF_UNREACHABLE(...) __builtin_unreachable();
-#endif
 
 /* WTF_ALLOW_UNSAFE_BUFFER_USAGE */
 
@@ -607,3 +623,43 @@
 #define WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #define WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #endif
+
+/* WTF_UNSAFE_BUFFER_USAGE */
+
+#ifndef __has_attribute
+#define __has_attribute(x) 0
+#endif
+
+#ifndef __has_cpp_attribute
+#define __has_cpp_attribute(x) 0
+#endif
+
+#if COMPILER(CLANG)
+#if __has_cpp_attribute(clang::unsafe_buffer_usage)
+#define WTF_UNSAFE_BUFFER_USAGE [[clang::unsafe_buffer_usage]]
+#elif __has_attribute(unsafe_buffer_usage)
+#define WTF_UNSAFE_BUFFER_USAGE __attribute__((__unsafe_buffer_usage__))
+#else
+#define WTF_UNSAFE_BUFFER_USAGE
+#endif
+#else
+#define WTF_UNSAFE_BUFFER_USAGE
+#endif
+
+/* WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE */
+
+#define WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN \
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN \
+    ALLOW_COMMA_BEGIN \
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN \
+    ALLOW_UNUSED_PARAMETERS_BEGIN \
+    IGNORE_WARNINGS_BEGIN("cast-align") \
+    IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
+
+#define WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END \
+    IGNORE_CLANG_WARNINGS_END \
+    IGNORE_WARNINGS_END \
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
+    ALLOW_COMMA_END \
+    ALLOW_DEPRECATED_DECLARATIONS_END \
+    ALLOW_UNUSED_PARAMETERS_END

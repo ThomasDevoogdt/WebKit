@@ -84,6 +84,7 @@ bool hasCapacityToUseLargeGigacage();
     \
     v(Bool, useLLInt,  true, Normal, "allows the LLINT to be used if true"_s) \
     v(Bool, useJIT, jitEnabledByDefault(), Normal, "allows the executable pages to be allocated for JIT and thunks if true"_s) \
+    v(Bool, useWasmJIT, jitEnabledByDefault(), Normal, "allows wasm to use JIT and thunks if true"_s) \
     v(Bool, useBaselineJIT, true, Normal, "allows the baseline JIT to be used if true"_s) \
     v(Bool, useDFGJIT, true, Normal, "allows the DFG JIT to be used if true"_s) \
     v(Bool, useRegExpJIT, jitEnabledByDefault(), Normal, "allows the RegExp JIT to be used if true"_s) \
@@ -207,6 +208,9 @@ bool hasCapacityToUseLargeGigacage();
     v(Double, mediumHeapGrowthFactor, 1.5, Normal, nullptr) \
     v(Double, largeHeapGrowthFactor, 1.24, Normal, nullptr) \
     v(Double, miniVMHeapGrowthFactor, 1.20, Normal, nullptr) \
+    v(Double, heapGrowthSteepnessFactor, 1.00, Normal, nullptr) \
+    v(Double, heapGrowthMaxIncrease, 2.00, Normal, nullptr) \
+    v(Unsigned, heapGrowthFunctionThresholdInMB, 16 * 1024, Normal, nullptr) \
     v(Double, criticalGCMemoryThreshold, 0.80, Normal, "percent memory in use the GC considers critical.  The collector is much more aggressive above this threshold"_s) \
     v(Double, customFullGCCallbackBailThreshold, -1.0, Normal, "percent of memory paged out before we bail out of timer based Full GCs. -1.0 means use (maxHeapGrowthFactor - 1)"_s) \
     v(Double, minimumMutatorUtilization, 0, Normal, nullptr) \
@@ -425,6 +429,8 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, validateDFGClobberize, false, Normal, "Emits code in the DFG/FTL to validate the Clobberize phase"_s) \
     v(Bool, validateBoundsCheckElimination, false, Normal, "Emits code in the DFG/FTL to validate bounds check elimination"_s) \
     \
+    v(Bool, validateVMEntryCalleeSaves, false, Configurable, "Causes vmEntryToJavaScript to validate VMEntry callee saves are properly restored"_s) \
+    \
     v(Bool, useExecutableAllocationFuzz, false, Normal, nullptr) \
     v(Unsigned, fireExecutableAllocationFuzzAt, 0, Normal, nullptr) \
     v(Unsigned, fireExecutableAllocationFuzzAtOrAfter, 0, Normal, nullptr) \
@@ -557,8 +563,15 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, exposeCustomSettersOnGlobalObjectForTesting, false, Normal, nullptr) \
     v(Bool, useJITCage, canUseJITCage(), Normal, nullptr) \
     v(Bool, useAllocationProfiling, false, Normal, "Allows toggling of bmalloc/libPAS allocation profiling features at JSC launch."_s) \
+    v(Unsigned, allocationProfilingMode, 0, Normal, "Allows custom arguments to be passed to bmalloc/libPAS allocation profiling features at JSC launch."_s) \
     v(Bool, dumpBaselineJITSizeStatistics, false, Normal, nullptr) \
     v(Bool, dumpDFGJITSizeStatistics, false, Normal, nullptr) \
+    v(Bool, useLoopUnrolling, true, Normal, nullptr) \
+    v(Bool, verboseLoopUnrolling, false, Normal, nullptr) \
+    v(Unsigned, maxLoopUnrollingCount, 2, Normal, nullptr) \
+    v(Unsigned, maxLoopUnrollingBodyNodeSize, 200, Normal, nullptr) \
+    v(Unsigned, maxLoopUnrollingIterationCount, 4, Normal, nullptr) \
+    v(Bool, printEachUnrolledLoop, false, Normal, nullptr) \
     v(Bool, verboseExecutablePoolAllocation, false, Normal, nullptr) \
     v(Bool, useHandlerIC, canUseHandlerIC(), Normal, nullptr) \
     v(Bool, useDataICInFTL, false, Normal, nullptr) \
@@ -572,7 +585,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, dumpWasmWarnings, false, Normal, nullptr) \
     v(Bool, useRecursiveJSONParse, true, Normal, nullptr) \
     v(Unsigned, thresholdForStringReplaceCache, 0x1000, Normal, nullptr) \
-    v(Bool, useWasmIPInt, false, Normal, "Use the in-place interpereter for WASM instead of LLInt."_s) \
+    v(Bool, useWasmIPInt, ipintEnabledByDefault(), Normal, "Use the in-place interpereter for WASM instead of LLInt."_s) \
     v(Bool, useWasmIPIntPrologueOSR, true, Normal, "Allow IPInt to tier up during function prologues"_s) \
     v(Bool, useWasmIPIntLoopOSR, true, Normal, "Allow IPInt to tier up during loop iterations"_s) \
     v(Bool, useWasmIPIntEpilogueOSR, true, Normal, "Allow IPInt to tier up during function epilogues"_s) \
@@ -583,11 +596,16 @@ bool hasCapacityToUseLargeGigacage();
     /* Feature Flags */\
     \
     v(Bool, useAtomicsPause, true, Normal, "Expose Atomics.pause."_s) \
-    v(Bool, useErrorIsError, false, Normal, "Expose Error.isError feature."_s) \
+    v(Bool, useErrorIsError, true, Normal, "Expose Error.isError feature."_s) \
     v(Bool, useFloat16Array, true, Normal, "Expose Float16Array."_s) \
+    v(Bool, useImportDefer, false, Normal, "Enable deferred module import."_s) \
     v(Bool, useIteratorChunking, false, Normal, "Expose the Iterator.prototype.chunks and Iterator.prototype.windows methods."_s) \
-    v(Bool, useIteratorHelpers, false, Normal, "Expose the Iterator Helpers."_s) \
+    v(Bool, useIteratorHelpers, true, Normal, "Expose the Iterator Helpers."_s) \
+    v(Bool, useIteratorSequencing, false, Normal, "Expose the Iterator.concat method."_s) \
+    v(Bool, useJSONSourceTextAccess, true, Normal, "Expose JSON source text access feature."_s) \
+    v(Bool, useMapGetOrInsert, false, Normal, "Expose the Map.prototype.getOrInsert family of methods."_s) \
     v(Bool, useMathSumPreciseMethod, false, Normal, "Expose the Math.sumPrecise() method."_s) \
+    v(Bool, useMoreCurrencyDisplayChoices, false, Normal, "Enable more currencyDisplay choices for Intl.NumberFormat"_s) \
     v(Bool, usePromiseTryMethod, true, Normal, "Expose the Promise.try() method."_s) \
     v(Bool, useRegExpEscape, true, Normal, "Expose RegExp.escape feature."_s) \
     v(Bool, useSharedArrayBuffer, false, Normal, nullptr) \
@@ -599,6 +617,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Bool, useWasmSIMD, true, Normal, "Allow the new simd instructions and types from the wasm simd spec."_s) \
     v(Bool, useWasmRelaxedSIMD, false, Normal, "Allow the relaxed simd instructions and types from the wasm relaxed simd spec."_s) \
     v(Bool, useWasmTailCalls, true, Normal, "Allow the new instructions from the wasm tail calls spec."_s) \
+    v(Unsigned, markedBlockDumpInfoCount, 0, Normal, nullptr) /* FIXME: rdar://139998916 */ \
 
 
 

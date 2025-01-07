@@ -60,7 +60,7 @@ public:
     bool registeredAsNowPlayingApplication() const final { return m_registeredAsNowPlayingApplication; }
     bool haveEverRegisteredAsNowPlayingApplication() const final { return m_haveEverRegisteredAsNowPlayingApplication; }
 
-    void prepareToSendUserMediaPermissionRequest() final;
+    void prepareToSendUserMediaPermissionRequestForPage(Page&) final;
 
     std::optional<NowPlayingInfo> nowPlayingInfo() const final { return m_nowPlayingInfo; }
     static WEBCORE_EXPORT void clearNowPlayingInfo();
@@ -69,11 +69,6 @@ public:
     static WEBCORE_EXPORT void updateMediaUsage(PlatformMediaSession&);
 
     static void ensureCodecsRegistered();
-
-#if ENABLE(MEDIA_SOURCE) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-    static WEBCORE_EXPORT void setMediaSourceInlinePaintingEnabled(bool);
-    static WEBCORE_EXPORT bool mediaSourceInlinePaintingEnabled();
-#endif
 
     static WEBCORE_EXPORT void setShouldUseModernAVContentKeySession(bool);
     static WEBCORE_EXPORT bool shouldUseModernAVContentKeySession();
@@ -95,7 +90,7 @@ protected:
     void clientCharacteristicsChanged(PlatformMediaSession&, bool) final;
     void sessionCanProduceAudioChanged() final;
 
-    virtual void providePresentingApplicationPIDIfNecessary() { }
+    virtual void providePresentingApplicationPIDIfNecessary(ProcessID) { }
 
     WeakPtr<PlatformMediaSession> nowPlayingEligibleSession();
 

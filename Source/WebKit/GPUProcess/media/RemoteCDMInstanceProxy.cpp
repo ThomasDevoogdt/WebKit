@@ -32,19 +32,18 @@
 #include "RemoteCDMInstanceConfiguration.h"
 #include "RemoteCDMInstanceMessages.h"
 #include "RemoteCDMInstanceSessionProxy.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/CDMInstance.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-std::unique_ptr<RemoteCDMInstanceProxy> RemoteCDMInstanceProxy::create(RemoteCDMProxy& cdm, Ref<CDMInstance>&& priv, RemoteCDMInstanceIdentifier identifier)
+Ref<RemoteCDMInstanceProxy> RemoteCDMInstanceProxy::create(RemoteCDMProxy& cdm, Ref<CDMInstance>&& priv, RemoteCDMInstanceIdentifier identifier)
 {
     auto configuration = makeUniqueRefWithoutFastMallocCheck<RemoteCDMInstanceConfiguration, RemoteCDMInstanceConfiguration&&>({
         priv->keySystem(),
     });
-    return std::unique_ptr<RemoteCDMInstanceProxy>(new RemoteCDMInstanceProxy(cdm, WTFMove(priv), WTFMove(configuration), identifier));
+    return adoptRef(*new RemoteCDMInstanceProxy(cdm, WTFMove(priv), WTFMove(configuration), identifier));
 }
 
 RemoteCDMInstanceProxy::RemoteCDMInstanceProxy(RemoteCDMProxy& cdm, Ref<CDMInstance>&& priv, UniqueRef<RemoteCDMInstanceConfiguration>&& configuration, RemoteCDMInstanceIdentifier identifier)

@@ -44,6 +44,8 @@
 #include <wtf/SmallSet.h>
 #include <wtf/Vector.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 { namespace Air {
 
 namespace {
@@ -454,7 +456,7 @@ protected:
     {
         out.print("graph InterferenceGraph { \n");
 
-        HashSet<Tmp> tmpsWithInterferences;
+        UncheckedKeyHashSet<Tmp> tmpsWithInterferences;
 
         m_interferenceEdges.forEach([&tmpsWithInterferences] (std::pair<IndexType, IndexType> edge) {
             tmpsWithInterferences.add(TmpMapper::tmpFromAbsoluteIndex(edge.first));
@@ -1328,7 +1330,7 @@ protected:
 
     // Work lists.
     // Low-degree, Move related.
-    HashSet<IndexType> m_freezeWorklist;
+    UncheckedKeyHashSet<IndexType> m_freezeWorklist;
     // Set of "move" enabled for possible coalescing.
     OrderedMoveSet m_worklistMoves;
     // Set of "move" not yet ready for coalescing.
@@ -2277,5 +2279,7 @@ void allocateRegistersByGraphColoring(Code& code)
 }
 
 } } } // namespace JSC::B3::Air
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

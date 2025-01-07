@@ -89,6 +89,9 @@ ExceptionOr<void> HTMLDialogElement::showModal()
     if (isPopoverShowing())
         return Exception { ExceptionCode::InvalidStateError, "Element is already an open popover."_s };
 
+    if (!document().isFullyActive())
+        return Exception { ExceptionCode::InvalidStateError, "Invalid for dialogs within documents that are not fully active."_s };
+
     // setBooleanAttribute will dispatch a DOMSubtreeModified event.
     // Postpone callback execution that can potentially make the dialog disconnected.
     EventQueueScope scope;
@@ -190,6 +193,10 @@ void HTMLDialogElement::runFocusingSteps()
     if (!control)
         control = this;
 
+    RefPtr page = control->document().protectedPage();
+    if (!page)
+        return;
+
     if (control->isFocusable())
         control->runFocusingStepsForAutofocus();
     else if (m_isModal)
@@ -200,7 +207,7 @@ void HTMLDialogElement::runFocusingSteps()
 
     Ref topDocument = control->document().topDocument();
     topDocument->clearAutofocusCandidates();
-    topDocument->setAutofocusProcessed();
+    page->setAutofocusProcessed();
 }
 
 bool HTMLDialogElement::supportsFocus() const

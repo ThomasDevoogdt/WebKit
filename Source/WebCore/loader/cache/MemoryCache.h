@@ -93,6 +93,10 @@ public:
 
     WEBCORE_EXPORT static MemoryCache& singleton();
 
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
+
     WEBCORE_EXPORT CachedResource* resourceForRequest(const ResourceRequest&, PAL::SessionID);
 
     bool add(CachedResource&);
@@ -153,13 +157,13 @@ public:
     void resourceAccessed(CachedResource&);
     bool inLiveDecodedResourcesList(CachedResource&) const;
 
-    typedef HashSet<RefPtr<SecurityOrigin>> SecurityOriginSet;
+    typedef UncheckedKeyHashSet<RefPtr<SecurityOrigin>> SecurityOriginSet;
     WEBCORE_EXPORT void removeResourcesWithOrigin(const SecurityOrigin&);
     void removeResourcesWithOrigin(const SecurityOrigin&, const String& cachePartition);
     WEBCORE_EXPORT void removeResourcesWithOrigin(const ClientOrigin&);
-    WEBCORE_EXPORT void removeResourcesWithOrigins(PAL::SessionID, const HashSet<RefPtr<SecurityOrigin>>&);
+    WEBCORE_EXPORT void removeResourcesWithOrigins(PAL::SessionID, const UncheckedKeyHashSet<RefPtr<SecurityOrigin>>&);
     WEBCORE_EXPORT void getOriginsWithCache(SecurityOriginSet& origins);
-    WEBCORE_EXPORT HashSet<RefPtr<SecurityOrigin>> originsWithCache(PAL::SessionID) const;
+    WEBCORE_EXPORT UncheckedKeyHashSet<RefPtr<SecurityOrigin>> originsWithCache(PAL::SessionID) const;
 
     // pruneDead*() - Flush decoded and encoded data from resources not referenced by Web pages.
     // pruneLive*() - Flush decoded data from resources still referenced by Web pages.
@@ -170,7 +174,7 @@ public:
     WEBCORE_EXPORT void pruneLiveResourcesToSize(unsigned targetSize, bool shouldDestroyDecodedDataForAllLiveResources = false);
 
 private:
-    using CachedResourceMap = UncheckedKeyHashMap<std::pair<URL, String /* partitionName */>, WeakPtr<CachedResource>>;
+    using CachedResourceMap = HashMap<std::pair<URL, String /* partitionName */>, WeakPtr<CachedResource>>;
     using LRUList = WeakListHashSet<CachedResource>;
 
     MemoryCache();
@@ -211,7 +215,7 @@ private:
     
     // A URL-based map of all resources that are in the cache (including the freshest version of objects that are currently being 
     // referenced by a Web page).
-    typedef UncheckedKeyHashMap<PAL::SessionID, std::unique_ptr<CachedResourceMap>> SessionCachedResourceMap;
+    typedef HashMap<PAL::SessionID, std::unique_ptr<CachedResourceMap>> SessionCachedResourceMap;
     SessionCachedResourceMap m_sessionResources;
 
     Timer m_pruneTimer;

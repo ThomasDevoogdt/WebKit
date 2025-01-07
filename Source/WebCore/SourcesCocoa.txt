@@ -137,6 +137,7 @@ Modules/speech/cocoa/WebSpeechRecognizerTaskMock.mm
 Modules/system-preview/ARKitBadgeSystemImage.mm
 Modules/webdatabase/cocoa/DatabaseManagerCocoa.mm
 Modules/webxr/WebXROpaqueFramebufferCocoa.cpp
+accessibility/cocoa/AXCoreObjectCocoa.mm
 accessibility/cocoa/AXTextMarkerCocoa.mm
 accessibility/cocoa/AccessibilityObjectCocoa.mm
 accessibility/ios/AXObjectCacheIOS.mm
@@ -166,7 +167,6 @@ crypto/cocoa/CryptoAlgorithmEd25519Cocoa.cpp
 crypto/cocoa/CryptoAlgorithmHKDFMac.cpp
 crypto/cocoa/CryptoAlgorithmHMACMac.cpp
 crypto/cocoa/CryptoAlgorithmPBKDF2Mac.cpp
-crypto/cocoa/CryptoAlgorithmRSAES_PKCS1_v1_5Mac.cpp
 crypto/cocoa/CryptoAlgorithmRSASSA_PKCS1_v1_5Mac.cpp
 crypto/cocoa/CryptoAlgorithmRSA_OAEPMac.cpp
 crypto/cocoa/CryptoAlgorithmRSA_PSSMac.cpp
@@ -227,6 +227,7 @@ page/CaptionUserPreferencesMediaAF.cpp
 page/cocoa/CaptionUserPreferencesMediaAFCocoa.mm
 page/cocoa/EventHandlerCocoa.mm
 page/cocoa/MemoryReleaseCocoa.mm
+page/cocoa/PageCocoa.mm
 page/cocoa/PerformanceLoggingCocoa.mm
 page/cocoa/ResourceUsageOverlayCocoa.mm
 page/cocoa/ResourceUsageThreadCocoa.mm
@@ -242,7 +243,6 @@ page/mac/CorrectionIndicator.mm
 page/mac/DragControllerMac.mm
 page/mac/EventHandlerMac.mm
 page/mac/ImageOverlayControllerMac.mm
-page/mac/PageMac.mm
 page/mac/ServicesOverlayController.mm
 page/mac/TextIndicatorWindow.mm
 page/mac/WheelEventDeltaFilterMac.mm
@@ -264,16 +264,20 @@ page/writing-tools/WritingToolsController.mm
 platform/VideoFrame.mm
 platform/animation/AcceleratedEffectStack.mm @no-unify
 platform/audio/AudioSession.cpp
+platform/audio/cocoa/AudioDecoderCocoa.cpp
 platform/audio/cocoa/AudioDestinationCocoa.cpp
+platform/audio/cocoa/AudioEncoderCocoa.cpp
 platform/audio/cocoa/AudioFileReaderCocoa.cpp
 platform/audio/cocoa/AudioOutputUnitAdaptor.cpp
 platform/audio/cocoa/AudioSampleBufferList.cpp
+platform/audio/cocoa/AudioSampleBufferConverter.mm
 platform/audio/cocoa/AudioSampleDataConverter.mm
 platform/audio/cocoa/AudioSampleDataSource.mm
 platform/audio/cocoa/AudioUtilitiesCocoa.cpp
 platform/audio/cocoa/CAAudioStreamDescription.cpp
 platform/audio/cocoa/CARingBuffer.cpp
 platform/audio/cocoa/MediaSessionManagerCocoa.mm
+platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp
 platform/audio/cocoa/WebAudioBufferList.cpp
 platform/audio/ios/AudioOutputUnitAdaptorIOS.cpp @no-unify
 platform/audio/ios/AudioSessionIOS.mm @no-unify
@@ -291,6 +295,7 @@ platform/cf/MainThreadSharedTimerCF.cpp
 platform/cf/MediaAccessibilitySoftLink.cpp
 platform/cf/RunLoopObserverCF.cpp
 platform/cf/SharedBufferCF.cpp
+platform/cocoa/AppleVisualEffect.cpp
 platform/cocoa/ContentFilterUnblockHandlerCocoa.mm @no-unify
 platform/cocoa/CoreLocationGeolocationProvider.mm
 platform/cocoa/CoreVideoSoftLink.cpp
@@ -413,6 +418,7 @@ platform/graphics/cg/IOSurfacePool.cpp
 platform/graphics/cg/ImageBackingStoreCG.cpp
 platform/graphics/cg/ImageBufferCGBackend.cpp
 platform/graphics/cg/ImageBufferCGBitmapBackend.cpp
+platform/graphics/cg/ImageBufferCGPDFDocumentBackend.cpp
 platform/graphics/cg/ImageBufferIOSurfaceBackend.cpp
 platform/graphics/cg/ImageBufferUtilitiesCG.cpp
 platform/graphics/cg/ImageDecoderCG.cpp
@@ -451,6 +457,7 @@ platform/graphics/cocoa/ImageAdapterCocoa.mm
 platform/graphics/cocoa/MediaEngineConfigurationFactoryCocoa.cpp
 platform/graphics/cocoa/MediaPlayerCocoa.mm
 platform/graphics/cocoa/MediaPlayerPrivateWebM.mm @no-unify
+platform/graphics/cocoa/PlatformTimeRangesCocoa.mm @no-unify
 platform/graphics/cocoa/SourceBufferParser.cpp
 platform/graphics/cocoa/SourceBufferParserWebM.cpp
 platform/graphics/cocoa/SystemFontDatabaseCocoa.mm
@@ -550,6 +557,7 @@ platform/ios/PlatformEventFactoryIOS.mm @no-unify
 platform/ios/PlatformPasteboardIOS.mm
 platform/ios/PlatformScreenIOS.mm
 platform/ios/PlaybackSessionInterfaceAVKit.mm @no-unify
+platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @no-unify
 platform/ios/PlaybackSessionInterfaceIOS.mm @no-unify
 platform/ios/PlaybackSessionInterfaceTVOS.cpp
 platform/ios/PreviewConverterIOS.mm
@@ -565,6 +573,8 @@ platform/ios/UIFoundationSoftLink.mm
 platform/ios/UIViewControllerUtilities.mm
 platform/ios/UserAgentIOS.mm
 platform/ios/ValidationBubbleIOS.mm
+platform/ios/VideoPresentationInterfaceAVKit.mm @no-unify
+platform/ios/VideoPresentationInterfaceAVKitLegacy.mm @no-unify
 platform/ios/VideoPresentationInterfaceIOS.mm @no-unify
 platform/ios/VideoPresentationInterfaceTVOS.mm
 platform/ios/WebAVPlayerController.mm
@@ -628,11 +638,9 @@ platform/mac/WebCoreObjCExtras.mm
 platform/mac/WebPlaybackControlsManager.mm
 platform/mac/WidgetMac.mm
 platform/mediarecorder/MediaRecorderPrivateAVFImpl.cpp
-platform/mediarecorder/MediaRecorderPrivateWriter.cpp
-platform/mediarecorder/cocoa/AudioSampleBufferCompressor.mm
-platform/mediarecorder/cocoa/MediaRecorderPrivateWriterCocoa.mm
-platform/mediarecorder/cocoa/MediaRecorderPrivateWriterWebM.mm
-platform/mediarecorder/cocoa/VideoSampleBufferCompressor.mm
+platform/mediarecorder/MediaRecorderPrivateEncoder.cpp
+platform/mediarecorder/cocoa/MediaRecorderPrivateWriterAVFObjC.mm
+platform/mediarecorder/cocoa/MediaRecorderPrivateWriterWebM.cpp
 platform/mediastream/cocoa/AudioMediaStreamTrackRendererCocoa.cpp
 platform/mediastream/cocoa/AudioMediaStreamTrackRendererInternalUnit.cpp
 platform/mediastream/cocoa/AudioMediaStreamTrackRendererUnit.cpp
@@ -718,4 +726,4 @@ testing/cocoa/WebViewVisualIdentificationOverlay.mm
 
 platform/graphics/angle/GraphicsContextGLANGLE.cpp @no-unify
 platform/graphics/cocoa/GraphicsContextGLCocoa.mm @no-unify
-platform/graphics/cv/GraphicsContextGLCVCocoa.cpp @no-unify
+platform/graphics/cv/GraphicsContextGLCVCocoa.mm @no-unify

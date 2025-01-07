@@ -76,6 +76,28 @@ SOFT_LINK_CLASS(UIKit, UIPhysicalKeyboardEvent)
 
 @end
 
+@interface UIView (WebKitTestRunner)
+- (UIView *)_wtr_frontmostViewAtPoint:(CGPoint)point;
+@end
+
+@implementation UIView (WebKitTestRunner)
+
+- (UIView *)_wtr_frontmostViewAtPoint:(CGPoint)point
+{
+    if (self.hidden || !self.alpha)
+        return nil;
+
+    for (UIView *subview in self.subviews.reverseObjectEnumerator) {
+        CGPoint convertedPoint = [subview convertPoint:point fromView:self];
+        if (RetainPtr frontmostView = [subview _wtr_frontmostViewAtPoint:convertedPoint])
+            return frontmostView.get();
+    }
+
+    return [self.layer.presentationLayer containsPoint:point] ? self : nil;
+}
+
+@end
+
 namespace WTR {
 
 #if HAVE(UI_TEXT_SELECTION_DISPLAY_INTERACTION)
@@ -837,7 +859,20 @@ bool UIScriptControllerIOS::hasInputSession() const
     return webView().isInteractingWithFormControl;
 }
 
-void UIScriptControllerIOS::applyAutocorrection(JSStringRef newString, JSStringRef oldString, JSValueRef callback)
+void UIScriptControllerIOS::selectWordForReplacement()
+{
+#if USE(BROWSERENGINEKIT)
+    if (auto asyncInput = asyncTextInput()) {
+        [asyncInput selectWordForReplacement];
+        return;
+    }
+#endif // USE(BROWSERENGINEKIT)
+
+    auto contentView = static_cast<id<UIWKInteractionViewProtocol>>(platformContentView());
+    [contentView selectWordForReplacement];
+}
+
+void UIScriptControllerIOS::applyAutocorrection(JSStringRef newString, JSStringRef oldString, JSValueRef callback, bool underline)
 {
     unsigned callbackID = m_context->prepareForAsyncTask(callback, CallbackTypeNonPersistent);
 
@@ -849,13 +884,14 @@ void UIScriptControllerIOS::applyAutocorrection(JSStringRef newString, JSStringR
                     m_context->asyncTaskComplete(callbackID);
             }).get());
         });
-        [asyncInput replaceText:toWTFString(oldString) withText:toWTFString(newString) options:0 completionHandler:completionWrapper.get()];
+        auto options = underline ? BETextReplacementOptionsAddUnderline : BETextReplacementOptionsNone;
+        [asyncInput replaceText:toWTFString(oldString) withText:toWTFString(newString) options:options completionHandler:completionWrapper.get()];
         return;
     }
 #endif // USE(BROWSERENGINEKIT)
 
     auto contentView = static_cast<id<UIWKInteractionViewProtocol>>(platformContentView());
-    [contentView applyAutocorrection:toWTFString(newString) toString:toWTFString(oldString) shouldUnderline:NO withCompletionHandler:makeBlockPtr([this, protectedThis = Ref { *this }, callbackID](UIWKAutocorrectionRects *) {
+    [contentView applyAutocorrection:toWTFString(newString) toString:toWTFString(oldString) shouldUnderline:underline withCompletionHandler:makeBlockPtr([this, protectedThis = Ref { *this }, callbackID](UIWKAutocorrectionRects *) {
         dispatch_async(dispatch_get_main_queue(), makeBlockPtr([this, protectedThis = Ref { *this }, callbackID] {
             // applyAutocorrection can call its completion handler synchronously,
             // which makes UIScriptController unhappy (see bug 172884).
@@ -1410,6 +1446,11 @@ bool UIScriptControllerIOS::keyboardIsAutomaticallyShifted() const
     return UIKeyboardImpl.activeInstance.isAutoShifted;
 }
 
+unsigned UIScriptControllerIOS::keyboardUpdateForChangedSelectionCount() const
+{
+    return TestController::singleton().keyboardUpdateForChangedSelectionCount();
+}
+
 unsigned UIScriptControllerIOS::keyboardWillHideCount() const
 {
     return static_cast<unsigned>(webView().keyboardWillHideCount);
@@ -1621,6 +1662,14 @@ UITextSelectionDisplayInteraction *UIScriptControllerIOS::textSelectionDisplayIn
 JSRetainPtr<JSStringRef> UIScriptControllerIOS::scrollbarStateForScrollingNodeID(unsigned long long scrollingNodeID, unsigned long long processID, bool isVertical) const
 {
     return adopt(JSStringCreateWithCFString((CFStringRef) [webView() _scrollbarState:scrollingNodeID processID:processID isVertical:isVertical]));
+}
+
+JSRetainPtr<JSStringRef> UIScriptControllerIOS::frontmostViewAtPoint(int x, int y)
+{
+    if (RetainPtr view = [platformContentView() _wtr_frontmostViewAtPoint:CGPointMake(x, y)])
+        return adopt(JSStringCreateWithUTF8CString(class_getName([view class])));
+
+    return nil;
 }
 
 }

@@ -62,6 +62,10 @@ public:
 
         std::optional<Seconds> timeUntilFire(JSRunLoopTimer&);
 
+        // Do nothing since this is a singleton.
+        void ref() const { }
+        void deref() const { }
+
     private:
         Lock m_lock;
 
@@ -106,7 +110,7 @@ private:
 
     void timerDidFire();
 
-    HashSet<TimerNotificationCallback> m_timerSetCallbacks;
+    UncheckedKeyHashSet<TimerNotificationCallback> m_timerSetCallbacks;
     Lock m_timerCallbacksLock;
 
     Lock m_lock;

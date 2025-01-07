@@ -105,7 +105,7 @@ void CookieStore::MainThreadBridge::ensureOnMainThread(Function<void(ScriptExecu
         return;
     ASSERT(context->isContextThread());
 
-    if (RefPtr document = dynamicDowncast<Document>(*context)) {
+    if (is<Document>(*context)) {
         task(*context);
         return;
     }
@@ -263,7 +263,7 @@ void CookieStore::get(CookieStoreGetOptions&& options, Ref<DeferredPromise>&& pr
     }
 
     if (options.name.isNull() && options.url.isNull()) {
-        promise->reject(ExceptionCode::TypeError);
+        promise->reject(Exception { ExceptionCode::TypeError, "CookieStoreGetOptions must not be empty"_s });
         return;
     }
 
@@ -271,12 +271,12 @@ void CookieStore::get(CookieStoreGetOptions&& options, Ref<DeferredPromise>&& pr
     if (!options.url.isNull()) {
         auto parsed = context->completeURL(options.url);
         if (context->isDocument() && parsed != url) {
-            promise->reject(ExceptionCode::TypeError);
+            promise->reject(Exception { ExceptionCode::TypeError, "URL must match the document URL"_s });
             return;
         }
 
         if (!origin->isSameOriginAs(SecurityOrigin::create(parsed))) {
-            promise->reject(ExceptionCode::TypeError);
+            promise->reject(Exception { ExceptionCode::TypeError, "Origin must match the context's origin"_s });
             return;
         }
         url = WTFMove(parsed);
@@ -334,12 +334,12 @@ void CookieStore::getAll(CookieStoreGetOptions&& options, Ref<DeferredPromise>&&
     if (!options.url.isNull()) {
         auto parsed = context->completeURL(options.url);
         if (context->isDocument() && parsed != url) {
-            promise->reject(ExceptionCode::TypeError);
+            promise->reject(Exception { ExceptionCode::TypeError, "URL must match the document URL"_s });
             return;
         }
 
         if (!origin->isSameOriginAs(SecurityOrigin::create(parsed))) {
-            promise->reject(ExceptionCode::TypeError);
+            promise->reject(Exception { ExceptionCode::TypeError, "Origin must match the context's origin"_s });
             return;
         }
         url = WTFMove(parsed);
@@ -606,17 +606,14 @@ ScriptExecutionContext* CookieStore::scriptExecutionContext() const
 void CookieStore::eventListenersDidChange()
 {
     // FIXME: This should work for service worker contexts as well.
-    if (!is<Document>(scriptExecutionContext()))
+    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
+    if (!document)
         return;
 
     bool hadChangeEventListener = m_hasChangeEventListener;
     m_hasChangeEventListener = hasEventListeners(eventNames().changeEvent);
 
     if (hadChangeEventListener == m_hasChangeEventListener)
-        return;
-
-    RefPtr document = downcast<Document>(scriptExecutionContext());
-    if (!document)
         return;
 
     WeakPtr page = document->page();
@@ -627,7 +624,7 @@ void CookieStore::eventListenersDidChange()
     Ref cookieJar = page->cookieJar();
     auto host = document->url().host().toString();
     if (m_hasChangeEventListener)
-        cookieJar->addChangeListener(host, *this);
+        cookieJar->addChangeListener(*document, *this);
     else
         cookieJar->removeChangeListener(host, *this);
 #endif

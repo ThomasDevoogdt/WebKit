@@ -42,6 +42,7 @@
 #import "WebNSAttributedStringExtras.h"
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/mac/HIServicesSPI.h>
+#import <wtf/MallocSpan.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
@@ -442,7 +443,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
 {
     auto& strategy = *platformStrategies()->pasteboardStrategy();
     auto platformTypesFromItems = [](const Vector<PasteboardItemInfo>& items) {
-        HashSet<String> types;
+        UncheckedKeyHashSet<String> types;
         for (auto& item : items) {
             for (auto& type : item.platformTypesByFidelity)
                 types.add(type);
@@ -450,7 +451,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
         return types;
     };
 
-    HashSet<String> nonTranscodedTypes;
+    UncheckedKeyHashSet<String> nonTranscodedTypes;
     Vector<String> types;
     if (itemIndex) {
         if (auto itemInfo = strategy.informationForItemAtIndex(*itemIndex, m_pasteboardName, m_changeCount, context())) {
@@ -739,23 +740,25 @@ Vector<String> Pasteboard::readFilePaths()
 }
 
 #if ENABLE(DRAG_SUPPORT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 static void flipImageSpec(CoreDragImageSpec* imageSpec)
 {
-    unsigned char* tempRow = (unsigned char*)fastMalloc(imageSpec->bytesPerRow);
+    auto tempRow = MallocSpan<uint8_t>::malloc(imageSpec->bytesPerRow);
     int planes = imageSpec->isPlanar ? imageSpec->samplesPerPixel : 1;
 
     for (int p = 0; p < planes; ++p) {
-        unsigned char* topRow = const_cast<unsigned char*>(imageSpec->data[p]);
-        unsigned char* botRow = topRow + (imageSpec->pixelsHigh - 1) * imageSpec->bytesPerRow;
+        auto* topRow = const_cast<uint8_t*>(imageSpec->data[p]);
+        auto* botRow = topRow + (imageSpec->pixelsHigh - 1) * imageSpec->bytesPerRow;
         for (int i = 0; i < imageSpec->pixelsHigh / 2; ++i, topRow += imageSpec->bytesPerRow, botRow -= imageSpec->bytesPerRow) {
-            bcopy(topRow, tempRow, imageSpec->bytesPerRow);
-            bcopy(botRow, topRow, imageSpec->bytesPerRow);
-            bcopy(tempRow, botRow, imageSpec->bytesPerRow);
+            auto topRowSpan = unsafeMakeSpan(topRow, imageSpec->bytesPerRow);
+            auto botRowSpan = unsafeMakeSpan(botRow, imageSpec->bytesPerRow);
+            memmoveSpan(tempRow.mutableSpan(), topRowSpan);
+            memmoveSpan(topRowSpan, botRowSpan);
+            memmoveSpan(botRowSpan, tempRow.span());
         }
     }
-
-    fastFree(tempRow);
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 static void setDragImageImpl(NSImage *image, NSPoint offset)
 {

@@ -37,6 +37,7 @@
 #include "MediaSessionReadyState.h"
 #include <wtf/Logger.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakHashSet.h>
@@ -76,7 +77,7 @@ public:
 #endif
 };
 
-class MediaSession : public RefCounted<MediaSession>, public ActiveDOMObject, public CanMakeWeakPtr<MediaSession> {
+class MediaSession : public RefCountedAndCanMakeWeakPtr<MediaSession>, public ActiveDOMObject {
     WTF_MAKE_TZONE_ALLOCATED(MediaSession);
 public:
     void ref() const final { RefCounted::ref(); }
@@ -175,7 +176,7 @@ private:
     std::optional<MediaPositionState> m_positionState;
     std::optional<double> m_lastReportedPosition;
     MonotonicTime m_timeAtLastPositionUpdate;
-    UncheckedKeyHashMap<MediaSessionAction, RefPtr<MediaSessionActionHandler>, IntHash<MediaSessionAction>, WTF::StrongEnumHashTraits<MediaSessionAction>> m_actionHandlers WTF_GUARDED_BY_LOCK(m_actionHandlersLock);
+    HashMap<MediaSessionAction, RefPtr<MediaSessionActionHandler>, IntHash<MediaSessionAction>, WTF::StrongEnumHashTraits<MediaSessionAction>> m_actionHandlers WTF_GUARDED_BY_LOCK(m_actionHandlersLock);
     RefPtr<const Logger> m_logger;
     uint64_t m_logIdentifier { 0 };
 

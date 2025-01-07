@@ -35,6 +35,7 @@
 #include "DocumentInlines.h"
 #include "FontCascade.h"
 #include "RenderStyleInlines.h"
+#include "StyleLengthResolution.h"
 #include "StyleResolver.h"
 #include "StyleScope.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -79,7 +80,8 @@ bool MatchedDeclarationsCache::isCacheable(const Element& element, const RenderS
         return false;
     if (style.zoom() != RenderStyle::initialZoom())
         return false;
-    if (style.writingMode() != RenderStyle::initialWritingMode() || style.direction() != RenderStyle::initialDirection())
+    if (style.writingMode().computedWritingMode() != RenderStyle::initialWritingMode()
+        || style.writingMode().computedTextDirection() != RenderStyle::initialDirection())
         return false;
     if (style.usesContainerUnits())
         return false;
@@ -115,7 +117,7 @@ bool MatchedDeclarationsCache::Entry::isUsableAfterHighPriorityProperties(const 
         return false;
 #endif
 
-    return CSSPrimitiveValue::equalForLengthResolution(style, *renderStyle);
+    return Style::equalForLengthResolution(style, *renderStyle);
 }
 
 unsigned MatchedDeclarationsCache::computeHash(const MatchResult& matchResult, const StyleCustomPropertyData& inheritedCustomProperties)

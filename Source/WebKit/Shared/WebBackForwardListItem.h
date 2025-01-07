@@ -34,15 +34,6 @@
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
-namespace API {
-class Data;
-}
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
-
 namespace WebKit {
 
 class SuspendedPageProxy;
@@ -52,20 +43,20 @@ class WebBackForwardListFrameItem;
 
 class WebBackForwardListItem : public API::ObjectImpl<API::Object::Type::BackForwardListItem>, public CanMakeWeakPtr<WebBackForwardListItem> {
 public:
-    static Ref<WebBackForwardListItem> create(Ref<FrameState>&&, WebPageProxyIdentifier);
+    static Ref<WebBackForwardListItem> create(Ref<FrameState>&&, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>);
     virtual ~WebBackForwardListItem();
 
     static WebBackForwardListItem* itemForID(const WebCore::BackForwardItemIdentifier&);
-    static UncheckedKeyHashMap<WebCore::BackForwardItemIdentifier, WeakRef<WebBackForwardListItem>>& allItems();
+    static HashMap<WebCore::BackForwardItemIdentifier, WeakRef<WebBackForwardListItem>>& allItems();
 
-    WebCore::BackForwardItemIdentifier itemID() const;
+    WebCore::BackForwardItemIdentifier identifier() const { return m_identifier; }
     WebPageProxyIdentifier pageID() const { return m_pageID; }
 
     WebCore::ProcessIdentifier lastProcessIdentifier() const { return m_lastProcessIdentifier; }
     void setLastProcessIdentifier(const WebCore::ProcessIdentifier& identifier) { m_lastProcessIdentifier = identifier; }
 
-    void setRootFrameState(Ref<FrameState>&&);
-    FrameState& rootFrameState() const;
+    Ref<FrameState> navigatedFrameState() const;
+    Ref<FrameState> mainFrameState() const;
 
     const String& originalURL() const;
     const String& url() const;
@@ -88,40 +79,43 @@ public:
     void wasRemovedFromBackForwardList();
 
     WebBackForwardCacheEntry* backForwardCacheEntry() const { return m_backForwardCacheEntry.get(); }
+    RefPtr<WebBackForwardCacheEntry> protectedBackForwardCacheEntry() const;
+
     SuspendedPageProxy* suspendedPage() const;
 
-    void setNavigatedFrameID(WebCore::FrameIdentifier frameID) { m_navigatedFrameID = frameID; }
     std::optional<WebCore::FrameIdentifier> navigatedFrameID() const { return m_navigatedFrameID; }
 
-    WebBackForwardListItem* childItemForFrameID(WebCore::FrameIdentifier) const;
-    WebBackForwardListItem* childItemForProcessID(WebCore::ProcessIdentifier) const;
+    WebBackForwardListFrameItem& navigatedFrameItem() const;
+    Ref<WebBackForwardListFrameItem> protectedNavigatedFrameItem() const;
 
-    WebBackForwardListFrameItem& rootFrameItem() { return m_rootFrameItem.get(); }
+    WebBackForwardListFrameItem& mainFrameItem() const;
 
     void setIsRemoteFrameNavigation(bool isRemoteFrameNavigation) { m_isRemoteFrameNavigation = isRemoteFrameNavigation; }
     bool isRemoteFrameNavigation() const { return m_isRemoteFrameNavigation; }
+
+    void setWasRestoredFromSession();
 
 #if !LOG_DISABLED
     String loggingString();
 #endif
 
 private:
-    WebBackForwardListItem(Ref<FrameState>&&, WebPageProxyIdentifier);
+    WebBackForwardListItem(Ref<FrameState>&&, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>);
 
     void removeFromBackForwardCache();
 
-    // WebBackForwardCache.
     friend class WebBackForwardCache;
-    void setBackForwardCacheEntry(std::unique_ptr<WebBackForwardCacheEntry>&&);
+    void setBackForwardCacheEntry(RefPtr<WebBackForwardCacheEntry>&&);
 
     RefPtr<WebsiteDataStore> m_dataStoreForWebArchive;
 
-    Ref<WebBackForwardListFrameItem> m_rootFrameItem;
+    const WebCore::BackForwardItemIdentifier m_identifier;
+    const Ref<WebBackForwardListFrameItem> m_mainFrameItem;
+    const Markable<WebCore::FrameIdentifier> m_navigatedFrameID;
     URL m_resourceDirectoryURL;
-    WebPageProxyIdentifier m_pageID;
+    const WebPageProxyIdentifier m_pageID;
     WebCore::ProcessIdentifier m_lastProcessIdentifier;
-    Markable<WebCore::FrameIdentifier> m_navigatedFrameID;
-    std::unique_ptr<WebBackForwardCacheEntry> m_backForwardCacheEntry;
+    RefPtr<WebBackForwardCacheEntry> m_backForwardCacheEntry;
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     RefPtr<ViewSnapshot> m_snapshot;
 #endif

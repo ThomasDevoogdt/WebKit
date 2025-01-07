@@ -29,7 +29,6 @@
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebPage.h"
 #include "WebProcess.h"
 #include <WebCore/FrameDestructionObserverInlines.h>
@@ -291,15 +290,12 @@ void WebResourceLoadObserver::logSubresourceLoading(const LocalFrame* frame, con
     auto* page = frame->page();
     if (!page)
         return;
+    const URL& topFrameURL = page->mainFrameURL();
 
     bool isRedirect = is3xxRedirect(redirectResponse);
     const URL& redirectedFromURL = redirectResponse.url();
     const URL& targetURL = newRequest.url();
-    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(frame->mainFrame());
-    if (!localMainFrame)
-        return;
-    const URL& topFrameURL = frame ? localMainFrame->document()->url() : URL();
-    
+
     auto targetHost = targetURL.host();
     auto topFrameHost = topFrameURL.host();
 
@@ -448,7 +444,7 @@ bool WebResourceLoadObserver::hasCrossPageStorageAccess(const SubFrameDomain& su
     return false;
 }
 
-void WebResourceLoadObserver::setDomainsWithCrossPageStorageAccess(UncheckedKeyHashMap<TopFrameDomain, Vector<SubFrameDomain>>&& domains, CompletionHandler<void()>&& completionHandler)
+void WebResourceLoadObserver::setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, Vector<SubFrameDomain>>&& domains, CompletionHandler<void()>&& completionHandler)
 {
     for (const auto& [topDomain, subResourceDomains] : domains) {
         for (auto& subResourceDomain : subResourceDomains) {

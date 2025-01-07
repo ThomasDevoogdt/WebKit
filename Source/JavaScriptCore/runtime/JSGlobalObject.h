@@ -54,6 +54,8 @@ namespace Inspector {
 class JSGlobalObjectInspectorController;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 class ArrayAllocationProfile;
@@ -302,9 +304,6 @@ public:
     WriteBarrier<ArrayIteratorPrototype> m_arrayIteratorPrototype;
     WriteBarrier<MapIteratorPrototype> m_mapIteratorPrototype;
     WriteBarrier<SetIteratorPrototype> m_setIteratorPrototype;
-    WriteBarrier<WrapForValidIteratorPrototype> m_wrapForValidIteratorPrototype;
-    WriteBarrier<AsyncFromSyncIteratorPrototype> m_asyncFromSyncIteratorPrototype;
-    WriteBarrier<RegExpStringIteratorPrototype> m_regExpStringIteratorPrototype;
 
     LazyProperty<JSGlobalObject, Structure> m_debuggerScopeStructure;
     LazyProperty<JSGlobalObject, Structure> m_withScopeStructure;
@@ -313,6 +312,7 @@ public:
     LazyProperty<JSGlobalObject, Structure> m_callbackConstructorStructure;
     LazyProperty<JSGlobalObject, Structure> m_callbackFunctionStructure;
     LazyProperty<JSGlobalObject, Structure> m_callbackObjectStructure;
+    LazyProperty<JSGlobalObject, Structure> m_rawJSONObjectStructure;
 #if JSC_OBJC_API_ENABLED
     LazyProperty<JSGlobalObject, Structure> m_objcCallbackFunctionStructure;
     LazyProperty<JSGlobalObject, Structure> m_objcWrapperObjectStructure;
@@ -353,7 +353,7 @@ public:
     WriteBarrierStructureID m_regExpStructure;
 
     WriteBarrierStructureID m_asyncFunctionStructure;
-    WriteBarrierStructureID m_asyncFromSyncIteratorStructure;
+    LazyProperty<JSGlobalObject, Structure> m_asyncFromSyncIteratorStructure;
     WriteBarrierStructureID m_asyncGeneratorFunctionStructure;
     WriteBarrierStructureID m_generatorFunctionStructure;
     WriteBarrierStructureID m_generatorStructure;
@@ -363,11 +363,12 @@ public:
     WriteBarrierStructureID m_arrayIteratorStructure;
     WriteBarrierStructureID m_mapIteratorStructure;
     WriteBarrierStructureID m_setIteratorStructure;
-    WriteBarrierStructureID m_wrapForValidIteratorStructure;
+    LazyProperty<JSGlobalObject, Structure> m_wrapForValidIteratorStructure;
     WriteBarrierStructureID m_regExpMatchesArrayStructure;
     WriteBarrierStructureID m_regExpMatchesArrayWithIndicesStructure;
     WriteBarrierStructureID m_regExpMatchesIndicesArrayStructure;
-    WriteBarrierStructureID m_regExpStringIteratorStructure;
+    LazyProperty<JSGlobalObject, Structure> m_regExpStringIteratorStructure;
+    WriteBarrierStructureID m_trustedScriptStructure;
 
     LazyProperty<JSGlobalObject, Structure> m_customGetterFunctionStructure;
     LazyProperty<JSGlobalObject, Structure> m_customSetterFunctionStructure;
@@ -426,8 +427,6 @@ public:
     LazyProperty<JSGlobalObject, Structure> m_resizableOrGrowableSharedTypedArray ## name ## Structure;
     FOR_EACH_TYPED_ARRAY_TYPE(DECLARE_TYPED_ARRAY_TYPE_STRUCTURE)
 #undef DECLARE_TYPED_ARRAY_TYPE_STRUCTURE
-
-    LazyProperty<JSGlobalObject, JSInternalPromise> m_importMapStatusPromise;
 
     FixedVector<LazyProperty<JSGlobalObject, JSCell>> m_linkTimeConstants;
 
@@ -771,12 +770,9 @@ public:
     GeneratorFunctionPrototype* generatorFunctionPrototype() const { return m_generatorFunctionPrototype.get(); }
     GeneratorPrototype* generatorPrototype() const { return m_generatorPrototype.get(); }
     AsyncFunctionPrototype* asyncFunctionPrototype() const { return m_asyncFunctionPrototype.get(); }
-    AsyncFromSyncIteratorPrototype* asyncFromSyncIteratorPrototype() const { return m_asyncFromSyncIteratorPrototype.get(); }
     ArrayIteratorPrototype* arrayIteratorPrototype() const { return m_arrayIteratorPrototype.get(); }
     MapIteratorPrototype* mapIteratorPrototype() const { return m_mapIteratorPrototype.get(); }
     SetIteratorPrototype* setIteratorPrototype() const { return m_setIteratorPrototype.get(); }
-    WrapForValidIteratorPrototype* wrapForValidIteratorPrototype() const { return m_wrapForValidIteratorPrototype.get(); }
-    RegExpStringIteratorPrototype* regExpStringIteratorPrototype() const { return m_regExpStringIteratorPrototype.get(); }
     JSObject* mapPrototype() const { return m_mapStructure.prototype(this); }
     // Workaround for the name conflict between JSCell::setPrototype.
     JSObject* jsSetPrototype() const { return m_setStructure.prototype(this); }
@@ -816,6 +812,7 @@ public:
     Structure* callbackConstructorStructure() const { return m_callbackConstructorStructure.get(this); }
     Structure* callbackFunctionStructure() const { return m_callbackFunctionStructure.get(this); }
     Structure* callbackObjectStructure() const { return m_callbackObjectStructure.get(this); }
+    Structure* rawJSONObjectStructure() const { return m_rawJSONObjectStructure.get(this); }
 #if JSC_OBJC_API_ENABLED
     Structure* objcCallbackFunctionStructure() const { return m_objcCallbackFunctionStructure.get(this); }
     Structure* objcWrapperObjectStructure() const { return m_objcWrapperObjectStructure.get(this); }
@@ -860,17 +857,17 @@ public:
     Structure* regExpStructure() const { return m_regExpStructure.get(); }
     Structure* shadowRealmStructure() const { return m_shadowRealmObjectStructure.get(); }
     Structure* generatorStructure() const { return m_generatorStructure.get(); }
-    Structure* asyncFromSyncIteratorStructure() const { return m_asyncFromSyncIteratorStructure.get(); }
+    Structure* asyncFromSyncIteratorStructure() const { return m_asyncFromSyncIteratorStructure.get(this); }
     Structure* asyncGeneratorStructure() const { return m_asyncGeneratorStructure.get(); }
     Structure* generatorFunctionStructure() const { return m_generatorFunctionStructure.get(); }
     Structure* asyncFunctionStructure() const { return m_asyncFunctionStructure.get(); }
     Structure* asyncGeneratorFunctionStructure() const { return m_asyncGeneratorFunctionStructure.get(); }
     Structure* iteratorStructure() const { return m_iteratorStructure.get(); }
     Structure* iteratorHelperStructure() const { return m_iteratorHelperStructure.get(); }
-    Structure* arrayIteratorStructure() const { return m_arrayIteratorStructure.get(); }    
+    Structure* arrayIteratorStructure() const { return m_arrayIteratorStructure.get(); }
     Structure* mapIteratorStructure() const { return m_mapIteratorStructure.get(); }
     Structure* setIteratorStructure() const { return m_setIteratorStructure.get(); }
-    Structure* wrapForValidIteratorStructure() const { return m_wrapForValidIteratorStructure.get(); }
+    Structure* wrapForValidIteratorStructure() const { return m_wrapForValidIteratorStructure.get(this); }
     Structure* stringObjectStructure() const { return m_stringObjectStructure.get(); }
     Structure* symbolObjectStructure() const { return m_symbolObjectStructure.get(); }
     Structure* iteratorResultObjectStructure() const { return m_iteratorResultObjectStructure.get(this); }
@@ -879,7 +876,7 @@ public:
     Structure* regExpMatchesArrayStructure() const { return m_regExpMatchesArrayStructure.get(); }
     Structure* regExpMatchesArrayWithIndicesStructure() const { return m_regExpMatchesArrayWithIndicesStructure.get(); }
     Structure* regExpMatchesIndicesArrayStructure() const { return m_regExpMatchesIndicesArrayStructure.get(); }
-    Structure* regExpStringIteratorStructure() const { return m_regExpStringIteratorStructure.get(); }
+    Structure* regExpStringIteratorStructure() const { return m_regExpStringIteratorStructure.get(this); }
     Structure* remoteFunctionStructure() const { return m_remoteFunctionStructure.get(this); }
     Structure* moduleRecordStructure() const { return m_moduleRecordStructure.get(this); }
     Structure* syntheticModuleRecordStructure() const { return m_syntheticModuleRecordStructure.get(this); }
@@ -906,6 +903,7 @@ public:
     Structure* segmentIteratorStructure() { return m_segmentIteratorStructure.get(this); }
     Structure* segmenterStructure() { return m_segmenterStructure.get(this); }
     Structure* segmentsStructure() { return m_segmentsStructure.get(this); }
+    Structure* trustedScriptStructure() { return m_trustedScriptStructure.get(); }
 
     JSObject* dateTimeFormatConstructor() { return m_dateTimeFormatStructure.constructor(this); }
     JSObject* dateTimeFormatPrototype() { return m_dateTimeFormatStructure.prototype(this); }
@@ -973,9 +971,10 @@ public:
     static void reportUncaughtExceptionAtEventLoop(JSGlobalObject*, Exception*);
     static JSObject* currentScriptExecutionOwner(JSGlobalObject* global) { return global; }
     static ScriptExecutionStatus scriptExecutionStatus(JSGlobalObject*, JSObject*) { return ScriptExecutionStatus::Running; }
-    static void reportViolationForUnsafeEval(JSGlobalObject*, JSString*) { }
+    static void reportViolationForUnsafeEval(JSGlobalObject*, const String&) { }
     static String codeForEval(JSGlobalObject*, JSValue) { return nullString(); }
-    static bool canCompileStrings(JSGlobalObject*, CompilationType, String, JSValue) { return true; }
+    static bool canCompileStrings(JSGlobalObject*, CompilationType, String, const ArgList&) { return true; }
+    static Structure* trustedScriptStructure(JSGlobalObject*) { return nullptr; }
 
     inline JSObject* arrayBufferPrototype(ArrayBufferSharingMode) const;
     inline Structure* arrayBufferStructure(ArrayBufferSharingMode) const;
@@ -1071,8 +1070,7 @@ public:
     JS_EXPORT_PRIVATE void queueMicrotask(Ref<Microtask>&&);
     JS_EXPORT_PRIVATE void queueMicrotask(JSValue job, JSValue, JSValue, JSValue, JSValue);
 
-    static void reportViolationForUnsafeEval(const JSGlobalObject*, JSString*) { }
-    static String codeForEval(const JSGlobalObject*, JSValue) { return nullString(); }
+    static void reportViolationForUnsafeEval(const JSGlobalObject*, const String&) { }
 
     bool evalEnabled() const { return m_evalEnabled; }
     bool webAssemblyEnabled() const { return m_webAssemblyEnabled; }
@@ -1145,16 +1143,6 @@ public:
 
     const ImportMap& importMap() const { return m_importMap.get(); }
     ImportMap& importMap() { return m_importMap.get(); }
-    JSInternalPromise* importMapStatusPromise() const
-    {
-        if (m_importMapStatusPromise.isInitialized())
-            return m_importMapStatusPromise.get(this);
-        return nullptr;
-    }
-    JS_EXPORT_PRIVATE bool isAcquiringImportMaps() const;
-    JS_EXPORT_PRIVATE void setAcquiringImportMaps();
-    JS_EXPORT_PRIVATE void setPendingImportMaps();
-    JS_EXPORT_PRIVATE void clearPendingImportMaps();
 
 protected:
     enum class HasSpeciesProperty : bool { No, Yes };
@@ -1205,3 +1193,5 @@ inline JSObject* JSGlobalObject::globalThis() const
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

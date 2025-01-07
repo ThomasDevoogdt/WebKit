@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,6 +43,9 @@ class UIScriptController;
 
 class UIScriptContextDelegate {
 public:
+    UIScriptContextDelegate() = default;
+    virtual ~UIScriptContextDelegate() = default;
+
     virtual void uiScriptDidComplete(const String& result, unsigned callbackID) = 0;
 };
 
@@ -111,8 +114,8 @@ private:
         unsigned parentScriptCallbackID { 0 };
         JSValueRef callback { nullptr };
     };
-    UncheckedKeyHashMap<unsigned, Task> m_callbacks;
-    UncheckedKeyHashMap<unsigned, JSStringRef> m_uiScriptResultsPendingCompletion;
+    HashMap<unsigned, Task> m_callbacks;
+    HashMap<unsigned, JSStringRef> m_uiScriptResultsPendingCompletion;
 
     UIScriptContextDelegate& m_delegate;
     RefPtr<UIScriptController> m_controller;

@@ -191,10 +191,6 @@ public:
 
     virtual void paintCurrentFrameInContext(GraphicsContext& c, const FloatRect& r) { paint(c, r); }
 
-#if PLATFORM(COCOA) && !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
-    virtual void willBeAskedToPaintGL() { }
-#endif
-
     virtual RefPtr<VideoFrame> videoFrameForCurrentTime();
     virtual RefPtr<NativeImage> nativeImageForCurrentTime() { return nullptr; }
     virtual DestinationColorSpace colorSpace() = 0;
@@ -249,9 +245,9 @@ public:
     virtual unsigned audioDecodedByteCount() const { return 0; }
     virtual unsigned videoDecodedByteCount() const { return 0; }
 
-    HashSet<SecurityOriginData> originsInMediaCache(const String&) { return { }; }
+    UncheckedKeyHashSet<SecurityOriginData> originsInMediaCache(const String&) { return { }; }
     void clearMediaCache(const String&, WallTime) { }
-    void clearMediaCacheForOrigins(const String&, const HashSet<SecurityOriginData>&) { }
+    void clearMediaCacheForOrigins(const String&, const UncheckedKeyHashSet<SecurityOriginData>&) { }
 
     virtual void setPrivateBrowsingMode(bool) { }
 
@@ -262,7 +258,7 @@ public:
 #endif
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    virtual std::unique_ptr<LegacyCDMSession> createSession(const String&, LegacyCDMSessionClient&) { return nullptr; }
+    virtual RefPtr<LegacyCDMSession> createSession(const String&, LegacyCDMSessionClient&) { return nullptr; }
     virtual void setCDM(LegacyCDM*) { }
     virtual void setCDMSession(LegacyCDMSession*) { }
     virtual void keyAdded() { }
@@ -321,6 +317,7 @@ public:
 
 #if USE(AVFOUNDATION)
     virtual AVPlayer *objCAVFoundationAVPlayer() const { return nullptr; }
+    virtual void setDecompressionSessionPreferences(bool, bool) { }
 #endif
 
     virtual bool performTaskAtTime(Function<void()>&&, const MediaTime&) { return false; }

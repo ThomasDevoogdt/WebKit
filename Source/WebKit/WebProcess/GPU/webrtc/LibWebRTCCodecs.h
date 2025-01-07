@@ -191,6 +191,7 @@ public:
     void ref() const final { return IPC::WorkQueueMessageReceiver::ref(); }
     void deref() const final { return IPC::WorkQueueMessageReceiver::deref(); }
     ThreadSafeWeakPtrControlBlock& controlBlock() const final { return IPC::WorkQueueMessageReceiver::controlBlock(); }
+    size_t weakRefCount() const final { return IPC::WorkQueueMessageReceiver::weakRefCount(); }
 
     WorkQueue& workQueue() const { return m_queue; }
 
@@ -231,9 +232,9 @@ private:
     RefPtr<IPC::Connection> protectedConnection() const WTF_REQUIRES_LOCK(m_connectionLock) { return m_connection; }
     RefPtr<RemoteVideoFrameObjectHeapProxy> protectedVideoFrameObjectHeapProxy() const WTF_REQUIRES_LOCK(m_connectionLock);
 
-    UncheckedKeyHashMap<VideoDecoderIdentifier, std::unique_ptr<Decoder>> m_decoders WTF_GUARDED_BY_CAPABILITY(workQueue());
+    HashMap<VideoDecoderIdentifier, std::unique_ptr<Decoder>> m_decoders WTF_GUARDED_BY_CAPABILITY(workQueue());
     Lock m_encodersConnectionLock;
-    UncheckedKeyHashMap<VideoEncoderIdentifier, std::unique_ptr<Encoder>> m_encoders WTF_GUARDED_BY_CAPABILITY(workQueue());
+    HashMap<VideoEncoderIdentifier, std::unique_ptr<Encoder>> m_encoders WTF_GUARDED_BY_CAPABILITY(workQueue());
 
     std::atomic<bool> m_needsGPUProcessConnection;
 

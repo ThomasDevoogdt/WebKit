@@ -117,13 +117,13 @@ RenderPtr<RenderElement> ImageInputType::createInputRenderer(RenderStyle&& style
 void ImageInputType::attributeChanged(const QualifiedName& name)
 {
     if (name == altAttr) {
-        if (auto* element = this->element()) {
+        if (RefPtr element = this->element()) {
             auto* renderer = element->renderer();
             if (auto* renderImage = dynamicDowncast<RenderImage>(renderer))
                 renderImage->updateAltText();
         }
     } else if (name == srcAttr) {
-        if (auto* element = this->element()) {
+        if (RefPtr element = this->element()) {
             if (element->renderer())
                 element->ensureImageLoader().updateFromElementIgnoringPreviousError();
         }
@@ -178,7 +178,7 @@ unsigned ImageInputType::height() const
     element->protectedDocument()->updateLayout({ LayoutOptions::ContentVisibilityForceLayout }, element.ptr());
 
     if (auto* renderer = element->renderer())
-        return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentHeight(), *renderer);
+        return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentBoxHeight(), *renderer);
 
     // Check the attribute first for an explicit pixel value.
     if (auto optionalHeight = parseHTMLNonNegativeInteger(element->attributeWithoutSynchronization(heightAttr)))
@@ -200,7 +200,7 @@ unsigned ImageInputType::width() const
     element->protectedDocument()->updateLayout({ LayoutOptions::ContentVisibilityForceLayout }, element.ptr());
 
     if (auto* renderer = element->renderer())
-        return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentWidth(), *renderer);
+        return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentBoxWidth(), *renderer);
 
     // Check the attribute first for an explicit pixel value.
     if (auto optionalWidth = parseHTMLNonNegativeInteger(element->attributeWithoutSynchronization(widthAttr)))

@@ -291,7 +291,7 @@ String AccessibilityObjectAtspi::text() const
     auto text = m_coreObject->textUnderElement(TextUnderElementMode(TextUnderElementMode::Children::IncludeAllChildren));
     if (auto* renderer = m_coreObject->renderer()) {
         if (is<RenderListItem>(*renderer) && downcast<RenderListItem>(*renderer).markerRenderer()) {
-            if (renderer->style().direction() == TextDirection::LTR) {
+            if (renderer->writingMode().isBidiLTR()) {
                 text = makeString(objectReplacementCharacter, text);
                 m_hasListMarkerAtStart = true;
             } else
@@ -791,7 +791,7 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         addAttributeIfNeeded("underline"_s, style.textDecorationLine() & TextDecorationLine::Underline ? "single"_s : "none"_s);
         addAttributeIfNeeded("invisible"_s, style.visibility() == Visibility::Hidden ? "true"_s : "false"_s);
         addAttributeIfNeeded("editable"_s, m_coreObject->canSetValueAttribute() ? "true"_s : "false"_s);
-        addAttributeIfNeeded("direction"_s, style.direction() == TextDirection::LTR ? "ltr"_s : "rtl"_s);
+        addAttributeIfNeeded("direction"_s, style.writingMode().isBidiLTR() ? "ltr"_s : "rtl"_s);
 
         if (!style.textIndent().isUndefined())
             addAttributeIfNeeded("indent"_s, makeString(valueForLength(style.textIndent(), m_coreObject->size().width()).toInt()));
@@ -839,11 +839,8 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         return { WTFMove(defaultAttributes), -1, -1 };
 
     if (!*utf16Offset && m_hasListMarkerAtStart) {
-        auto* axObject = m_coreObject->children()[0].get();
-        RELEASE_ASSERT(axObject);
-
         // Always consider list marker an independent run.
-        auto attributes = accessibilityTextAttributes(*axObject, defaultAttributes);
+        auto attributes = accessibilityTextAttributes(m_coreObject->children()[0].get(), defaultAttributes);
         if (!includeDefault)
             return { WTFMove(attributes), 0, 1 };
 

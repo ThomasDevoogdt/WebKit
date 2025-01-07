@@ -34,13 +34,15 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMalloc.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 using Assembler = TARGET_ASSEMBLER;
 class Reg;
 
 class MacroAssemblerARM64 : public AbstractMacroAssembler<Assembler> {
-    WTF_MAKE_TZONE_ALLOCATED(MacroAssemblerARM64);
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(MacroAssemblerARM64);
 public:
     static constexpr unsigned numGPRs = 32;
     static constexpr unsigned numFPRs = 32;
@@ -472,7 +474,7 @@ public:
 
     void and64(TrustedImm64 imm, RegisterID dest)
     {
-        LogicalImmediate logicalImm = LogicalImmediate::create64(bitwise_cast<uint64_t>(imm.m_value));
+        LogicalImmediate logicalImm = LogicalImmediate::create64(std::bit_cast<uint64_t>(imm.m_value));
 
         if (logicalImm.isValid()) {
             m_assembler.and_<64>(dest, dest, logicalImm);
@@ -6435,7 +6437,7 @@ protected:
     {
         const int dataSize = sizeof(rawType) * 8;
         const int numberHalfWords = dataSize / 16;
-        rawType value = bitwise_cast<rawType>(imm.m_value);
+        rawType value = std::bit_cast<rawType>(imm.m_value);
         uint16_t halfword[numberHalfWords];
 
         // Handle 0 and ~0 here to simplify code below
@@ -7147,5 +7149,7 @@ inline MacroAssemblerARM64::Jump MacroAssemblerARM64::branch<64>(RelationalCondi
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(ASSEMBLER) && CPU(ARM64)

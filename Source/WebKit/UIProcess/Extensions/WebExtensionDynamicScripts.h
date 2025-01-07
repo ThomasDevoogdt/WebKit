@@ -46,6 +46,7 @@ namespace WebKit {
 
 class WebExtensionContext;
 class WebExtensionTab;
+struct WebExtensionScriptInjectionParameters;
 
 namespace WebExtensionDynamicScripts {
 
@@ -98,22 +99,23 @@ private:
     WebExtensionRegisteredScriptParameters m_parameters;
     InjectedContentData m_injectedContent;
 
-    UncheckedKeyHashMap<String, UserScriptVector> m_userScriptsMap;
-    UncheckedKeyHashMap<String, UserStyleSheetVector> m_userStyleSheetsMap;
+    HashMap<String, UserScriptVector> m_userScriptsMap;
+    HashMap<String, UserStyleSheetVector> m_userStyleSheetsMap;
 
     void removeUserStyleSheets(const String& identifier);
     void removeUserScripts(const String& identifier);
 };
 
-std::optional<SourcePair> sourcePairForResource(String path, WebExtensionContext&);
+std::optional<SourcePair> sourcePairForResource(const String& path, WebExtensionContext&);
 SourcePairs getSourcePairsForParameters(const WebExtensionScriptInjectionParameters&, WebExtensionContext&);
-Vector<RetainPtr<_WKFrameTreeNode>> getFrames(_WKFrameTreeNode *, std::optional<Vector<WebExtensionFrameIdentifier>>);
 
 void executeScript(const SourcePairs&, WKWebView *, API::ContentWorld&, WebExtensionTab&, const WebExtensionScriptInjectionParameters&, WebExtensionContext&, CompletionHandler<void(InjectionResults&&)>&&);
 void injectStyleSheets(const SourcePairs&, WKWebView *, API::ContentWorld&, WebCore::UserStyleLevel, WebCore::UserContentInjectedFrames, WebExtensionContext&);
 void removeStyleSheets(const SourcePairs&, WKWebView *, WebCore::UserContentInjectedFrames, WebExtensionContext&);
 
+#if PLATFORM(COCOA)
 WebExtensionScriptInjectionResultParameters toInjectionResultParameters(id resultOfExecution, WKFrameInfo *, NSString *errorMessage);
+#endif
 
 } // namespace WebExtensionDynamicScripts
 

@@ -61,6 +61,8 @@ public:
     {
     }
 
+    bool isEmpty() const { return m_text.isEmpty(); }
+
     WTF_EXPORT_PRIVATE TextStream& operator<<(bool);
     WTF_EXPORT_PRIVATE TextStream& operator<<(char);
     WTF_EXPORT_PRIVATE TextStream& operator<<(int);
@@ -273,8 +275,8 @@ TextStream& operator<<(TextStream& ts, const FixedVector<ItemType>& vector)
     return streamSizedContainer(ts, vector);
 }
 
-template<typename ValueArg, typename HashArg, typename TraitsArg>
-TextStream& operator<<(TextStream& ts, const HashSet<ValueArg, HashArg, TraitsArg>& set)
+template<typename ValueArg, typename HashArg, typename TraitsArg, typename TableTraitsArg, ShouldValidateKey shouldValidateKey>
+TextStream& operator<<(TextStream& ts, const HashSet<ValueArg, HashArg, TraitsArg, TableTraitsArg, shouldValidateKey>& set)
 {
     return streamSizedContainer(ts, set);
 }

@@ -43,6 +43,7 @@
 #include "WebExtensionEventListenerType.h"
 #include "WebExtensionFrameIdentifier.h"
 #include "WebExtensionFrameParameters.h"
+#include "WebExtensionLocalization.h"
 #include "WebExtensionMatchPattern.h"
 #include "WebExtensionMatchedRuleParameters.h"
 #include "WebExtensionMenuItem.h"
@@ -54,6 +55,7 @@
 #include "WebExtensionWindow.h"
 #include "WebExtensionWindowIdentifier.h"
 #include "WebExtensionWindowParameters.h"
+#include "WebFrameProxy.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebProcessProxy.h"
 #include <WebCore/ContentRuleListResults.h>
@@ -90,6 +92,7 @@ OBJC_CLASS NSArray;
 OBJC_CLASS NSDate;
 OBJC_CLASS NSDictionary;
 OBJC_CLASS NSMapTable;
+OBJC_CLASS NSMutableArray;
 OBJC_CLASS NSMutableDictionary;
 OBJC_CLASS NSNumber;
 OBJC_CLASS NSString;
@@ -103,7 +106,6 @@ OBJC_CLASS WKWebView;
 OBJC_CLASS WKWebViewConfiguration;
 OBJC_CLASS _WKWebExtensionContextDelegate;
 OBJC_CLASS _WKWebExtensionDeclarativeNetRequestSQLiteStore;
-OBJC_CLASS _WKWebExtensionLocalization;
 OBJC_CLASS _WKWebExtensionRegisteredScriptsSQLiteStore;
 OBJC_CLASS _WKWebExtensionStorageSQLiteStore;
 OBJC_PROTOCOL(WKWebExtensionTab);
@@ -122,6 +124,7 @@ class SessionID;
 namespace WebKit {
 
 class ContextMenuContextData;
+class ProcessThrottlerActivity;
 class WebExtension;
 class WebUserContentControllerProxy;
 struct WebExtensionContextParameters;
@@ -148,6 +151,9 @@ public:
         return adoptRef(*new WebExtensionContext(std::forward<Args>(args)...));
     }
 
+    void ref() const final { API::ObjectImpl<API::Object::Type::WebExtensionContext>::ref(); }
+    void deref() const final { API::ObjectImpl<API::Object::Type::WebExtensionContext>::deref(); }
+
     static String plistFileName() { return "State.plist"_s; };
     static NSMutableDictionary *readStateFromPath(const String&);
     static bool readLastBaseURLFromState(const String& filePath, URL& outLastBaseURL);
@@ -159,15 +165,15 @@ public:
 
     explicit WebExtensionContext(Ref<WebExtension>&&);
 
-    using PermissionsMap = UncheckedKeyHashMap<String, WallTime>;
-    using PermissionMatchPatternsMap = UncheckedKeyHashMap<Ref<WebExtensionMatchPattern>, WallTime>;
+    using PermissionsMap = HashMap<String, WallTime>;
+    using PermissionMatchPatternsMap = HashMap<Ref<WebExtensionMatchPattern>, WallTime>;
 
     using UserScriptVector = Vector<Ref<API::UserScript>>;
     using UserStyleSheetVector = Vector<Ref<API::UserStyleSheet>>;
 
-    using AlarmInfoMap = UncheckedKeyHashMap<String, double>;
+    using AlarmInfoMap = HashMap<String, double>;
 
-    using DynamicInjectedContentsMap = UncheckedKeyHashMap<String, WebExtension::InjectedContentData>;
+    using DynamicInjectedContentsMap = HashMap<String, WebExtension::InjectedContentData>;
 
     using PermissionsSet = WebExtension::PermissionsSet;
     using MatchPatternSet = WebExtension::MatchPatternSet;
@@ -176,16 +182,16 @@ public:
     using URLSet = HashSet<URL>;
     using URLVector = Vector<URL>;
 
-    using WeakPageCountedSet = WeakHashCountedSet<WebPageProxy>;
+    using WeakFrameCountedSet = WeakHashCountedSet<WebFrameProxy>;
     using EventListenerTypeCountedSet = HashCountedSet<WebExtensionEventListenerType>;
-    using EventListenerTypePageMap = UncheckedKeyHashMap<WebExtensionEventListenerTypeWorldPair, WeakPageCountedSet>;
+    using EventListenerTypeFrameMap = HashMap<WebExtensionEventListenerTypeWorldPair, WeakFrameCountedSet>;
     using EventListenerTypeSet = HashSet<WebExtensionEventListenerType>;
     using ContentWorldTypeSet = HashSet<WebExtensionContentWorldType>;
     using VoidCompletionHandlerVector = Vector<CompletionHandler<void()>>;
 
-    using WindowIdentifierMap = UncheckedKeyHashMap<WebExtensionWindowIdentifier, Ref<WebExtensionWindow>>;
+    using WindowIdentifierMap = HashMap<WebExtensionWindowIdentifier, Ref<WebExtensionWindow>>;
     using WindowIdentifierVector = Vector<WebExtensionWindowIdentifier>;
-    using TabIdentifierMap = UncheckedKeyHashMap<WebExtensionTabIdentifier, Ref<WebExtensionTab>>;
+    using TabIdentifierMap = HashMap<WebExtensionTabIdentifier, Ref<WebExtensionTab>>;
     using PageTabIdentifierMap = WeakHashMap<WebPageProxy, WebExtensionTabIdentifier>;
     using PopupPageActionMap = WeakHashMap<WebPageProxy, Ref<WebExtensionAction>>;
 
@@ -203,16 +209,16 @@ public:
     using MessagePageProxyIdentifierPair = std::pair<String, std::optional<WebPageProxyIdentifier>>;
     using PortCountedSet = HashCountedSet<PortWorldPair>;
     using PortTupleCountedSet = HashCountedSet<PortWorldTuple>;
-    using PageProxyIdentifierPortMap = UncheckedKeyHashMap<WebPageProxyIdentifier, PortTupleCountedSet>;
-    using PortQueuedMessageMap = UncheckedKeyHashMap<PortWorldPair, Vector<MessagePageProxyIdentifierPair>>;
-    using NativePortMap = UncheckedKeyHashMap<WebExtensionPortChannelIdentifier, Ref<WebExtensionMessagePort>>;
+    using PageProxyIdentifierPortMap = HashMap<WebPageProxyIdentifier, PortTupleCountedSet>;
+    using PortQueuedMessageMap = HashMap<PortWorldPair, Vector<MessagePageProxyIdentifierPair>>;
+    using NativePortMap = HashMap<WebExtensionPortChannelIdentifier, Ref<WebExtensionMessagePort>>;
 
     using PageIdentifierTuple = std::tuple<WebCore::PageIdentifier, std::optional<WebExtensionTabIdentifier>, std::optional<WebExtensionWindowIdentifier>>;
 
     using CommandsVector = Vector<Ref<WebExtensionCommand>>;
 
     using MenuItemVector = Vector<Ref<WebExtensionMenuItem>>;
-    using MenuItemMap = UncheckedKeyHashMap<String, Ref<WebExtensionMenuItem>>;
+    using MenuItemMap = HashMap<String, Ref<WebExtensionMenuItem>>;
 
     using DeclarativeNetRequestValidatedRulesets = Expected<WebExtension::DeclarativeNetRequestRulesetVector, WebExtensionError>;
     using DeclarativeNetRequestMatchedRuleVector = Vector<WebExtensionMatchedRuleParameters>;
@@ -221,7 +227,6 @@ public:
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     using InspectorTabVector = Vector<std::pair<Ref<WebInspectorUIProxy>, RefPtr<WebExtensionTab>>>;
-    using TabIdentifierWebViewPair = std::pair<WebExtensionTabIdentifier, RetainPtr<WKWebView>>;
 #endif
 
     using ReloadFromOrigin = WebExtensionTab::ReloadFromOrigin;
@@ -271,16 +276,27 @@ public:
         Tab,
     };
 
+#if ENABLE(INSPECTOR_EXTENSIONS)
+    struct InspectorContext {
+        std::optional<WebExtensionTabIdentifier> tabIdentifier;
+        RefPtr<API::InspectorExtension> extension;
+        RetainPtr<WKWebView> backgroundWebView;
+        RefPtr<ProcessThrottlerActivity> activity;
+    };
+#endif
+
     WebExtensionContextParameters parameters() const;
 
     bool operator==(const WebExtensionContext& other) const { return (this == &other); }
 
+#if PLATFORM(COCOA)
     NSError *createError(Error, NSString *customLocalizedDescription = nil, NSError *underlyingError = nil);
     void recordErrorIfNeeded(NSError *error) { if (error) recordError(error); }
     void recordError(NSError *);
     void clearError(Error);
 
     NSArray *errors();
+#endif
 
     bool storageIsPersistent() const { return !m_storageDirectory.isEmpty(); }
     const String& storageDirectory() const { return m_storageDirectory; }
@@ -298,6 +314,7 @@ public:
     WebExtension& extension() const { return *m_extension; }
     Ref<WebExtension> protectedExtension() const { return extension(); }
     WebExtensionController* extensionController() const { return m_extensionController.get(); }
+    RefPtr<WebExtensionController> protectedExtensionController() const { return m_extensionController.get(); }
 
     const URL& baseURL() const { return m_baseURL; }
     void setBaseURL(URL&&);
@@ -309,7 +326,10 @@ public:
     const String& uniqueIdentifier() const { return m_uniqueIdentifier; }
     void setUniqueIdentifier(String&&);
 
-    _WKWebExtensionLocalization *localization();
+    RefPtr<WebExtensionLocalization> localization();
+
+    RefPtr<API::Data> localizedResourceData(const RefPtr<API::Data>&, const String& mimeType);
+    String localizedResourceString(const String&, const String& mimeType);
 
     bool isInspectable() const { return m_inspectable; }
     void setInspectable(bool);
@@ -425,10 +445,10 @@ public:
     void didReplaceTab(WebExtensionTab& oldTab, WebExtensionTab& newTab, SuppressEvents = SuppressEvents::No);
     void didChangeTabProperties(WebExtensionTab&, OptionSet<WebExtensionTab::ChangedProperties> = { });
 
-    void didStartProvisionalLoadForFrame(WebPageProxyIdentifier, WebExtensionFrameIdentifier, WebExtensionFrameIdentifier parentFrameID, const URL&, WallTime);
-    void didCommitLoadForFrame(WebPageProxyIdentifier, WebExtensionFrameIdentifier, WebExtensionFrameIdentifier parentFrameID, const URL&, WallTime);
-    void didFinishLoadForFrame(WebPageProxyIdentifier, WebExtensionFrameIdentifier, WebExtensionFrameIdentifier parentFrameID, const URL&, WallTime);
-    void didFailLoadForFrame(WebPageProxyIdentifier, WebExtensionFrameIdentifier, WebExtensionFrameIdentifier parentFrameID, const URL&, WallTime);
+    void didStartProvisionalLoadForFrame(WebPageProxyIdentifier, const WebExtensionFrameParameters&, WallTime);
+    void didCommitLoadForFrame(WebPageProxyIdentifier, const WebExtensionFrameParameters&, WallTime);
+    void didFinishLoadForFrame(WebPageProxyIdentifier, const WebExtensionFrameParameters&, WallTime);
+    void didFailLoadForFrame(WebPageProxyIdentifier, const WebExtensionFrameParameters&, WallTime);
 
     void resourceLoadDidSendRequest(WebPageProxyIdentifier, const ResourceLoadInfo&, const WebCore::ResourceRequest&);
     void resourceLoadDidPerformHTTPRedirection(WebPageProxyIdentifier, const ResourceLoadInfo&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&);
@@ -486,7 +506,7 @@ public:
     WebExtensionMenuItem* menuItem(const String& identifier) const;
     void performMenuItem(WebExtensionMenuItem&, const WebExtensionMenuItemContextParameters&, UserTriggered = UserTriggered::No);
 
-    CocoaMenuItem *singleMenuItemOrExtensionItemWithSubmenu(const WebExtensionMenuItemContextParameters&) const;
+    CocoaMenuItem *singleMenuItemOrExtensionItemWithSubmenu(const WebExtensionMenuItemContextParameters&, const bool allowTopLevelImages) const;
 
 #if PLATFORM(MAC)
     void addItemsToContextMenu(WebPageProxy&, const ContextMenuContextData&, NSMenu *);
@@ -498,11 +518,17 @@ public:
 
     bool inTestingMode() const;
 
+#if PLATFORM(COCOA)
+    void sendTestMessage(const String& message, id argument);
+#endif
+
+#if PLATFORM(COCOA)
     URL backgroundContentURL();
     WKWebView *backgroundWebView() const { return m_backgroundWebView.get(); }
     bool safeToLoadBackgroundContent() const { return m_safeToLoadBackgroundContent; }
 
     NSError *backgroundContentLoadError() const { return m_backgroundContentLoadError.get(); }
+#endif
 
     NSString *backgroundWebViewInspectionName();
     void setBackgroundWebViewInspectionName(const String&);
@@ -516,7 +542,9 @@ public:
     void runOpenPanel(WKWebView *, WKOpenPanelParameters *, void (^)(NSArray *));
 #endif
 
+#if PLATFORM(COCOA)
     void sendNativeMessage(const String& applicationID, id message, CompletionHandler<void(Expected<RetainPtr<id>, WebExtensionError>&&)>&&);
+#endif
 
     void addInjectedContent(WebUserContentControllerProxy&);
     void removeInjectedContent(WebUserContentControllerProxy&);
@@ -545,6 +573,7 @@ public:
     WKWebView *relatedWebView();
     NSString *processDisplayName();
     NSArray *corsDisablingPatterns();
+    void updateCORSDisablingPatternsOnAllExtensionPages();
     WKWebViewConfiguration *webViewConfiguration(WebViewPurpose = WebViewPurpose::Any);
 
     WebsiteDataStore* websiteDataStore(std::optional<PAL::SessionID> = std::nullopt) const;
@@ -566,11 +595,9 @@ public:
         return processes(WTFMove(typeSet), ContentWorldTypeSet { contentWorldType });
     }
 
-    HashSet<Ref<WebProcessProxy>> processes(EventListenerTypeSet&&, ContentWorldTypeSet&&) const;
+    HashSet<Ref<WebProcessProxy>> processes(EventListenerTypeSet&&, ContentWorldTypeSet&&, Function<bool(WebPageProxy&, WebFrameProxy&)>&& predicate = nullptr) const;
 
     const UserContentControllerProxySet& userContentControllers() const;
-
-    bool pageListensForEvent(const WebPageProxy&, WebExtensionEventListenerType, WebExtensionContentWorldType) const;
 
     template<typename T>
     void sendToProcesses(const WebProcessProxySet&, const T& message) const;
@@ -608,11 +635,14 @@ private:
     bool removePermissions(PermissionsMap&, PermissionsSet&, WallTime& nextExpirationDate, NSString *notificationName);
     bool removePermissionMatchPatterns(PermissionMatchPatternsMap&, MatchPatternSet&, EqualityOnly, WallTime& nextExpirationDate, NSString *notificationName);
 
+#if PLATFORM(COCOA)
     PermissionsMap& removeExpired(PermissionsMap&, WallTime& nextExpirationDate, NSString *notificationName = nil);
     PermissionMatchPatternsMap& removeExpired(PermissionMatchPatternsMap&, WallTime& nextExpirationDate, NSString *notificationName = nil);
+#endif
 
     void populateWindowsAndTabs();
 
+    bool isBackgroundPage(WebCore::FrameIdentifier) const;
     bool isBackgroundPage(WebPageProxyIdentifier) const;
     bool backgroundContentIsLoaded() const;
 
@@ -749,7 +779,7 @@ private:
     void cookiesGetAll(std::optional<PAL::SessionID>, const URL&, const WebExtensionCookieFilterParameters&, CompletionHandler<void(Expected<Vector<WebExtensionCookieParameters>, WebExtensionError>&&)>&&);
     void cookiesSet(std::optional<PAL::SessionID>, const WebExtensionCookieParameters&, CompletionHandler<void(Expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&&)>&&);
     void cookiesRemove(std::optional<PAL::SessionID>, const String& name, const URL&, CompletionHandler<void(Expected<std::optional<WebExtensionCookieParameters>, WebExtensionError>&&)>&&);
-    void cookiesGetAllCookieStores(CompletionHandler<void(Expected<UncheckedKeyHashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>, WebExtensionError>&&)>&&);
+    void cookiesGetAllCookieStores(CompletionHandler<void(Expected<HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>, WebExtensionError>&&)>&&);
     void fireCookiesChangedEventIfNeeded();
 
     // DeclarativeNetRequest APIs
@@ -776,8 +806,8 @@ private:
 #endif
 
     // Event APIs
-    void addListener(WebPageProxyIdentifier, WebExtensionEventListenerType, WebExtensionContentWorldType);
-    void removeListener(WebPageProxyIdentifier, WebExtensionEventListenerType, WebExtensionContentWorldType, size_t removedCount);
+    void addListener(WebCore::FrameIdentifier, WebExtensionEventListenerType, WebExtensionContentWorldType);
+    void removeListener(WebCore::FrameIdentifier, WebExtensionEventListenerType, WebExtensionContentWorldType, size_t removedCount);
 
     // Extension APIs
     void extensionIsAllowedIncognitoAccess(CompletionHandler<void(bool)>&&);
@@ -921,8 +951,10 @@ private:
 
     String m_storageDirectory;
 
+#if PLATFORM(COCOA)
     RetainPtr<NSMutableDictionary> m_state;
     RetainPtr<NSMutableArray> m_errors;
+#endif
 
     RefPtr<WebExtension> m_extension;
     WeakPtr<WebExtensionController> m_extensionController;
@@ -931,7 +963,7 @@ private:
     String m_uniqueIdentifier = WTF::UUID::createVersion4().toString();
     bool m_customUniqueIdentifier { false };
 
-    RetainPtr<_WKWebExtensionLocalization> m_localization;
+    RefPtr<WebExtensionLocalization> m_localization;
 
     bool m_inspectable { false };
 
@@ -952,7 +984,7 @@ private:
     WallTime m_nextDeniedPermissionMatchPatternsExpirationDate { WallTime::nan() };
 
     ListHashSet<URL> m_cachedPermissionURLs;
-    UncheckedKeyHashMap<URL, PermissionState> m_cachedPermissionStates;
+    HashMap<URL, PermissionState> m_cachedPermissionStates;
 
     size_t m_pendingPermissionRequests { 0 };
 
@@ -961,15 +993,18 @@ private:
 
     VoidCompletionHandlerVector m_actionsToPerformAfterBackgroundContentLoads;
     EventListenerTypeCountedSet m_backgroundContentEventListeners;
-    EventListenerTypePageMap m_eventListenerPages;
+    EventListenerTypeFrameMap m_eventListenerFrames;
 
     bool m_shouldFireStartupEvent { false };
     InstallReason m_installReason { InstallReason::None };
     String m_previousVersion;
 
+#if PLATFORM(COCOA)
     RetainPtr<WKWebView> m_backgroundWebView;
+    RefPtr<ProcessThrottlerActivity> m_backgroundWebViewActivity;
     RetainPtr<NSError> m_backgroundContentLoadError;
     RetainPtr<_WKWebExtensionContextDelegate> m_delegate;
+#endif
 
     String m_backgroundWebViewInspectionName;
 
@@ -979,19 +1014,20 @@ private:
     bool m_safeToLoadBackgroundContent { false };
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
-    WeakHashMap<WebInspectorUIProxy, TabIdentifierWebViewPair> m_inspectorBackgroundPageMap;
-    WeakHashMap<WebInspectorUIProxy, Ref<API::InspectorExtension>> m_inspectorExtensionMap;
+    WeakHashMap<WebInspectorUIProxy, InspectorContext> m_inspectorContextMap;
 #endif
 
-    UncheckedKeyHashMap<Ref<WebExtensionMatchPattern>, UserScriptVector> m_injectedScriptsPerPatternMap;
-    UncheckedKeyHashMap<Ref<WebExtensionMatchPattern>, UserStyleSheetVector> m_injectedStyleSheetsPerPatternMap;
+    HashMap<Ref<WebExtensionMatchPattern>, UserScriptVector> m_injectedScriptsPerPatternMap;
+    HashMap<Ref<WebExtensionMatchPattern>, UserStyleSheetVector> m_injectedStyleSheetsPerPatternMap;
 
-    UncheckedKeyHashMap<String, Ref<WebExtensionDynamicScripts::WebExtensionRegisteredScript>> m_registeredScriptsMap;
+#if PLATFORM(COCOA)
+    HashMap<String, Ref<WebExtensionDynamicScripts::WebExtensionRegisteredScript>> m_registeredScriptsMap;
     RetainPtr<_WKWebExtensionRegisteredScriptsSQLiteStore> m_registeredContentScriptsStorage;
+#endif
 
     UserStyleSheetVector m_dynamicallyInjectedUserStyleSheets;
 
-    UncheckedKeyHashMap<String, Ref<WebExtensionAlarm>> m_alarmMap;
+    HashMap<String, Ref<WebExtensionAlarm>> m_alarmMap;
     WeakHashMap<WebExtensionWindow, Ref<WebExtensionAction>> m_actionWindowMap;
     WeakHashMap<WebExtensionTab, Ref<WebExtensionAction>> m_actionTabMap;
     RefPtr<WebExtensionAction> m_defaultAction;
@@ -1016,15 +1052,19 @@ private:
     PageTabIdentifierMap m_extensionPageTabMap;
     PopupPageActionMap m_popupPageActionMap;
 
+#if PLATFORM(COCOA)
     RetainPtr<NSMapTable> m_tabDelegateToIdentifierMap;
+#endif
 
     CommandsVector m_commands;
     bool m_populatedCommands { false };
 
     String m_declarativeNetRequestContentRuleListFilePath;
     DeclarativeNetRequestMatchedRuleVector m_matchedRules;
+#if PLATFORM(COCOA)
     RetainPtr<_WKWebExtensionDeclarativeNetRequestSQLiteStore> m_declarativeNetRequestDynamicRulesStore;
     RetainPtr<_WKWebExtensionDeclarativeNetRequestSQLiteStore> m_declarativeNetRequestSessionRulesStore;
+#endif
     HashSet<String> m_enabledStaticRulesetIDs;
     HashSet<double> m_sessionRulesIDs;
     HashSet<double> m_dynamicRulesIDs;
@@ -1033,9 +1073,12 @@ private:
     MenuItemVector m_mainMenuItems;
 
     bool m_isSessionStorageAllowedInContentScripts { false };
+
+#if PLATFORM(COCOA)
     RetainPtr<_WKWebExtensionStorageSQLiteStore> m_localStorageStore;
     RetainPtr<_WKWebExtensionStorageSQLiteStore> m_sessionStorageStore;
     RetainPtr<_WKWebExtensionStorageSQLiteStore> m_syncStorageStore;
+#endif
 };
 
 template<typename T>

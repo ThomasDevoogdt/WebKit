@@ -86,12 +86,12 @@ enum class ProcessLaunchType {
 struct ProcessLaunchOptions {
     WebCore::ProcessIdentifier processIdentifier;
     ProcessLaunchType processType { ProcessLaunchType::Web };
-    UncheckedKeyHashMap<String, String> extraInitializationData { };
+    HashMap<String, String> extraInitializationData { };
     bool nonValidInjectedCodeAllowed { false };
     bool shouldMakeProcessLaunchFailForTesting { false };
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-    UncheckedKeyHashMap<CString, SandboxPermission> extraSandboxPaths { };
+    HashMap<CString, SandboxPermission> extraSandboxPaths { };
 #if ENABLE(DEVELOPER_MODE)
     String processCmdPrefix { };
 #endif
@@ -125,7 +125,7 @@ public:
     public:
         virtual ~Client() { }
         
-        virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier) = 0;
+        virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier&&) = 0;
         virtual bool shouldConfigureJSCForTesting() const { return false; }
         virtual bool isJITEnabled() const { return true; }
         virtual bool shouldEnableSharedArrayBuffer() const { return false; }
@@ -136,10 +136,10 @@ public:
 #endif
 
         // CanMakeCheckedPtr.
-        virtual uint32_t ptrCount() const = 0;
-        virtual uint32_t ptrCountWithoutThreadCheck() const = 0;
-        virtual void incrementPtrCount() const = 0;
-        virtual void decrementPtrCount() const = 0;
+        virtual uint32_t checkedPtrCount() const = 0;
+        virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+        virtual void incrementCheckedPtrCount() const = 0;
+        virtual void decrementCheckedPtrCount() const = 0;
     };
 
     static Ref<ProcessLauncher> create(Client* client, LaunchOptions&& launchOptions)
@@ -169,7 +169,7 @@ private:
 
     void launchProcess();
     void finishLaunchingProcess(ASCIILiteral name);
-    void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier);
+    void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier&&);
 
     void platformInvalidate();
     void platformDestroy();
@@ -204,7 +204,6 @@ private:
 
 #if USE(GLIB) && OS(LINUX)
     GSocketMonitor m_socketMonitor;
-    int m_pidServerSocket { -1 };
 #endif
 };
 

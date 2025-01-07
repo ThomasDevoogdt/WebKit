@@ -44,12 +44,15 @@
 #include <wtf/SafeStrerror.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(GLIB)
 #include <glib.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WTF {
 
@@ -325,17 +328,17 @@ bool makeAllDirectories(const String& path)
     if (!access(fullPath.data(), F_OK))
         return true;
 
-    char* p = fullPath.mutableData() + 1;
+    auto p = fullPath.mutableSpanIncludingNullTerminator().subspan(1);
     if (p[length - 1] == '/')
         p[length - 1] = '\0';
-    for (; *p; ++p) {
-        if (*p == '/') {
-            *p = '\0';
+    for (; p[0]; skip(p, 1)) {
+        if (p[0] == '/') {
+            p[0] = '\0';
             if (access(fullPath.data(), F_OK)) {
                 if (mkdir(fullPath.data(), S_IRWXU))
                     return false;
             }
-            *p = '/';
+            p[0] = '/';
         }
     }
     if (access(fullPath.data(), F_OK)) {
@@ -375,3 +378,5 @@ String pathByAppendingComponents(StringView path, const Vector<StringView>& comp
 
 } // namespace FileSystemImpl
 } // namespace WTF
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

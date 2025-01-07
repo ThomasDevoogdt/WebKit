@@ -56,8 +56,8 @@ class SpeechRecognitionRemoteRealtimeMediaSourceManager final : public IPC::Mess
 public:
     explicit SpeechRecognitionRemoteRealtimeMediaSourceManager(const WebProcessProxy&);
 
-    void ref() const;
-    void deref() const;
+    void ref() const final;
+    void deref() const final;
 
     void addSource(SpeechRecognitionRemoteRealtimeMediaSource&, const WebCore::CaptureDevice&);
     void removeSource(SpeechRecognitionRemoteRealtimeMediaSource&);
@@ -81,7 +81,7 @@ private:
     uint64_t messageSenderDestinationID() const final;
 
     WeakRef<const WebProcessProxy> m_process;
-    UncheckedKeyHashMap<WebCore::RealtimeMediaSourceIdentifier, ThreadSafeWeakPtr<SpeechRecognitionRemoteRealtimeMediaSource>> m_sources;
+    HashMap<WebCore::RealtimeMediaSourceIdentifier, ThreadSafeWeakPtr<SpeechRecognitionRemoteRealtimeMediaSource>> m_sources;
 };
 
 } // namespace WebKit

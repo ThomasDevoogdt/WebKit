@@ -102,10 +102,11 @@ using namespace WebKit;
     if (!uniqueIdentifier)
         return;
 
-    if (!_webExtensionController)
+    RefPtr webExtensionController = _webExtensionController.get();
+    if (!webExtensionController)
         return;
 
-    if (RefPtr context = _webExtensionController->extensionContext(uniqueIdentifier))
+    if (RefPtr context = webExtensionController->extensionContext(uniqueIdentifier))
         context->invalidateStorage();
 }
 
@@ -486,7 +487,7 @@ void WebExtensionController::addWebsiteDataStore(WebsiteDataStore& dataStore)
         m_cookieStoreObserver = HTTPCookieStoreObserver::create(*this);
 
     m_websiteDataStores.add(dataStore);
-    dataStore.protectedCookieStore()->registerObserver(*m_cookieStoreObserver);
+    dataStore.protectedCookieStore()->registerObserver(*protectedCookieStoreObserver());
 }
 
 void WebExtensionController::removeWebsiteDataStore(WebsiteDataStore& dataStore)
@@ -498,7 +499,7 @@ void WebExtensionController::removeWebsiteDataStore(WebsiteDataStore& dataStore)
     }
 
     m_websiteDataStores.remove(dataStore);
-    dataStore.protectedCookieStore()->unregisterObserver(*m_cookieStoreObserver);
+    dataStore.protectedCookieStore()->unregisterObserver(*protectedCookieStoreObserver());
 
     if (m_websiteDataStores.isEmptyIgnoringNullReferences())
         m_cookieStoreObserver = nullptr;
@@ -590,28 +591,28 @@ void WebExtensionController::addItemsToContextMenu(WebPageProxy& page, const Con
 
 // MARK: webNavigation
 
-void WebExtensionController::didStartProvisionalLoadForFrame(WebPageProxyIdentifier pageID, WebExtensionFrameIdentifier frameID, WebExtensionFrameIdentifier parentFrameID, const URL& targetURL, WallTime timestamp)
+void WebExtensionController::didStartProvisionalLoadForFrame(WebPageProxyIdentifier pageID, const WebExtensionFrameParameters& frameParameters, WallTime timestamp)
 {
     for (Ref context : m_extensionContexts)
-        context->didStartProvisionalLoadForFrame(pageID, frameID, parentFrameID, targetURL, timestamp);
+        context->didStartProvisionalLoadForFrame(pageID, frameParameters, timestamp);
 }
 
-void WebExtensionController::didCommitLoadForFrame(WebPageProxyIdentifier pageID, WebExtensionFrameIdentifier frameID, WebExtensionFrameIdentifier parentFrameID, const URL& frameURL, WallTime timestamp)
+void WebExtensionController::didCommitLoadForFrame(WebPageProxyIdentifier pageID, const WebExtensionFrameParameters& frameParameters, WallTime timestamp)
 {
     for (Ref context : m_extensionContexts)
-        context->didCommitLoadForFrame(pageID, frameID, parentFrameID, frameURL, timestamp);
+        context->didCommitLoadForFrame(pageID, frameParameters, timestamp);
 }
 
-void WebExtensionController::didFinishLoadForFrame(WebPageProxyIdentifier pageID, WebExtensionFrameIdentifier frameID, WebExtensionFrameIdentifier parentFrameID, const URL& frameURL, WallTime timestamp)
+void WebExtensionController::didFinishLoadForFrame(WebPageProxyIdentifier pageID, const WebExtensionFrameParameters& frameParameters, WallTime timestamp)
 {
     for (Ref context : m_extensionContexts)
-        context->didFinishLoadForFrame(pageID, frameID, parentFrameID, frameURL, timestamp);
+        context->didFinishLoadForFrame(pageID, frameParameters, timestamp);
 }
 
-void WebExtensionController::didFailLoadForFrame(WebPageProxyIdentifier pageID, WebExtensionFrameIdentifier frameID, WebExtensionFrameIdentifier parentFrameID, const URL& frameURL, WallTime timestamp)
+void WebExtensionController::didFailLoadForFrame(WebPageProxyIdentifier pageID, const WebExtensionFrameParameters& frameParameters, WallTime timestamp)
 {
     for (Ref context : m_extensionContexts)
-        context->didFailLoadForFrame(pageID, frameID, parentFrameID, frameURL, timestamp);
+        context->didFailLoadForFrame(pageID, frameParameters, timestamp);
 }
 
 // MARK: declarativeNetRequest

@@ -28,12 +28,15 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "IntegrityInlines.h"
 #include "JSCJSValueInlines.h"
 #include "JSWebAssemblyInstance.h"
 #include "WasmTypeDefinitionInlines.h"
 #include <type_traits>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace Wasm {
 
@@ -188,6 +191,7 @@ void Table::set(uint32_t index, JSValue value)
 {
     ASSERT(index < length());
     ASSERT(m_owner);
+    Integrity::auditCell<Integrity::AuditLevel::Full>(owner()->vm(), value);
     visitDerived([&](auto& table) {
         table.set(index, value);
     });
@@ -292,6 +296,13 @@ void FuncRefTable::setFunction(uint32_t index, WebAssemblyFunctionBase* function
     ASSERT_WITH_SECURITY_IMPLICATION(isSubtype(function->type(), wasmType()));
     auto& slot = m_importableFunctions.get()[index];
     slot.m_function = function->importableFunction();
+    if (!slot.m_function.targetInstance) {
+        // This is a JS function.
+        ASSERT(!*slot.m_function.boxedWasmCalleeLoadLocation);
+        slot.m_protectedJSCallee = adoptRef(*new WasmToJSCallee(FunctionSpaceIndex(index), { nullptr, nullptr }));
+        slot.m_boxedProtectedJSCallee = CalleeBits::encodeNativeCallee(slot.m_protectedJSCallee.get());
+        slot.m_function.boxedWasmCalleeLoadLocation = &slot.m_boxedProtectedJSCallee;
+    }
     slot.m_instance = function->instance();
     slot.m_value.set(function->instance()->vm(), m_owner, function);
 }
@@ -332,5 +343,7 @@ void FuncRefTable::set(uint32_t index, JSValue value)
 }
 
 } } // namespace JSC::Table
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

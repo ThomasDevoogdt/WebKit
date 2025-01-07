@@ -55,6 +55,9 @@ public:
         return adoptRef(*new RemoteAudioSessionProxy(gpuConnection));
     }
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     virtual ~RemoteAudioSessionProxy();
 
     WebCore::ProcessIdentifier processIdentifier();
@@ -84,6 +87,10 @@ public:
     RefPtr<GPUConnectionToWebProcess> gpuConnectionToWebProcess() const;
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
+#if PLATFORM(IOS_FAMILY)
+    void setPreferredSpeakerID(const String&);
+#endif
+
 private:
     explicit RemoteAudioSessionProxy(GPUConnectionToWebProcess&);
 
@@ -99,8 +106,6 @@ private:
     void beginInterruptionRemote();
     void endInterruptionRemote(WebCore::AudioSession::MayResume);
 
-    bool allowTestOnlyIPC();
-
     RemoteAudioSessionProxyManager& audioSessionManager();
     Ref<RemoteAudioSessionProxyManager> protectedAudioSessionManager();
     Ref<IPC::Connection> protectedConnection() const;
@@ -115,6 +120,9 @@ private:
     bool m_active { false };
     bool m_isInterrupted { false };
     bool m_isPlayingToBluetoothOverrideChanged { false };
+#if PLATFORM(IOS_FAMILY)
+    String m_speakerID;
+#endif
 };
 
 }

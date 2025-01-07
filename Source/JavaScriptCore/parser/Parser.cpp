@@ -338,7 +338,7 @@ Expected<typename Parser<LexerType>::ParseInnerResult, String> Parser<LexerType>
 #if ASSERT_ENABLED
     if (m_parsingBuiltin && isProgramParseMode(parseMode)) {
         VariableEnvironment& lexicalVariables = scope->lexicalVariables();
-        const HashSet<UniquedStringImpl*>& closedVariableCandidates = scope->closedVariableCandidates();
+        auto& closedVariableCandidates = scope->closedVariableCandidates();
         for (UniquedStringImpl* candidate : closedVariableCandidates) {
             // FIXME: We allow async to leak because it appearing as a closed variable is a side effect of trying to parse async arrow functions.
             if (!lexicalVariables.contains(candidate) && !varDeclarations.contains(candidate) && !candidate->isSymbol() && candidate != m_vm.propertyNames->async.impl()) {
@@ -3207,7 +3207,7 @@ parseMethod:
             DepthManager statementDepth(&m_statementDepth);
             m_statementDepth = 0;
             failIfFalse(parseBlockStatement(context, BlockType::StaticBlock), "Cannot parse class static block");
-            auto* symbolImpl = bitwise_cast<SymbolImpl*>(m_vm.propertyNames->builtinNames().staticInitializerBlockPrivateName().impl());
+            auto* symbolImpl = std::bit_cast<SymbolImpl*>(m_vm.propertyNames->builtinNames().staticInitializerBlockPrivateName().impl());
             ident = &m_parserArena.identifierArena().makeIdentifier(const_cast<VM&>(m_vm), symbolImpl);
             property = context.createProperty(ident, type, SuperBinding::Needed, tag);
             classScope->markLastUsedVariablesSetAsCaptured(usedVariablesSize);
@@ -3646,7 +3646,7 @@ template <class TreeBuilder> typename TreeBuilder::ImportSpecifier Parser<LexerT
 template <typename LexerType>
 template <class TreeBuilder> typename TreeBuilder::ImportAttributesList Parser<LexerType>::parseImportAttributes(TreeBuilder& context)
 {
-    HashSet<UniquedStringImpl*> keys;
+    UncheckedKeyHashSet<UniquedStringImpl*> keys;
     auto attributesList = context.createImportAttributesList();
     consumeOrFail(OPENBRACE, "Expected opening '{' at the start of import attribute");
     while (!match(CLOSEBRACE)) {
@@ -3675,6 +3675,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseImportDeclara
     next();
 
     auto specifierList = context.createImportSpecifierList();
+    auto type = ImportDeclarationNode::ImportType::Normal;
 
     if (match(STRING)) {
         // import ModuleSpecifier ;
@@ -3690,11 +3691,24 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseImportDeclara
         }
 
         failIfFalse(autoSemiColon(), "Expected a ';' following a targeted import declaration");
-        return context.createImportDeclaration(importLocation, specifierList, moduleName, attributesList);
+        return context.createImportDeclaration(importLocation, type, specifierList, moduleName, attributesList);
     }
 
     bool isFinishedParsingImport = false;
-    if (matchSpecIdentifier()) {
+    bool hasImportDefer = false;
+    if (UNLIKELY(Options::useImportDefer() && matchContextualKeyword(m_vm.propertyNames->deferKeyword))) {
+        SavePoint deferSavePoint = createSavePoint(context);
+        next();
+        if (match(TIMES)) {
+            // import defer NameSpaceImport FromClause ;
+            type = ImportDeclarationNode::ImportType::Deferred;
+            hasImportDefer = true;
+        } else
+            // import defer FromClause ;
+            restoreSavePoint(context, deferSavePoint);
+    }
+
+    if (matchSpecIdentifier() && !hasImportDefer) {
         // ImportedDefaultBinding :
         // ImportedBinding
         auto specifier = parseImportClauseItem(context, ImportSpecifierType::DefaultImport);
@@ -3749,7 +3763,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseImportDeclara
 
     failIfFalse(autoSemiColon(), "Expected a ';' following a targeted import declaration");
 
-    return context.createImportDeclaration(importLocation, specifierList, moduleName, attributesList);
+    return context.createImportDeclaration(importLocation, type, specifierList, moduleName, attributesList);
 }
 
 template <typename LexerType>

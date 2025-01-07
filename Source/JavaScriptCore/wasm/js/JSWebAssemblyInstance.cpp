@@ -47,6 +47,8 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/MakeString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 using namespace Wasm;
@@ -75,11 +77,11 @@ JSWebAssemblyInstance::JSWebAssemblyInstance(VM& vm, Structure* structure, JSWeb
 {
     static_assert(static_cast<ptrdiff_t>(JSWebAssemblyInstance::offsetOfCachedMemory() + sizeof(void*)) == JSWebAssemblyInstance::offsetOfCachedBoundsCheckingSize());
     for (unsigned i = 0; i < m_numImportFunctions; ++i) {
-        auto* info = new (importFunctionInfo(i)) ImportFunctionInfo();
+        auto* info = new (importFunctionInfo(i)) WasmOrJSImportableFunction();
         info->callLinkInfo.initialize(vm, nullptr, CallLinkInfo::CallType::Call, CodeOrigin { });
     }
-    m_globals = bitwise_cast<Global::Value*>(bitwise_cast<char*>(this) + offsetOfGlobalPtr(m_numImportFunctions, m_module->moduleInformation().tableCount(), 0));
-    memset(bitwise_cast<char*>(m_globals), 0, m_module->moduleInformation().globalCount() * sizeof(Global::Value));
+    m_globals = std::bit_cast<Global::Value*>(std::bit_cast<char*>(this) + offsetOfGlobalPtr(m_numImportFunctions, m_module->moduleInformation().tableCount(), 0));
+    memset(std::bit_cast<char*>(m_globals), 0, m_module->moduleInformation().globalCount() * sizeof(Global::Value));
     for (unsigned i = 0; i < m_module->moduleInformation().globals.size(); ++i) {
         const GlobalInformation& global = m_module.get().moduleInformation().globals[i];
         if (global.bindingMode == GlobalInformation::BindingMode::Portable) {
@@ -90,7 +92,7 @@ JSWebAssemblyInstance::JSWebAssemblyInstance(VM& vm, Structure* structure, JSWeb
             m_globalsToMark.set(i);
         }
     }
-    memset(bitwise_cast<char*>(this) + offsetOfTablePtr(m_numImportFunctions, 0), 0, m_module->moduleInformation().tableCount() * sizeof(Table*));
+    memset(std::bit_cast<char*>(this) + offsetOfTablePtr(m_numImportFunctions, 0), 0, m_module->moduleInformation().tableCount() * sizeof(Table*));
     for (unsigned elementIndex = 0; elementIndex < m_module->moduleInformation().elementCount(); ++elementIndex) {
         const auto& element = m_module->moduleInformation().elements[elementIndex];
         if (element.isPassive())
@@ -115,7 +117,7 @@ JSWebAssemblyInstance::~JSWebAssemblyInstance()
 {
     clearJSCallICs(*m_vm);
     for (unsigned i = 0; i < m_numImportFunctions; ++i)
-        importFunctionInfo(i)->~ImportFunctionInfo();
+        importFunctionInfo(i)->~WasmOrJSImportableFunction();
 }
 
 void JSWebAssemblyInstance::destroy(JSCell* cell)
@@ -192,10 +194,13 @@ void JSWebAssemblyInstance::finalizeCreation(VM& vm, JSGlobalObject* globalObjec
         if (!info->targetInstance) {
             info->importFunctionStub = module().importFunctionStub(functionSpaceIndex);
             importCallees.append(adoptRef(*new WasmToJSCallee(functionSpaceIndex, { nullptr, nullptr })));
-            info->boxedTargetCalleeLoadLocation = reinterpret_cast<const uintptr_t*>(importCallees.last().ptr());
-        }
-        else
+            ASSERT(!*info->boxedWasmCalleeLoadLocation);
+            info->boxedCallee = CalleeBits::encodeNativeCallee(importCallees.last().ptr());
+            info->boxedWasmCalleeLoadLocation = &info->boxedCallee;
+        } else {
             info->importFunctionStub = wasmCalleeGroup->wasmToWasmExitStub(functionSpaceIndex);
+            ASSERT(info->boxedWasmCalleeLoadLocation && *info->boxedWasmCalleeLoadLocation);
+        }
     }
 
     if (creationMode == CreationMode::FromJS) {
@@ -351,7 +356,7 @@ void JSWebAssemblyInstance::setFunctionWrapper(unsigned i, JSValue value)
 Table* JSWebAssemblyInstance::table(unsigned i)
 {
     RELEASE_ASSERT(i < m_module->moduleInformation().tableCount());
-    return *bitwise_cast<Table**>(bitwise_cast<char*>(this) + offsetOfTablePtr(m_numImportFunctions, i));
+    return *std::bit_cast<Table**>(std::bit_cast<char*>(this) + offsetOfTablePtr(m_numImportFunctions, i));
 }
 
 void JSWebAssemblyInstance::tableCopy(uint32_t dstOffset, uint32_t srcOffset, uint32_t length, uint32_t dstTableIndex, uint32_t srcTableIndex)
@@ -619,7 +624,7 @@ void JSWebAssemblyInstance::setTable(unsigned i, Ref<Table>&& table)
 {
     RELEASE_ASSERT(i < m_module->moduleInformation().tableCount());
     ASSERT(!this->table(i));
-    *bitwise_cast<Table**>(bitwise_cast<char*>(this) + offsetOfTablePtr(m_numImportFunctions, i)) = &table.leakRef();
+    *std::bit_cast<Table**>(std::bit_cast<char*>(this) + offsetOfTablePtr(m_numImportFunctions, i)) = &table.leakRef();
 }
 
 void JSWebAssemblyInstance::linkGlobal(unsigned i, Ref<Global>&& global)
@@ -634,5 +639,7 @@ void JSWebAssemblyInstance::setTag(unsigned index, Ref<const Tag>&& tag)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

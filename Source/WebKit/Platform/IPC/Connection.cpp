@@ -55,10 +55,6 @@
 #include "UnixMessage.h"
 #endif
 
-#if OS(WINDOWS)
-#include "ArgumentCodersWin.h"
-#endif
-
 namespace IPC {
 
 #if PLATFORM(COCOA)
@@ -135,9 +131,9 @@ private:
     }
     static Lock syncMessageStateMapLock;
     // FIXME: Don't use raw pointers.
-    static UncheckedKeyHashMap<SerialFunctionDispatcher*, SyncMessageState*>& syncMessageStateMap() WTF_REQUIRES_LOCK(syncMessageStateMapLock)
+    static HashMap<SerialFunctionDispatcher*, SyncMessageState*>& syncMessageStateMap() WTF_REQUIRES_LOCK(syncMessageStateMapLock)
     {
-        static NeverDestroyed<UncheckedKeyHashMap<SerialFunctionDispatcher*, SyncMessageState*>> map;
+        static NeverDestroyed<HashMap<SerialFunctionDispatcher*, SyncMessageState*>> map;
         return map;
     }
 
@@ -340,23 +336,23 @@ struct Connection::PendingSyncReply {
     }
 };
 
-Ref<Connection> Connection::createServerConnection(Identifier identifier, Thread::QOS receiveQueueQOS)
+Ref<Connection> Connection::createServerConnection(Identifier&& identifier, Thread::QOS receiveQueueQOS)
 {
-    return adoptRef(*new Connection(identifier, true, receiveQueueQOS));
+    return adoptRef(*new Connection(WTFMove(identifier), true, receiveQueueQOS));
 }
 
-Ref<Connection> Connection::createClientConnection(Identifier identifier)
+Ref<Connection> Connection::createClientConnection(Identifier&& identifier)
 {
-    return adoptRef(*new Connection(identifier, false));
+    return adoptRef(*new Connection(WTFMove(identifier), false));
 }
 
-static UncheckedKeyHashMap<IPC::Connection::UniqueID, ThreadSafeWeakPtr<Connection>>& connectionMap() WTF_REQUIRES_LOCK(s_connectionMapLock)
+static HashMap<IPC::Connection::UniqueID, ThreadSafeWeakPtr<Connection>>& connectionMap() WTF_REQUIRES_LOCK(s_connectionMapLock)
 {
-    static NeverDestroyed<UncheckedKeyHashMap<IPC::Connection::UniqueID, ThreadSafeWeakPtr<Connection>>> map;
+    static NeverDestroyed<HashMap<IPC::Connection::UniqueID, ThreadSafeWeakPtr<Connection>>> map;
     return map;
 }
 
-Connection::Connection(Identifier identifier, bool isServer, Thread::QOS receiveQueueQOS)
+Connection::Connection(Identifier&& identifier, bool isServer, Thread::QOS receiveQueueQOS)
     : m_uniqueID(UniqueID::generate())
     , m_isServer(isServer)
     , m_connectionQueue(WorkQueue::create("com.apple.IPC.ReceiveQueue"_s, receiveQueueQOS))
@@ -366,7 +362,7 @@ Connection::Connection(Identifier identifier, bool isServer, Thread::QOS receive
         connectionMap().add(m_uniqueID, this);
     }
 
-    platformInitialize(identifier);
+    platformInitialize(WTFMove(identifier));
 }
 
 Connection::~Connection()

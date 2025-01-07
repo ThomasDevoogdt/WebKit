@@ -32,10 +32,10 @@
 #include "MessageReceiverMap.h"
 #include "NetworkProcessProxy.h"
 #include "ProcessLauncher.h"
-#include "ProcessTerminationReason.h"
 #include "ProcessThrottler.h"
 #include "RemoteWorkerInitializationData.h"
 #include "ResponsivenessTimer.h"
+#include "ScopedActiveMessageReceiveQueue.h"
 #include "SharedPreferencesForWebProcess.h"
 #include "SpeechRecognitionServer.h"
 #include "UserContentControllerIdentifier.h"
@@ -47,8 +47,8 @@
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/ProcessIdentity.h>
-#include <WebCore/RegistrableDomain.h>
 #include <WebCore/SharedStringHash.h>
+#include <WebCore/Site.h>
 #include <WebCore/UserGestureTokenIdentifier.h>
 #include <pal/SessionID.h>
 #include <wtf/Forward.h>
@@ -87,6 +87,7 @@ class PageConfiguration;
 namespace WebCore {
 class DeferrableOneShotTimer;
 class ResourceRequest;
+struct CryptoKeyData;
 struct NotificationData;
 struct PluginInfo;
 struct PrewarmInformation;
@@ -116,6 +117,7 @@ class SuspendedPageProxy;
 class UserMediaCaptureManagerProxy;
 class VisitedLinkStore;
 class WebBackForwardListItem;
+class WebCompiledContentRuleList;
 class WebCompiledContentRuleListData;
 class WebFrameProxy;
 class WebLockRegistryProxy;
@@ -135,6 +137,7 @@ struct WebPageCreationParameters;
 struct WebPreferencesStore;
 struct WebsiteData;
 
+enum class ProcessTerminationReason : uint8_t;
 enum class ProcessThrottleState : uint8_t;
 enum class RemoteWorkerType : uint8_t;
 enum class WebsiteDataType : uint32_t;
@@ -161,9 +164,9 @@ class WebProcessProxy final : public AuxiliaryProcessProxy {
     WTF_MAKE_TZONE_ALLOCATED(WebProcessProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebProcessProxy);
 public:
-    using WebPageProxyMap = UncheckedKeyHashMap<WebPageProxyIdentifier, WeakRef<WebPageProxy>>;
-    using UserInitiatedActionByAuthorizationTokenMap = UncheckedKeyHashMap<WTF::UUID, RefPtr<API::UserInitiatedAction>>;
-    typedef UncheckedKeyHashMap<WebCore::UserGestureTokenIdentifier, RefPtr<API::UserInitiatedAction>> UserInitiatedActionMap;
+    using WebPageProxyMap = HashMap<WebPageProxyIdentifier, WeakRef<WebPageProxy>>;
+    using UserInitiatedActionByAuthorizationTokenMap = HashMap<WTF::UUID, RefPtr<API::UserInitiatedAction>>;
+    typedef HashMap<WebCore::UserGestureTokenIdentifier, RefPtr<API::UserInitiatedAction>> UserInitiatedActionMap;
 
     enum class IsPrewarmed : bool { No, Yes };
 
@@ -171,7 +174,7 @@ public:
     enum class LockdownMode : bool { Disabled, Enabled };
 
     static Ref<WebProcessProxy> create(WebProcessPool&, WebsiteDataStore*, LockdownMode, IsPrewarmed, WebCore::CrossOriginMode = WebCore::CrossOriginMode::Shared, ShouldLaunchProcess = ShouldLaunchProcess::Yes);
-    static Ref<WebProcessProxy> createForRemoteWorkers(RemoteWorkerType, WebProcessPool&, WebCore::RegistrableDomain&&, WebsiteDataStore&, LockdownMode);
+    static Ref<WebProcessProxy> createForRemoteWorkers(RemoteWorkerType, WebProcessPool&, WebCore::Site&&, WebsiteDataStore&, LockdownMode);
 
     ~WebProcessProxy();
 
@@ -200,9 +203,7 @@ public:
 #endif
     void waitForSharedPreferencesForWebProcessToSync(uint64_t sharedPreferencesVersion, CompletionHandler<void(bool success)>&&);
 
-    bool isMatchingRegistrableDomain(const WebCore::RegistrableDomain& domain) const { return m_registrableDomain ? *m_registrableDomain == domain : false; }
-    WebCore::RegistrableDomain registrableDomain() const { return valueOrDefault(m_registrableDomain); }
-    const std::optional<WebCore::RegistrableDomain>& optionalRegistrableDomain() const { return m_registrableDomain; }
+    const std::optional<WebCore::Site>& site() const { return m_site; }
 
     enum class WillShutDown : bool { No, Yes };
     void setIsInProcessCache(bool, WillShutDown = WillShutDown::No);
@@ -373,6 +374,7 @@ public:
     ShutdownPreventingScopeCounter::Token shutdownPreventingScope() { return m_shutdownPreventingScopeCounter.count(); }
 
     void didStartProvisionalLoadForMainFrame(const URL&);
+    void didStartUsingProcessForSiteIsolation(const WebCore::Site&);
 
     // ProcessThrottlerClient
     void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) final;
@@ -418,7 +420,7 @@ public:
 
     void setRemoteWorkerUserAgent(const String&);
     void updateRemoteWorkerPreferencesStore(const WebPreferencesStore&);
-    void establishRemoteWorkerContext(RemoteWorkerType, const WebPreferencesStore&, const WebCore::RegistrableDomain&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&);
+    void establishRemoteWorkerContext(RemoteWorkerType, const WebPreferencesStore&, const WebCore::Site&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&&);
     void registerRemoteWorkerClientProcess(RemoteWorkerType, WebProcessProxy&);
     void unregisterRemoteWorkerClientProcess(RemoteWorkerType, WebProcessProxy&);
     void updateRemoteWorkerProcessAssertion(RemoteWorkerType);
@@ -430,7 +432,8 @@ public:
     void setThrottleStateForTesting(ProcessThrottleState);
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    UserMediaCaptureManagerProxy* userMediaCaptureManagerProxy() { return m_userMediaCaptureManagerProxy.get(); }
+    UserMediaCaptureManagerProxy& userMediaCaptureManagerProxy() { return m_userMediaCaptureManagerProxy.get(); }
+    Ref<UserMediaCaptureManagerProxy> protectedUserMediaCaptureManagerProxy();
 #endif
 
 #if ENABLE(GPU_PROCESS)
@@ -463,6 +466,7 @@ public:
 #if ENABLE(MEDIA_STREAM)
     static void muteCaptureInPagesExcept(WebCore::PageIdentifier);
     SpeechRecognitionRemoteRealtimeMediaSourceManager& ensureSpeechRecognitionRemoteRealtimeMediaSourceManager();
+    RefPtr<SpeechRecognitionRemoteRealtimeMediaSourceManager> protectedSpeechRecognitionRemoteRealtimeMediaSourceManager();
 #endif
     void pageMutedStateChanged(WebCore::PageIdentifier, WebCore::MediaProducerMutedStateFlags);
     void pageIsBecomingInvisible(WebCore::PageIdentifier);
@@ -484,6 +488,7 @@ public:
 #endif
     void getNotifications(const URL&, const String&, CompletionHandler<void(Vector<WebCore::NotificationData>&&)>&&);
     void wrapCryptoKey(Vector<uint8_t>&&, CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&&);
+    void serializeAndWrapCryptoKey(WebCore::CryptoKeyData&&, CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&&);
     void unwrapCryptoKey(WebCore::WrappedCryptoKey&&, CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&&);
 
     void setAppBadge(std::optional<WebPageProxyIdentifier>, const WebCore::SecurityOriginData&, std::optional<uint64_t> badge);
@@ -522,7 +527,20 @@ public:
     const WebCore::ProcessIdentity& processIdentity();
 #endif
 
-    void markAsUsedForSiteIsolation() { m_usedForSiteIsolation = true; }
+    bool isAlwaysOnLoggingAllowed() const;
+
+    bool shouldRegisterServiceWorkerClients(const WebCore::Site&, PAL::SessionID) const;
+    void registerServiceWorkerClients(CompletionHandler<void()>&&);
+    void resetHasRegisteredServiceWorkerClients() { m_hasRegisteredServiceWorkerClients = false; }
+
+#if HAVE(AUDIT_TOKEN)
+    HashMap<WebCore::PageIdentifier, CoreIPCAuditToken> presentingApplicationAuditTokens() const;
+#endif
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    void requestResourceMonitorRuleLists();
+    void setResourceMonitorRuleListsIfRequired(WebCompiledContentRuleList*);
+#endif
 
 private:
     Type type() const final { return Type::WebContent; }
@@ -543,7 +561,7 @@ private:
 #endif
 
     // ProcessLauncher::Client
-    void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier) override;
+    void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier&&) override;
     bool shouldConfigureJSCForTesting() const final;
     bool isJITEnabled() const final;
     bool shouldEnableSharedArrayBuffer() const final { return m_crossOriginMode == WebCore::CrossOriginMode::Isolated; }
@@ -553,7 +571,7 @@ private:
     void validateFreezerStatus();
 
     void getWebCryptoMasterKey(CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&&);
-    using WebProcessProxyMap = UncheckedKeyHashMap<WebCore::ProcessIdentifier, CheckedRef<WebProcessProxy>>;
+    using WebProcessProxyMap = HashMap<WebCore::ProcessIdentifier, CheckedRef<WebProcessProxy>>;
     static WebProcessProxyMap& allProcessMap();
     static Vector<Ref<WebProcessProxy>> allProcesses();
     static WebPageProxyMap& globalPageMap();
@@ -567,16 +585,13 @@ private:
     void platformInitialize();
     void platformDestroy();
 
+    ProcessTerminationReason terminationReason() const;
+
     // IPC message handlers.
-    void updateBackForwardItem(Ref<FrameState>&&);
-    void didDestroyFrame(IPC::Connection&, WebCore::FrameIdentifier, WebPageProxyIdentifier);
     void didDestroyUserGestureToken(WebCore::PageIdentifier, WebCore::UserGestureTokenIdentifier);
 
     bool canBeAddedToWebProcessCache() const;
     void shouldTerminate(CompletionHandler<void(bool)>&&);
-
-    bool hasProvisionalPageWithID(WebPageProxyIdentifier) const;
-    bool isAllowedToUpdateBackForwardItem(WebBackForwardListItem&) const;
     
     void getNetworkProcessConnection(CompletionHandler<void(NetworkProcessConnectionInfo&&)>&&);
 
@@ -644,6 +659,9 @@ private:
     void updateRuntimeStatistics();
     void enableMediaPlaybackIfNecessary();
 
+    void updateSharedWorkerProcessAssertion();
+    void updateServiceWorkerProcessAssertion();
+
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
     void setupLogStream(uint32_t pid, IPC::StreamServerConnectionHandle&&, LogStreamIdentifier, CompletionHandler<void(IPC::Semaphore& streamWakeUpSemaphore, IPC::Semaphore& streamClientWaitSemaphore)>&&);
 #endif
@@ -693,7 +711,7 @@ private:
     WeakHashSet<ProvisionalPageProxy> m_provisionalPages;
     WeakHashSet<SuspendedPageProxy> m_suspendedPages;
     UserInitiatedActionMap m_userInitiatedActionMap;
-    UncheckedKeyHashMap<WebCore::PageIdentifier, UserInitiatedActionByAuthorizationTokenMap> m_userInitiatedActionByAuthorizationTokenMap;
+    HashMap<WebCore::PageIdentifier, UserInitiatedActionByAuthorizationTokenMap> m_userInitiatedActionByAuthorizationTokenMap;
 
     WeakHashMap<VisitedLinkStore, HashSet<WebPageProxyIdentifier>> m_visitedLinkStoresWithUsers;
     WeakHashSet<WebUserContentControllerProxy> m_webUserContentControllerProxies;
@@ -711,11 +729,10 @@ private:
     bool m_hasSentMessageToUnblockAccessibilityServer { false };
 #endif
 
-    UncheckedKeyHashMap<String, uint64_t> m_pageURLRetainCountMap;
+    HashMap<String, uint64_t> m_pageURLRetainCountMap;
 
-    std::optional<WebCore::RegistrableDomain> m_registrableDomain;
+    std::optional<WebCore::Site> m_site;
     bool m_isInProcessCache { false };
-    bool m_usedForSiteIsolation { false };
 
     enum class NoOrMaybe { No, Maybe } m_isResponsive;
     Vector<CompletionHandler<void(bool webProcessIsResponsive)>> m_isResponsiveCallbacks;
@@ -726,7 +743,7 @@ private:
     SystemMemoryPressureStatus m_memoryPressureStatus { SystemMemoryPressureStatus::Normal };
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    std::unique_ptr<UserMediaCaptureManagerProxy> m_userMediaCaptureManagerProxy;
+    const Ref<UserMediaCaptureManagerProxy> m_userMediaCaptureManagerProxy;
 #endif
 
     bool m_hasCommittedAnyProvisionalLoads { false };
@@ -754,10 +771,10 @@ private:
         RemoteWorkerInitializationData initializationData;
         RefPtr<ProcessThrottler::Activity> activity;
         WeakHashSet<WebProcessProxy> clientProcesses;
+        bool hasBackgroundProcessing { false };
     };
     std::optional<RemoteWorkerInformation> m_serviceWorkerInformation;
     std::optional<RemoteWorkerInformation> m_sharedWorkerInformation;
-    bool m_hasServiceWorkerBackgroundProcessing { false };
 
     struct AudibleMediaActivity {
         Ref<ProcessAssertion> assertion;
@@ -775,13 +792,13 @@ private:
     
     bool m_allowTestOnlyIPC { false };
 
-    using SpeechRecognitionServerMap = UncheckedKeyHashMap<SpeechRecognitionServerIdentifier, Ref<SpeechRecognitionServer>>;
+    using SpeechRecognitionServerMap = HashMap<SpeechRecognitionServerIdentifier, Ref<SpeechRecognitionServer>>;
     SpeechRecognitionServerMap m_speechRecognitionServerMap;
 #if ENABLE(MEDIA_STREAM)
     std::unique_ptr<SpeechRecognitionRemoteRealtimeMediaSourceManager> m_speechRecognitionRemoteRealtimeMediaSourceManager;
 #endif
     std::unique_ptr<WebLockRegistryProxy> m_webLockRegistry;
-    std::unique_ptr<WebPermissionControllerProxy> m_webPermissionController;
+    UniqueRef<WebPermissionControllerProxy> m_webPermissionController;
 #if ENABLE(ROUTING_ARBITRATION)
     std::unique_ptr<AudioSessionRoutingArbitratorProxy> m_routingArbitrator;
 #endif
@@ -811,9 +828,17 @@ private:
     Seconds m_totalSuspendedTime;
     WebCore::ProcessIdentity m_processIdentity;
 
+    bool m_hasRegisteredServiceWorkerClients { true };
+
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
-    LogStream m_logStream;
+    IPC::ScopedActiveMessageReceiveQueue<LogStream> m_logStream;
 #endif
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    bool m_resourceMonitorRuleListRequestedBySomePage { false };
+    RefPtr<WebCompiledContentRuleList> m_resourceMonitorRuleList;
+#endif
+
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const WebProcessProxy&);

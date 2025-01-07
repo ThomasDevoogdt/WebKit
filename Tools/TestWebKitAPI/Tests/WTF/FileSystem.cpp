@@ -173,6 +173,8 @@ TEST_F(FileSystemTest, fileType)
     EXPECT_EQ(FileSystem::fileType(tempEmptyFolderSymlinkPath()), FileSystem::FileType::SymbolicLink);
 }
 
+#if OS(UNIX)
+// FIXME: https://webkit.org/b/283603 Test crashes on Windows
 TEST_F(FileSystemTest, fileTypeFollowingSymlinks)
 {
     auto doesNotExistPath = FileSystem::pathByAppendingComponent(tempEmptyFolderPath(), "does-not-exist"_s);
@@ -203,7 +205,6 @@ TEST_F(FileSystemTest, fileTypeFollowingSymlinks)
     EXPECT_FALSE(FileSystem::fileTypeFollowingSymlinks(tempEmptyFolderSymlinkPath()));
 }
 
-#if OS(UNIX)
 TEST_F(FileSystemTest, isHiddenFile)
 {
     auto hiddenFilePath = FileSystem::pathByAppendingComponent(tempEmptyFolderPath(), ".hiddenFile"_s);
@@ -617,6 +618,8 @@ TEST_F(FileSystemTest, createSymbolicLink)
     EXPECT_TRUE(FileSystem::fileExists(tempFilePath()));
 }
 
+#if OS(UNIX)
+// FIXME: https://webkit.org/b/283603 Test crashes on Windows
 TEST_F(FileSystemTest, createSymbolicLinkFolder)
 {
     auto symlinkPath = tempEmptyFolderSymlinkPath();
@@ -631,6 +634,7 @@ TEST_F(FileSystemTest, createSymbolicLinkFolder)
     EXPECT_FALSE(FileSystem::fileExists(symlinkPath));
     EXPECT_TRUE(FileSystem::fileExists(tempEmptyFolderPath()));
 }
+#endif
 
 TEST_F(FileSystemTest, createSymbolicLinkFileDoesNotExist)
 {
@@ -899,6 +903,8 @@ TEST_F(FileSystemTest, listDirectory)
     EXPECT_TRUE(FileSystem::deleteNonEmptyDirectory(tempEmptyFolderPath()));
 }
 
+#if OS(UNIX)
+// FIXME: https://webkit.org/b/283603 Test crashes on Windows
 TEST_F(FileSystemTest, realPath)
 {
     auto doesNotExistPath = FileSystem::pathByAppendingComponent(tempEmptyFolderPath(), "does-not-exist"_s);
@@ -924,6 +930,7 @@ TEST_F(FileSystemTest, realPath)
     EXPECT_STREQ(FileSystem::realPath(FileSystem::pathByAppendingComponents(subFolderPath, { ".."_s, "subfolder"_s })).utf8().data(), resolvedSubFolderPath.utf8().data()); // Should resolve "..".
     EXPECT_STREQ(FileSystem::realPath(FileSystem::pathByAppendingComponents(subFolderPath, { ".."_s, "."_s, "."_s, "subfolder"_s })).utf8().data(), resolvedSubFolderPath.utf8().data()); // Should resolve ".." and "."
 }
+#endif
 
 TEST_F(FileSystemTest, readEntireFile)
 {
@@ -948,6 +955,57 @@ TEST_F(FileSystemTest, makeSafeToUseMemoryMapForPath)
 #else
     EXPECT_TRUE(result);
 #endif
+}
+
+TEST_F(FileSystemTest, isAncestor)
+{
+    Vector<std::pair<std::pair<const char*, const char*>, bool>> narrowString {
+        { { "/a/b/c/", "/a/b/c/d" }, true },
+        { { "/a/b/c", "/a/b/c/d/e/.." }, true },
+        { { "/a/b/c/.", "/a/b/c/d" }, true },
+        { { "/a/b/c", "/a/b/c" }, false },
+        { { "/a/b/c/x/..", "/a/b/c" }, false },
+        { { "/a/b/c/dir1", "/a/b/c/dir2" }, false },
+        { { "/a/b/c", "/a/b/c/" }, false },
+        { { "/a/b/c", "/a/b/c/." }, false },
+        { { "a/b/c", "/a/b/c/" }, false },
+        { { "a/b/c", "a/b/c/" }, false },
+        { { "/a/b/c", "a/b/c/" }, false }
+    };
+    std::for_each(narrowString.begin(), narrowString.end(), [](auto input) {
+        EXPECT_EQ(
+            input.second,
+                FileSystem::isAncestor(
+                    ASCIILiteral::fromLiteralUnsafe(input.first.first),
+                    ASCIILiteral::fromLiteralUnsafe(input.first.second)
+                )
+            );
+        }
+    );
+
+    Vector<std::pair<std::pair<const char16_t *, const char16_t *>, bool>> wideString {
+        { { u"/a/b/c/", u"/a/b/c/d" }, true },
+        { { u"/a/b/c", u"/a/b/c/d/e/.." }, true },
+        { { u"/a/b/c/.", u"/a/b/c/d" }, true },
+        { { u"/a/b/c", u"/a/b/c" }, false },
+        { { u"/a/b/c/x/..", u"/a/b/c" }, false },
+        { { u"/a/b/c/dir1", u"/a/b/c/dir2" }, false },
+        { { u"/a/b/c", u"/a/b/c/" }, false },
+        { { u"/a/b/c", u"/a/b/c/." }, false },
+        { { u"a/b/c", u"/a/b/c/" }, false },
+        { { u"a/b/c", u"a/b/c/" }, false },
+        { { u"/a/b/c", u"a/b/c/" }, false }
+    };
+    std::for_each(wideString.begin(), wideString.end(), [](auto input) {
+        EXPECT_EQ(
+            input.second,
+                FileSystem::isAncestor(
+                    std::span<const UChar> { static_cast<const UChar *>(input.first.first), std::char_traits<char16_t>::length(input.first.first) },
+                    std::span<const UChar> { static_cast<const UChar*>(input.first.second), std::char_traits<char16_t>::length(input.first.second) }
+                )
+            );
+        }
+    );
 }
 
 } // namespace TestWebKitAPI

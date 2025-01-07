@@ -177,6 +177,8 @@
 #include "PlatformScreen.h"
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(WebGLRenderingContextBase);
@@ -307,7 +309,7 @@ static const GCGLenum supportedTypesOESTextureHalfFloat[] = {
 // Counter for determining which context has the earliest active ordinal number.
 static std::atomic<uint64_t> s_lastActiveOrdinal;
 
-using WebGLRenderingContextBaseSet = HashSet<WebGLRenderingContextBase*>;
+using WebGLRenderingContextBaseSet = UncheckedKeyHashSet<WebGLRenderingContextBase*>;
 
 static WebGLRenderingContextBaseSet& activeContexts()
 {
@@ -1967,8 +1969,6 @@ WebGLAny WebGLRenderingContextBase::getParameter(GCGLenum pname)
         return getIntParameter(pname);
     case GraphicsContextGL::MAX_VIEWPORT_DIMS:
         return getWebGLIntArrayParameter(pname);
-    case GraphicsContextGL::NUM_SHADER_BINARY_FORMATS:
-        return getIntParameter(pname);
     case GraphicsContextGL::PACK_ALIGNMENT:
         return m_packParameters.alignment;
     case GraphicsContextGL::POLYGON_OFFSET_FACTOR:
@@ -2640,11 +2640,11 @@ WebGLAny WebGLRenderingContextBase::getVertexAttrib(GCGLuint index, GCGLenum pna
     case GraphicsContextGL::CURRENT_VERTEX_ATTRIB: {
         switch (m_vertexAttribValue[index].type) {
         case GraphicsContextGL::FLOAT:
-            return Float32Array::tryCreate(m_vertexAttribValue[index].fValue, 4);
+            return Float32Array::tryCreate(std::span { m_vertexAttribValue[index].fValue });
         case GraphicsContextGL::INT:
-            return Int32Array::tryCreate(m_vertexAttribValue[index].iValue, 4);
+            return Int32Array::tryCreate(std::span { m_vertexAttribValue[index].iValue });
         case GraphicsContextGL::UNSIGNED_INT:
-            return Uint32Array::tryCreate(m_vertexAttribValue[index].uiValue, 4);
+            return Uint32Array::tryCreate(std::span { m_vertexAttribValue[index].uiValue });
         default:
             ASSERT_NOT_REACHED();
             break;
@@ -3216,7 +3216,8 @@ ExceptionOr<void> WebGLRenderingContextBase::texImageSource(TexImageFunctionID f
     if (m_unpackFlipY)
         adjustedSourceImageRect.setY(source.height() - adjustedSourceImageRect.maxY());
 
-    std::span imageData { source.data().data(), source.data().byteLength() };
+    Ref uint8Data = source.data().asUint8ClampedArray();
+    std::span imageData = uint8Data->typedSpan();
     Vector<uint8_t> data;
 
     // The data from ImageData is always of format RGBA8.
@@ -3337,10 +3338,6 @@ ExceptionOr<void> WebGLRenderingContextBase::texImageSource(TexImageFunctionID f
     // elements' size for WebGL 1.0 as late as possible.
     bool sourceImageRectIsDefault = inputSourceImageRect == sentinelEmptyRect() || inputSourceImageRect == IntRect(0, 0, source.videoWidth(), source.videoHeight());
 
-#if PLATFORM(COCOA) && !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
-    if (RefPtr player = source.player())
-        player->willBeAskedToPaintGL();
-#endif
     // Go through the fast path doing a GPU-GPU textures copy without a readback to system memory if possible.
     // Otherwise, it will fall back to the normal SW path.
     // FIXME: The current restrictions require that format shoud be RGB or RGBA,
@@ -5281,7 +5278,7 @@ RefPtr<ImageBuffer> WebGLRenderingContextBase::LRUImageBufferCache::imageBuffer(
     }
 
     // FIXME (149423): Should this ImageBuffer be unconditionally unaccelerated?
-    auto temp = ImageBuffer::create(size, RenderingPurpose::Unspecified, 1, colorSpace, ImageBufferPixelFormat::BGRA8);
+    auto temp = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, colorSpace, ImageBufferPixelFormat::BGRA8);
     if (!temp)
         return nullptr;
     ASSERT(m_buffers.size() > 0);
@@ -5651,5 +5648,7 @@ WebCoreOpaqueRoot root(const WebGLExtension<WebGLRenderingContextBase>* extensio
 }
 
 } // namespace WebCore
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBGL)

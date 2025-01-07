@@ -22,8 +22,8 @@
 
 import sys
 
-if sys.version_info < (3, 6):
-    raise ImportError("webkitflaskpy requires Python 3.6 or above")
+if sys.version_info < (3, 9):  # noqa: UP036
+    raise ImportError("webkitflaskpy requires Python 3.9 or above")
 
 import os
 
@@ -60,11 +60,7 @@ AutoInstall.register(Package('lupa', Version(2, 2), wheel=True))
 AutoInstall.register(Package('redis', Version(3, 5, 3)))
 AutoInstall.register(Package('sortedcontainers', Version(2, 4, 0)))
 AutoInstall.register(Package('werkzeug', Version(3, 0, 3)))
-
-if sys.version_info > (3, 0):
-    AutoInstall.register(Package('fakeredis', Version(1, 5, 2)))
-else:
-    AutoInstall.register(Package('fakeredis', Version(1, 1, 1)))
+AutoInstall.register(Package('fakeredis', Version(1, 5, 2)))
 
 from webkitflaskpy.authed_blueprint import AuthedBlueprint  # noqa: E402
 from webkitflaskpy.response import Response

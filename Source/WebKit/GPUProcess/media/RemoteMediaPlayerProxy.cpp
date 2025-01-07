@@ -43,13 +43,13 @@
 #include "RemoteMediaResourceIdentifier.h"
 #include "RemoteMediaResourceLoader.h"
 #include "RemoteMediaResourceManager.h"
+#include "RemoteAudioSessionProxy.h"
 #include "RemoteTextTrackProxy.h"
 #include "RemoteVideoFrameObjectHeap.h"
 #include "RemoteVideoFrameProxy.h"
 #include "RemoteVideoTrackProxy.h"
 #include "TextTrackPrivateRemoteConfiguration.h"
 #include "TrackPrivateRemoteConfiguration.h"
-#include "WebCoreArgumentCoders.h"
 #include <JavaScriptCore/Uint8Array.h>
 #include <WebCore/LayoutRect.h>
 #include <WebCore/MediaPlayer.h>
@@ -72,8 +72,6 @@
 #endif
 
 #include <wtf/NativePromise.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WebKit {
 
@@ -204,7 +202,12 @@ void RemoteMediaPlayerProxy::loadMediaSource(URL&& url, const WebCore::ContentTy
         m_mediaSourceProxy = adoptRef(*new RemoteMediaSourceProxy(*manager, mediaSourceIdentifier, webMParserEnabled, *this));
 
     RefPtr player = m_player;
+#if USE(AVFOUNDATION) && ENABLE(MEDIA_SOURCE)
+    if (auto preferences = sharedPreferencesForWebProcess())
+        player->setDecompressionSessionPreferences(preferences->mediaSourcePrefersDecompressionSession, preferences->mediaSourceCanFallbackToDecompressionSession);
+#endif
     player->load(url, contentType, *protectedMediaSourceProxy());
+
     if (reattached)
         protectedMediaSourceProxy()->setMediaPlayers(*this, player->protectedPlayerPrivate().get());
     getConfiguration(configuration);
@@ -806,7 +809,7 @@ RefPtr<ArrayBuffer> RemoteMediaPlayerProxy::mediaPlayerCachedKeyForKeyId(const S
     if (!m_legacySession)
         return nullptr;
 
-    if (auto cdmSession = manager->gpuConnectionToWebProcess()->protectedLegacyCdmFactoryProxy()->getSession(*m_legacySession))
+    if (RefPtr cdmSession = manager->gpuConnectionToWebProcess()->protectedLegacyCdmFactoryProxy()->getSession(*m_legacySession))
         return cdmSession->getCachedKeyForKeyId(keyId);
     return nullptr;
 }
@@ -820,7 +823,7 @@ void RemoteMediaPlayerProxy::mediaPlayerKeyNeeded(const SharedBuffer& message)
 #if ENABLE(ENCRYPTED_MEDIA)
 void RemoteMediaPlayerProxy::mediaPlayerInitializationDataEncountered(const String& initDataType, RefPtr<ArrayBuffer>&& initData)
 {
-    protectedConnection()->send(Messages::MediaPlayerPrivateRemote::InitializationDataEncountered(initDataType, std::span<const uint8_t>(static_cast<uint8_t*>(initData->data()), initData->byteLength())), m_id);
+    protectedConnection()->send(Messages::MediaPlayerPrivateRemote::InitializationDataEncountered(initDataType, initData->mutableSpan()), m_id);
 }
 
 void RemoteMediaPlayerProxy::mediaPlayerWaitingForKeyChanged()
@@ -1038,7 +1041,7 @@ void RemoteMediaPlayerProxy::setLegacyCDMSession(std::optional<RemoteLegacyCDMSe
     RefPtr player = m_player;
 
     if (m_legacySession) {
-        if (auto cdmSession = manager->gpuConnectionToWebProcess()->protectedLegacyCdmFactoryProxy()->getSession(*m_legacySession)) {
+        if (RefPtr cdmSession = manager->gpuConnectionToWebProcess()->protectedLegacyCdmFactoryProxy()->getSession(*m_legacySession)) {
             player->setCDMSession(nullptr);
             cdmSession->setPlayer(nullptr);
         }
@@ -1047,8 +1050,8 @@ void RemoteMediaPlayerProxy::setLegacyCDMSession(std::optional<RemoteLegacyCDMSe
     m_legacySession = instanceId;
 
     if (m_legacySession) {
-        if (auto cdmSession = manager->gpuConnectionToWebProcess()->protectedLegacyCdmFactoryProxy()->getSession(*m_legacySession)) {
-            player->setCDMSession(cdmSession->session());
+        if (RefPtr cdmSession = manager->gpuConnectionToWebProcess()->protectedLegacyCdmFactoryProxy()->getSession(*m_legacySession)) {
+            player->setCDMSession(cdmSession->protectedSession().get());
             cdmSession->setPlayer(*this);
         }
     }
@@ -1068,7 +1071,7 @@ void RemoteMediaPlayerProxy::cdmInstanceAttached(RemoteCDMInstanceIdentifier&& i
     if (!manager || !manager->gpuConnectionToWebProcess())
         return;
 
-    if (auto* instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
+    if (RefPtr instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
         protectedPlayer()->cdmInstanceAttached(instanceProxy->protectedInstance());
 }
 
@@ -1079,7 +1082,7 @@ void RemoteMediaPlayerProxy::cdmInstanceDetached(RemoteCDMInstanceIdentifier&& i
     if (!manager || !manager->gpuConnectionToWebProcess())
         return;
 
-    if (auto* instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
+    if (RefPtr instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
         protectedPlayer()->cdmInstanceDetached(instanceProxy->protectedInstance());
 }
 
@@ -1090,7 +1093,7 @@ void RemoteMediaPlayerProxy::attemptToDecryptWithInstance(RemoteCDMInstanceIdent
     if (!manager || !manager->gpuConnectionToWebProcess())
         return;
 
-    if (auto* instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
+    if (RefPtr instanceProxy = manager->gpuConnectionToWebProcess()->protectedCdmFactoryProxy()->getInstance(instanceId))
         protectedPlayer()->attemptToDecryptWithInstance(instanceProxy->protectedInstance());
 }
 #endif
@@ -1324,10 +1327,15 @@ void RemoteMediaPlayerProxy::audioOutputDeviceChanged(String&& deviceId)
     m_configuration.audioOutputDeviceId = WTFMove(deviceId);
     if (RefPtr player = m_player)
         player->audioOutputDeviceChanged();
+
+#if PLATFORM(IOS_FAMILY) && USE(AUDIO_SESSION)
+    RefPtr manager = m_manager.get();
+    RefPtr connection = manager->gpuConnectionToWebProcess();
+    Ref audioSession = connection->audioSessionProxy();
+    audioSession->setPreferredSpeakerID(m_configuration.audioOutputDeviceId);
+#endif
 }
 
 } // namespace WebKit
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

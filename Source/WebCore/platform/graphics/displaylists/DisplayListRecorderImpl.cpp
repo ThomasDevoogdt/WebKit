@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -200,9 +200,9 @@ void RecorderImpl::recordDrawFilteredImageBuffer(ImageBuffer* sourceImage, const
     append(DrawFilteredImageBuffer(WTFMove(identifier), sourceImageRect, filter));
 }
 
-void RecorderImpl::recordDrawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned count, const FloatPoint& localAnchor, FontSmoothingMode mode)
+void RecorderImpl::recordDrawGlyphs(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& localAnchor, FontSmoothingMode mode)
 {
-    append(DrawGlyphs(font, glyphs, advances, count, localAnchor, mode));
+    append(DrawGlyphs(font, glyphs, advances, localAnchor, mode));
 }
 
 void RecorderImpl::recordDrawDecomposedGlyphs(const Font& font, const DecomposedGlyphs& decomposedGlyphs)
@@ -487,14 +487,42 @@ void RecorderImpl::applyDeviceScaleFactor(float scaleFactor)
     append(ApplyDeviceScaleFactor(scaleFactor));
 }
 
+void RecorderImpl::beginPage(const IntSize& pageSize)
+{
+    appendStateChangeItemIfNecessary();
+    append(BeginPage({ pageSize }));
+}
+
+void RecorderImpl::endPage()
+{
+    appendStateChangeItemIfNecessary();
+    append(EndPage());
+}
+
+void RecorderImpl::setURLForRect(const URL& link, const FloatRect& destRect)
+{
+    appendStateChangeItemIfNecessary();
+    append(SetURLForRect(link, destRect));
+}
+
 bool RecorderImpl::recordResourceUse(NativeImage& nativeImage)
 {
+#if USE(SKIA)
+    if (m_displayList.replayOptions().contains(ReplayOption::FlushImagesAndWaitForCompletion))
+        nativeImage.backend().finishAcceleratedRenderingAndCreateFence();
+#endif
+
     m_displayList.cacheNativeImage(nativeImage);
     return true;
 }
 
 bool RecorderImpl::recordResourceUse(ImageBuffer& imageBuffer)
 {
+#if USE(SKIA)
+    if (m_displayList.replayOptions().contains(ReplayOption::FlushImagesAndWaitForCompletion))
+        imageBuffer.finishAcceleratedRenderingAndCreateFence();
+#endif
+
     m_displayList.cacheImageBuffer(imageBuffer);
     return true;
 }

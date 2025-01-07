@@ -80,6 +80,7 @@ public:
     IDBStorageManager& idbStorageManager(IDBStorageRegistry&);
     IDBStorageManager* existingIDBStorageManager();
     CacheStorageManager& cacheStorageManager(CacheStorageRegistry&, const WebCore::ClientOrigin&, Ref<WorkQueue>&&);
+    Ref<CacheStorageManager> protectedCacheStorageManager(CacheStorageRegistry&, const WebCore::ClientOrigin&, Ref<WorkQueue>&&);
     CacheStorageManager* existingCacheStorageManager();
     BackgroundFetchStoreManager& backgroundFetchManager(Ref<WTF::WorkQueue>&&);
     ServiceWorkerStorageManager& serviceWorkerStorageManager();
@@ -89,7 +90,7 @@ public:
     bool isActive();
     bool hasDataInMemory();
     bool isEmpty();
-    using DataTypeSizeMap = UncheckedKeyHashMap<WebsiteDataType, uint64_t, IntHash<WebsiteDataType>, WTF::StrongEnumHashTraits<WebsiteDataType>>;
+    using DataTypeSizeMap = HashMap<WebsiteDataType, uint64_t, IntHash<WebsiteDataType>, WTF::StrongEnumHashTraits<WebsiteDataType>>;
     DataTypeSizeMap fetchDataTypesInList(OptionSet<WebsiteDataType>, bool shouldComputeSize);
     void deleteData(OptionSet<WebsiteDataType>, WallTime);
     void moveData(OptionSet<WebsiteDataType>, const String& localStoragePath, const String& idbStoragePath);

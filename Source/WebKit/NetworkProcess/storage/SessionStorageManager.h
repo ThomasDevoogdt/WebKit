@@ -55,12 +55,15 @@ public:
     void disconnectFromStorageArea(IPC::Connection::UniqueID, StorageAreaIdentifier);
     void cloneStorageArea(StorageNamespaceIdentifier, StorageNamespaceIdentifier);
 
+    HashMap<String, String> fetchStorageMap(StorageNamespaceIdentifier);
+    bool setStorageMap(StorageNamespaceIdentifier, WebCore::ClientOrigin, HashMap<String, String>&&);
+
 private:
     StorageAreaIdentifier addStorageArea(Ref<MemoryStorageArea>&&, StorageNamespaceIdentifier);
 
     CheckedRef<StorageAreaRegistry> m_registry;
-    UncheckedKeyHashMap<StorageAreaIdentifier, Ref<MemoryStorageArea>> m_storageAreas;
-    UncheckedKeyHashMap<StorageNamespaceIdentifier, StorageAreaIdentifier> m_storageAreasByNamespace;
+    HashMap<StorageAreaIdentifier, Ref<MemoryStorageArea>> m_storageAreas;
+    HashMap<StorageNamespaceIdentifier, StorageAreaIdentifier> m_storageAreasByNamespace;
 };
 
 } // namespace WebKit

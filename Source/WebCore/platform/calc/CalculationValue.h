@@ -39,6 +39,7 @@
 namespace WebCore {
 
 class CalculationValue : public RefCounted<CalculationValue> {
+    WTF_MAKE_FAST_COMPACT_ALLOCATED;
 public:
     WEBCORE_EXPORT static Ref<CalculationValue> create(Calculation::Tree&&);
     WEBCORE_EXPORT ~CalculationValue();
@@ -49,7 +50,7 @@ public:
     Calculation::Tree copyTree() const;
     Calculation::Child copyRoot() const;
 
-    bool operator==(const CalculationValue&) const;
+    WEBCORE_EXPORT bool operator==(const CalculationValue&) const;
 
 private:
     CalculationValue(Calculation::Tree&&);

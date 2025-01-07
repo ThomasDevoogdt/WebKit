@@ -30,10 +30,7 @@ import re
 import sys
 import unittest
 
-if sys.version_info > (3, 0):
-    from io import StringIO
-else:
-    from StringIO import StringIO
+from io import StringIO
 
 module_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -177,7 +174,7 @@ _expected_model_base = {
         {
             'name': 'TemplateTest',
             'parameters': (
-                ('UncheckedKeyHashMap<String, std::pair<String, uint64_t>>', 'a'),
+                ('HashMap<String, std::pair<String, uint64_t>>', 'a'),
             ),
             'conditions': (None),
         },
@@ -347,13 +344,6 @@ class ParsingTest(unittest.TestCase):
 
 
 class UnsupportedPrecompilerDirectiveTest(unittest.TestCase):
-    def assertRaisesRegex(self, *args, **kwargs):
-        try:
-            return super(UnsupportedPrecompilerDirectiveTest, self).assertRaisesRegex(*args, **kwargs)
-        except AttributeError:
-            # Python 2
-            return self.assertRaisesRegexp(*args, **kwargs)
-
     def test_error_at_else(self):
         with self.assertRaisesRegex(Exception, r"ERROR: '#else.*' is not supported in the \*\.in files"):
             parser.parse(StringIO("asd\n#else bla\nfoo"))

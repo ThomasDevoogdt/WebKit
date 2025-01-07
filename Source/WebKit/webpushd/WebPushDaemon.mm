@@ -80,8 +80,6 @@
 #define GET_ALLOWED_BUNDLE_IDENTIFIER_ADDITIONS_1
 #endif
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 #if PLATFORM(IOS)
 
 // FIXME: This is only here temporarily for staging purposes.
@@ -110,6 +108,8 @@ using WebCore::SecurityOriginData;
 
 namespace WebPushD {
 
+static unsigned s_protocolVersion = protocolVersionValue;
+
 static constexpr Seconds s_incomingPushTransactionTimeout { 10_s };
 
 #if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
@@ -125,12 +125,12 @@ static bool platformShouldPlaySound(const WebCore::NotificationData& data)
 #endif
 }
 
-static NSString *platformDefaultActionBundleIdentifier(PushClientConnection& connection)
+static NSString *platformDefaultActionBundleIdentifier(const WebCore::PushSubscriptionSetIdentifier& identifier)
 {
 #if PLATFORM(IOS)
-    if (connection.hostAppCodeSigningIdentifier() == "com.apple.SafariViewService"_s)
+    if (identifier.bundleIdentifier == "com.apple.SafariViewService"_s)
         return @"com.apple.webapp";
-    return (NSString *)connection.hostAppCodeSigningIdentifier();
+    return (NSString *)identifier.bundleIdentifier;
 #else
     // FIXME: Calculate appropriate value on macOS
     return nil;
@@ -295,7 +295,7 @@ void WebPushDaemon::connectionEventHandler(xpc_object_t request)
         return;
 
     auto version = xpc_dictionary_get_uint64(request, protocolVersionKey);
-    if (version != protocolVersionValue) {
+    if (version != s_protocolVersion) {
         RELEASE_LOG_ERROR(Push, "Received request with protocol version %llu not matching daemon protocol version %llu", version, protocolVersionValue);
         tryCloseRequestConnection(request);
         return;
@@ -333,7 +333,7 @@ void WebPushDaemon::connectionEventHandler(xpc_object_t request)
         return;
     }
 
-    auto pushConnection = m_connectionMap.get(xpcConnection.get());
+    RefPtr pushConnection = m_connectionMap.get(xpcConnection.get());
     if (!pushConnection) {
         RELEASE_LOG_ERROR(Push, "WebPushDaemon::connectionEventHandler - Could not find a PushClientConnection mapped to this xpc request");
         tryCloseRequestConnection(request);
@@ -445,17 +445,19 @@ void WebPushDaemon::injectPushMessageForTesting(PushClientConnection& connection
     }
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
-    // Validate a Notification disposition message now by trying to parse it
-    // Only for the testing/development push service for now
+    // Try to parse the message as JSON and discover if it has Notification disposition, as opposed to Legacy disposition.
+    // Only for the testing/development push service, as testing messages are the only ones that should be injected.
     if (m_usingMockPushService) {
-        if (message.disposition == PushMessageDisposition::Notification) {
-            auto exceptionOrPayload = WebCore::NotificationPayload::parseJSON(message.payload);
-            if (exceptionOrPayload.hasException()) {
-                replySender(exceptionOrPayload.exception().message());
-                return;
-            }
-
+        auto exceptionOrPayload = WebCore::NotificationPayload::parseJSON(message.payload);
+        if (!exceptionOrPayload.hasException())
             message.parsedPayload = exceptionOrPayload.returnValue();
+        else if (WebCore::NotificationPayload::hasDeclarativeMessageHeader(message.payload)) {
+            // This occurs when a message:
+            // - Parses as JSON
+            // - The JSON has the special declarative message headers
+            // - The rest of the JSON is an invalid declarative push message
+            replySender(exceptionOrPayload.exception().message());
+            return;
         }
     }
 #endif // ENABLE(DECLARATIVE_WEB_PUSH)
@@ -467,11 +469,10 @@ void WebPushDaemon::injectPushMessageForTesting(PushClientConnection& connection
 #else
     WebKit::WebPushMessage pushMessage { Vector(data.span()), message.pushPartitionString, message.registrationURL, { } };
 #endif
-    m_pendingPushMessages.append({ identifier, WTFMove(pushMessage) });
 
     WEBPUSHDAEMON_RELEASE_LOG(Push, "Injected a test push message for %{public}s at %{public}s with %zu pending messages, payload: %{public}s", message.targetAppCodeSigningIdentifier.utf8().data(), message.registrationURL.string().utf8().data(), m_pendingPushMessages.size(), message.payload.utf8().data());
 
-    notifyClientPushMessageIsAvailable(identifier);
+    handleIncomingPushImpl(identifier, WTFMove(pushMessage));
 
     replySender({ });
 }
@@ -530,10 +531,54 @@ void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& iden
 #endif
 }
 
+#if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
+static bool supportsBuiltinNotifications(const PushSubscriptionSetIdentifier& identifier)
+{
+    if (identifier.pushPartition.isEmpty())
+        return false;
+
+#if PLATFORM(MAC)
+    if (identifier.bundleIdentifier == "com.apple.Safari"_s || identifier.bundleIdentifier == "com.apple.SafariTechnologyPreview"_s)
+        return false;
+#endif // PLATFORM(MAC)
+
+    return true;
+}
+#endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
+
 void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message)
 {
     ensureIncomingPushTransaction();
+
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+    String payloadString;
+    if (message.pushData)
+        payloadString = String::fromUTF8(message.pushData->span());
+
+    if (!payloadString.isNull()) {
+        auto exceptionOrPayload = WebCore::NotificationPayload::parseJSON(payloadString);
+        if (!exceptionOrPayload.hasException())
+            message.notificationPayload = exceptionOrPayload.returnValue();
+    }
+
+#if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
+    if (message.notificationPayload && !message.notificationPayload->isMutable && supportsBuiltinNotifications(identifier)) {
+        // This is a declarative push message without the mutable flag set,
+        // so we don't need to remember it for later.
+        // Instead we can just display its notification right now.
+
+        auto notificationData = message.notificationPayload->toNotificationData();
+        notificationData.serviceWorkerRegistrationURL = message.registrationURL;
+        showNotification(identifier, notificationData, nullptr, message.notificationPayload->appBadge, []() {
+        });
+
+        return;
+    }
+#endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
+#endif // ENABLE(DECLARATIVE_WEB_PUSH)
+
     m_pendingPushMessages.append({ identifier, WTFMove(message) });
+
     notifyClientPushMessageIsAvailable(identifier);
 }
 
@@ -735,6 +780,9 @@ void WebPushDaemon::getPendingPushMessages(PushClientConnection& connection, Com
     WEBPUSHDAEMON_RELEASE_LOG(Push, "Fetched %zu push messages, %zu remaining", result.size(), m_pendingPushMessages.size());
 
     replySender(WTFMove(result));
+
+    if (m_pendingPushMessages.isEmpty())
+        releaseIncomingPushTransaction();
 }
 
 void WebPushDaemon::getPushTopicsForTesting(PushClientConnection& connection, CompletionHandler<void(Vector<String>, Vector<String>)>&& completionHandler)
@@ -908,9 +956,8 @@ void WebPushDaemon::setPublicTokenForTesting(PushClientConnection& connection, c
 
 PushClientConnection* WebPushDaemon::toPushClientConnection(xpc_connection_t connection)
 {
-    auto clientConnection = m_connectionMap.get(connection);
-    RELEASE_ASSERT(clientConnection);
-    return clientConnection;
+    RELEASE_ASSERT(m_connectionMap.contains(connection));
+    return m_connectionMap.get(connection);
 }
 
 #if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
@@ -918,21 +965,26 @@ PushClientConnection* WebPushDaemon::toPushClientConnection(xpc_connection_t con
 void WebPushDaemon::showNotification(PushClientConnection& connection, const WebCore::NotificationData& notificationData, RefPtr<WebCore::NotificationResources> resources, CompletionHandler<void()>&& completionHandler)
 {
     auto origin = SecurityOriginData::fromURL(URL { notificationData.originString });
-    auto maybeIdentifier = connection.subscriptionSetIdentifierForOrigin(origin);
+    std::optional<WebCore::PushSubscriptionSetIdentifier> maybeIdentifier = connection.subscriptionSetIdentifierForOrigin(origin);
     if (!maybeIdentifier) {
         WEBPUSHDAEMON_RELEASE_LOG_ERROR(Push, "No web clip associated with origin %{sensitive}s", origin.toString().ascii().data());
         return completionHandler();
     }
-    auto identifier = WTFMove(*maybeIdentifier);
 
+    showNotification(*maybeIdentifier, notificationData, resources, std::nullopt, WTFMove(completionHandler));
+}
+
+void WebPushDaemon::showNotification(const WebCore::PushSubscriptionSetIdentifier& identifier, const WebCore::NotificationData& notificationData, RefPtr<WebCore::NotificationResources> resources, std::optional<unsigned long long> appBadge, CompletionHandler<void()>&& completionHandler)
+{
     RetainPtr content = adoptNS([[UNMutableNotificationContent alloc] init]);
 
-    [content setDefaultActionBundleIdentifier:platformDefaultActionBundleIdentifier(connection)];
+    [content setDefaultActionBundleIdentifier:platformDefaultActionBundleIdentifier(identifier)];
 
     content.get().targetContentIdentifier = (NSString *)identifier.pushPartition;
     content.get().title = (NSString *)notificationData.title;
     content.get().body = (NSString *)notificationData.body;
     content.get().categoryIdentifier = @"webpushdCategory";
+    content.get().badge = appBadge ? [NSNumber numberWithLongLong:*appBadge] : nil;
 
     if (platformShouldPlaySound(notificationData))
         content.get().sound = [UNNotificationSound defaultSound];
@@ -1189,8 +1241,12 @@ void WebPushDaemon::getAppBadgeForTesting(PushClientConnection& connection, Comp
 
 #endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
 
-} // namespace WebPushD
+void WebPushDaemon::setProtocolVersionForTesting(PushClientConnection& connection, unsigned version, CompletionHandler<void()>&& completionHandler)
+{
+    s_protocolVersion = version;
+    completionHandler();
+}
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+} // namespace WebPushD
 
 #endif // ENABLE(WEB_PUSH_NOTIFICATIONS)

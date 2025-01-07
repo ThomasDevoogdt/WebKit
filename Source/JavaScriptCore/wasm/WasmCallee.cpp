@@ -41,6 +41,8 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC::Wasm {
 
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(Callee);
@@ -65,8 +67,8 @@ Callee::Callee(Wasm::CompilationMode compilationMode)
 Callee::Callee(Wasm::CompilationMode compilationMode, FunctionSpaceIndex index, std::pair<const Name*, RefPtr<NameSection>>&& name)
     : NativeCallee(NativeCallee::Category::Wasm, ImplementationVisibility::Public)
     , m_compilationMode(compilationMode)
-    , m_indexOrName(index, WTFMove(name))
     , m_index(index)
+    , m_indexOrName(index, WTFMove(name))
 {
 }
 
@@ -242,7 +244,28 @@ IPIntCallee::IPIntCallee(FunctionIPIntMetadataGenerator& generator, FunctionSpac
         for (size_t i = 0; i < count; i++) {
             const UnlinkedHandlerInfo& unlinkedHandler = generator.m_exceptionHandlers[i];
             HandlerInfo& handler = m_exceptionHandlers[i];
-            void* ptr = reinterpret_cast<void*>(unlinkedHandler.m_type == HandlerType::Catch ? ipint_catch_entry : ipint_catch_all_entry);
+            void* ptr = nullptr;
+            switch (unlinkedHandler.m_type) {
+            case HandlerType::Catch:
+                ptr = reinterpret_cast<void*>(ipint_catch_entry);
+                break;
+            case HandlerType::CatchAll:
+            case HandlerType::Delegate:
+                ptr = reinterpret_cast<void*>(ipint_catch_all_entry);
+                break;
+            case HandlerType::TryTableCatch:
+                ptr = reinterpret_cast<void*>(ipint_table_catch_entry);
+                break;
+            case HandlerType::TryTableCatchRef:
+                ptr = reinterpret_cast<void*>(ipint_table_catch_ref_entry);
+                break;
+            case HandlerType::TryTableCatchAll:
+                ptr = reinterpret_cast<void*>(ipint_table_catch_all_entry);
+                break;
+            case HandlerType::TryTableCatchAllRef:
+                ptr = reinterpret_cast<void*>(ipint_table_catch_allref_entry);
+                break;
+            }
             void* untagged = CodePtr<CFunctionPtrTag>::fromTaggedPtr(ptr).untaggedPtr();
             void* retagged = nullptr;
 #if ENABLE(JIT_CAGE)
@@ -454,12 +477,15 @@ JSEntrypointCallee::JSEntrypointCallee(TypeIndex typeIndex, bool usesSIMD)
     m_frameSize = totalFrameSize;
 
 #if ENABLE(JIT)
-    if (Options::useJIT()) {
+    if (Options::useWasmJIT()) {
 #else
     if (false) {
 #endif
         if (Options::useWasmIPInt())
-            m_wasmFunctionPrologue = LLInt::inPlaceInterpreterEntryThunk().code().retagged<WasmEntryPtrTag>();
+            if (usesSIMD)
+                m_wasmFunctionPrologue = LLInt::inPlaceInterpreterSIMDEntryThunk().code().retagged<WasmEntryPtrTag>();
+            else
+                m_wasmFunctionPrologue = LLInt::inPlaceInterpreterEntryThunk().code().retagged<WasmEntryPtrTag>();
         else {
             if (usesSIMD)
                 m_wasmFunctionPrologue = LLInt::wasmFunctionEntryThunkSIMD().code().retagged<WasmEntryPtrTag>();
@@ -481,7 +507,7 @@ JSEntrypointCallee::JSEntrypointCallee(TypeIndex typeIndex, bool usesSIMD)
 CodePtr<WasmEntryPtrTag> JSEntrypointCallee::entrypointImpl() const
 {
 #if ENABLE(JIT)
-    if (Options::useJIT())
+    if (Options::useWasmJIT())
         return createJSToWasmJITShared().retaggedCode<WasmEntryPtrTag>();
 #endif
     return LLInt::getCodeFunctionPtr<CFunctionPtrTag>(js_to_wasm_wrapper_entry);
@@ -525,7 +551,7 @@ void OptimizingJITCallee::linkExceptionHandlers(Vector<UnlinkedHandlerInfo> unli
 
 BBQCallee::~BBQCallee()
 {
-    if (m_osrEntryCallee) {
+    if (Options::freeRetiredWasmCode() && m_osrEntryCallee) {
         ASSERT(m_osrEntryCallee->hasOneRef());
         m_osrEntryCallee->reportToVMsForDestruction();
     }
@@ -534,5 +560,7 @@ BBQCallee::~BBQCallee()
 #endif
 
 } // namespace JSC::Wasm
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

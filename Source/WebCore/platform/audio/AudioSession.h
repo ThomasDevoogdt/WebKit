@@ -32,6 +32,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Observer.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakHashSet.h>
@@ -100,15 +101,15 @@ public:
     virtual void sampleRateDidChange(const AudioSession&) { }
 };
 
-class WEBCORE_EXPORT AudioSession {
+class WEBCORE_EXPORT AudioSession : public ThreadSafeRefCounted<AudioSession> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(AudioSession, WEBCORE_EXPORT);
     WTF_MAKE_NONCOPYABLE(AudioSession);
-    friend class UniqueRef<AudioSession>;
-    friend UniqueRef<AudioSession> WTF::makeUniqueRefWithoutFastMallocCheck<AudioSession>();
 public:
-    static UniqueRef<AudioSession> create();
-    static void setSharedSession(UniqueRef<AudioSession>&&);
+    static Ref<AudioSession> create();
+    static void setSharedSession(Ref<AudioSession>&&);
     static AudioSession& sharedSession();
+    static Ref<AudioSession> protectedSharedSession() { return sharedSession(); }
+
     static bool enableMediaPlayback();
 
     using ChangedObserver = WTF::Observer<void(AudioSession&)>;
@@ -162,8 +163,8 @@ public:
 
     virtual void setRoutingArbitrationClient(WeakPtr<AudioSessionRoutingArbitrationClient>&& client) { m_routingArbitrationClient = client; }
 
-    static bool shouldManageAudioSessionCategory() { return s_shouldManageAudioSessionCategory; }
-    static void setShouldManageAudioSessionCategory(bool flag) { s_shouldManageAudioSessionCategory = flag; }
+    static bool shouldManageAudioSessionCategory();
+    static void setShouldManageAudioSessionCategory(bool);
 
     virtual void setHostProcessAttribution(audit_token_t) { };
     virtual void setPresentingProcesses(Vector<audit_token_t>&&) { };
@@ -197,8 +198,6 @@ protected:
     AudioSession::CategoryType m_categoryOverride { AudioSession::CategoryType::None };
     bool m_active { false }; // Used only for testing.
     bool m_isInterrupted { false };
-
-    static bool s_shouldManageAudioSessionCategory;
 };
 
 class AudioSessionInterruptionObserver : public CanMakeWeakPtr<AudioSessionInterruptionObserver> {

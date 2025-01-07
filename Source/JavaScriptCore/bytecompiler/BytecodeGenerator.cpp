@@ -62,6 +62,8 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(BytecodeGenerator);
@@ -3253,7 +3255,7 @@ Vector<Identifier> BytecodeGenerator::getParameterNames() const
 std::optional<PrivateNameEnvironment> BytecodeGenerator::getAvailablePrivateAccessNames()
 {
     PrivateNameEnvironment result;
-    HashSet<UniquedStringImpl*> excludedNames;
+    UncheckedKeyHashSet<UniquedStringImpl*> excludedNames;
     for (unsigned i = m_privateNamesStack.size(); i--; ) {
         auto& map = m_privateNamesStack[i];
         for (auto& entry : map)  {
@@ -5665,3 +5667,4 @@ void printInternal(PrintStream& out, JSC::Variable::VariableKind kind)
 
 } // namespace WTF
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

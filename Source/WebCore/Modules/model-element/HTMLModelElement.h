@@ -47,6 +47,7 @@ namespace WebCore {
 class DOMMatrixReadOnly;
 class DOMPointReadOnly;
 class Event;
+class GraphicsLayer;
 class LayoutSize;
 class Model;
 class ModelPlayer;
@@ -57,6 +58,7 @@ template<typename IDLType> class DOMPromiseProxyWithResolveCallback;
 
 #if ENABLE(MODEL_PROCESS)
 template<typename IDLType> class DOMPromiseProxy;
+class ModelContext;
 #endif
 
 class HTMLModelElement final : public HTMLElement, private CachedRawResourceClient, public ModelPlayerClient, public ActiveDOMObject {
@@ -91,6 +93,8 @@ public:
     void applyBackgroundColor(Color);
 
 #if ENABLE(MODEL_PROCESS)
+    RefPtr<ModelContext> modelContext() const;
+
     const DOMMatrixReadOnly& entityTransform() const;
     ExceptionOr<void> setEntityTransform(const DOMMatrixReadOnly&);
 
@@ -167,6 +171,9 @@ private:
     void createModelPlayer();
     void deleteModelPlayer();
 
+    RefPtr<GraphicsLayer> graphicsLayer() const;
+    std::optional<PlatformLayerIdentifier> layerID() const;
+
     HTMLModelElement& readyPromiseResolve();
 
     // ActiveDOMObject.
@@ -183,6 +190,7 @@ private:
 
     // Rendering overrides.
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const RenderStyle&) const final { return true; }
     void didAttachRenderers() final;
 
     // CachedRawResourceClient overrides.
@@ -196,9 +204,9 @@ private:
 #if ENABLE(MODEL_PROCESS)
     void didUpdateEntityTransform(ModelPlayer&, const TransformationMatrix&) final;
     void didUpdateBoundingBox(ModelPlayer&, const FloatPoint3D&, const FloatPoint3D&) final;
-    void didFinishEnvironmentMapLoading() final;
+    void didFinishEnvironmentMapLoading(bool succeeded) final;
 #endif
-    std::optional<PlatformLayerIdentifier> platformLayerID() final;
+    std::optional<PlatformLayerIdentifier> modelContentsLayerID() const final;
 
     void defaultEventHandler(Event&) final;
     void dragDidStart(MouseEvent&);
@@ -218,7 +226,11 @@ private:
     void updateLoop();
     void updateEnvironmentMap();
     URL selectEnvironmentMapURL() const;
+    void environmentMapRequestResource();
+    void environmentMapResetAndReject(Exception&&);
     void environmentMapResourceFinished();
+    bool hasPortal() const;
+    void updateHasPortal();
 #endif
     void modelResourceFinished();
 
@@ -238,7 +250,7 @@ private:
     Ref<DOMPointReadOnly> m_boundingBoxExtents;
     double m_playbackRate { 1.0 };
     URL m_environmentMapURL;
-    SharedBufferBuilder m_pendingEnvironmentMapData;
+    SharedBufferBuilder m_environmentMapData;
     CachedResourceHandle<CachedRawResource> m_environmentMapResource;
     UniqueRef<EnvironmentMapPromise> m_environmentMapReadyPromise;
 #endif

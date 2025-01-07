@@ -52,9 +52,9 @@ String MIMETypeFromUTI(const String& uti)
     return type.get().preferredMIMEType;
 }
 
-HashSet<String> RequiredMIMETypesFromUTI(const String& uti)
+UncheckedKeyHashSet<String> RequiredMIMETypesFromUTI(const String& uti)
 {
-    HashSet<String> mimeTypes;
+    UncheckedKeyHashSet<String> mimeTypes;
 
     auto mainMIMEType = MIMETypeFromUTI(uti);
     if (!mainMIMEType.isEmpty())
@@ -102,10 +102,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 static NSString *UTIFromUnknownMIMEType(StringView mimeType)
 {
     static constexpr std::pair<ComparableLettersLiteral, NSString *> typesArray[] = {
-        { "model/usd", @"com.pixar.universal-scene-description-mobile" },
-        { "model/vnd.pixar.usd", @"com.pixar.universal-scene-description-mobile" },
-        { "model/vnd.reality", @"com.apple.reality" },
-        { "model/vnd.usdz+zip", @"com.pixar.universal-scene-description-mobile" },
+        { "model/usd"_s, @"com.pixar.universal-scene-description-mobile" },
+        { "model/vnd.pixar.usd"_s, @"com.pixar.universal-scene-description-mobile" },
+        { "model/vnd.reality"_s, @"com.apple.reality" },
+        { "model/vnd.usdz+zip"_s, @"com.pixar.universal-scene-description-mobile" },
     };
     static constexpr SortedArrayMap typesMap { typesArray };
     return typesMap.get(mimeType, @"");

@@ -56,9 +56,7 @@ public:
     void setUseGPUProcess(bool);
     GPUProcessConnection& ensureGPUProcessConnection();
 
-    void ref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteImageDecoderAVFManager>::ref(); }
-    void deref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteImageDecoderAVFManager>::deref(); }
-    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteImageDecoderAVFManager>::controlBlock(); }
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
 private:
     RemoteImageDecoderAVFManager();
@@ -70,7 +68,7 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
     void encodedDataStatusChanged(const WebCore::ImageDecoderIdentifier&, size_t frameCount, const WebCore::IntSize&, bool hasTrack);
 
-    UncheckedKeyHashMap<WebCore::ImageDecoderIdentifier, WeakPtr<RemoteImageDecoderAVF>> m_remoteImageDecoders;
+    HashMap<WebCore::ImageDecoderIdentifier, WeakPtr<RemoteImageDecoderAVF>> m_remoteImageDecoders;
 
     ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };

@@ -64,6 +64,8 @@
 
 IGNORE_WARNINGS_BEGIN("frame-address")
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 namespace Wasm {
 
@@ -269,11 +271,9 @@ JSC_DEFINE_JIT_OPERATION(operationJSToWasmEntryWrapperBuildReturnFrame, EncodedJ
     OPERATION_RETURN(scope, JSValue::encode(resultArray));
 }
 
-JSC_DEFINE_JIT_OPERATION(operationGetWasmCalleeStackSize, EncodedJSValue, (JSWebAssemblyInstance* instance, Wasm::Callee* callee))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationGetWasmCalleeStackSize, unsigned, (JSWebAssemblyInstance*, WasmCallableFunction* functionInfo))
 {
-    auto& module = instance->module();
-
-    auto typeIndex = module.moduleInformation().typeIndexFromFunctionIndexSpace(callee->index());
+    auto typeIndex = static_cast<WasmOrJSImportableFunction*>(functionInfo)->typeIndex;
     const TypeDefinition& typeDefinition = TypeInformation::get(typeIndex).expand();
     const auto& signature = *typeDefinition.as<FunctionSignature>();
     unsigned argCount = signature.argumentCount();
@@ -288,10 +288,7 @@ JSC_DEFINE_JIT_OPERATION(operationGetWasmCalleeStackSize, EncodedJSValue, (JSWeb
     const unsigned numberOfBytesForSavedResults = savedResultRegisters.sizeOfAreaInBytes();
     const unsigned stackOffset = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(std::max(numberOfBytesForCall, numberOfBytesForSavedResults));
 
-    VM& vm = instance->vm();
-
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    OPERATION_RETURN(scope, stackOffset);
+    return stackOffset;
 }
 
 JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalArguments, bool, (void* sp, CallFrame* cfr, void* argumentRegisters, JSWebAssemblyInstance* instance))
@@ -300,16 +297,16 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalArguments, bool, (void* sp,
         return &reinterpret_cast<V*>(arr)[i / sizeof(V)];
     };
 
-    CallFrame* calleeFrame = bitwise_cast<CallFrame*>(reinterpret_cast<uintptr_t>(sp) - sizeof(CallerFrameAndPC));
+    CallFrame* calleeFrame = std::bit_cast<CallFrame*>(reinterpret_cast<uintptr_t>(sp) - sizeof(CallerFrameAndPC));
     ASSERT(instance);
     ASSERT(instance->globalObject());
     VM& vm = instance->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    Wasm::Callee* callee = *access.operator()<Wasm::Callee*>(cfr, -0x10);
-    auto functionIndex = callee->index();
-    auto& module = instance->module();
-    auto typeIndex = module.moduleInformation().typeIndexFromFunctionIndexSpace(functionIndex);
+    constexpr int codeBlockOffset = -0x18;
+
+    auto* importableFunction = *access.operator()<WasmOrJSImportableFunction*>(cfr, codeBlockOffset);
+    auto typeIndex = importableFunction->typeIndex;
     const TypeDefinition& typeDefinition = TypeInformation::get(typeIndex).expand();
     const auto& signature = *typeDefinition.as<FunctionSignature>();
     unsigned argCount = signature.argumentCount();
@@ -392,7 +389,7 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalArguments, bool, (void* sp,
                 val = *access.operator()<float>(argumentRegisters, GPRInfo::numberOfArgumentRegisters * sizeof(UCPURegister) + FPRInfo::toArgumentIndex(wasmParam.fpr()) * bytesForWidth(Width::Width64));
 
             double marshalled = purifyNaN(val);
-            uint64_t raw = bitwise_cast<uint64_t>(marshalled);
+            uint64_t raw = std::bit_cast<uint64_t>(marshalled);
 #if USE(JSVALUE64)
             raw += JSValue::DoubleEncodeOffset;
 #endif
@@ -407,7 +404,7 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalArguments, bool, (void* sp,
                 val = *access.operator()<double>(argumentRegisters, GPRInfo::numberOfArgumentRegisters * sizeof(UCPURegister) + FPRInfo::toArgumentIndex(wasmParam.fpr()) * bytesForWidth(Width::Width64));
 
             double marshalled = purifyNaN(val);
-            uint64_t raw = bitwise_cast<uint64_t>(marshalled);
+            uint64_t raw = std::bit_cast<uint64_t>(marshalled);
 #if USE(JSVALUE64)
             raw += JSValue::DoubleEncodeOffset;
 #endif
@@ -417,19 +414,26 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalArguments, bool, (void* sp,
     }
 
     // store this argument
-    *access.operator()<uint64_t>(calleeFrame, CallFrameSlot::thisArgument* static_cast<int>(sizeof(Register))) = JSValue::encode(jsUndefined());
+    *access.operator()<uint64_t>(calleeFrame, CallFrameSlot::thisArgument * static_cast<int>(sizeof(Register))) = JSValue::encode(jsUndefined());
 
     // materializeImportJSCell and store
-    auto* newCallee = instance->importFunctionInfo(functionIndex);
-    *access.operator()<uintptr_t>(calleeFrame, CallFrameSlot::callee * static_cast<int>(sizeof(Register))) = bitwise_cast<uintptr_t>(newCallee->importFunction);
+    *access.operator()<uintptr_t>(calleeFrame, CallFrameSlot::callee * static_cast<int>(sizeof(Register))) = std::bit_cast<uintptr_t>(importableFunction->importFunction);
     *access.operator()<uint32_t>(calleeFrame, CallFrameSlot::argumentCountIncludingThis * static_cast<int>(sizeof(Register)) + PayloadOffset) = argCount + 1; // including this = +1
 
     // set up codeblock
     auto singletonCallee = CalleeBits::boxNativeCallee(&WasmToJSCallee::singleton());
-    *access.operator()<uintptr_t>(cfr, CallFrameSlot::codeBlock * sizeof(Register)) = bitwise_cast<uintptr_t>(instance);
-    *access.operator()<uintptr_t>(cfr, CallFrameSlot::callee * sizeof(Register)) = bitwise_cast<uintptr_t>(singletonCallee);
+    *access.operator()<uintptr_t>(cfr, CallFrameSlot::codeBlock * sizeof(Register)) = std::bit_cast<uintptr_t>(instance);
+    *access.operator()<uintptr_t>(cfr, CallFrameSlot::callee * sizeof(Register)) = std::bit_cast<uintptr_t>(singletonCallee);
 
     OPERATION_RETURN(scope, true);
+}
+
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmToJSExitNeedToUnpack, const TypeDefinition*, (WasmOrJSImportableFunction* callableFunction))
+{
+    auto typeIndex = callableFunction->typeIndex;
+    const TypeDefinition* typeDefinition = &TypeInformation::get(typeIndex).expand();
+    const auto& signature = *typeDefinition->as<FunctionSignature>();
+    return signature.returnCount() > 1 ? typeDefinition : nullptr;
 }
 
 JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* sp, CallFrame* cfr, JSWebAssemblyInstance* instance))
@@ -439,14 +443,14 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
     };
 
     void* registerSpace = sp;
-    void* callerStackFrame = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(cfr) + sizeof(CallerFrameAndPC));
 
+    NativeCallFrameTracer tracer(instance->vm(), cfr);
     auto scope = DECLARE_THROW_SCOPE(instance->vm());
 
-    Wasm::Callee* callee = *access.operator()<Wasm::Callee*>(cfr, -0x10);
-    auto functionIndex = callee->index();
-    auto& module = instance->module();
-    auto typeIndex = module.moduleInformation().typeIndexFromFunctionIndexSpace(functionIndex);
+    constexpr int codeBlockOffset = -0x18;
+
+    auto* importableFunction = *access.operator()<WasmOrJSImportableFunction*>(cfr, codeBlockOffset);
+    auto typeIndex = importableFunction->typeIndex;
     const TypeDefinition& typeDefinition = TypeInformation::get(typeIndex).expand();
     const auto& signature = *typeDefinition.as<FunctionSignature>();
 
@@ -457,13 +461,15 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
 
     JSValue returned = *(reinterpret_cast<JSValue*>(registerSpace));
 
+    ASSERT(signature.returnCount() <= 1);
+
     if (signature.returnCount() == 1) {
         const auto& returnType = signature.returnType(0);
         switch (returnType.kind) {
         case TypeKind::I32: {
             if (!returned.isNumber() || !returned.isInt32()) {
                 // slow path
-                uint32_t result = JSValue::decode(bitwise_cast<EncodedJSValue>(returned)).toInt32(globalObject);
+                uint32_t result = JSValue::decode(std::bit_cast<EncodedJSValue>(returned)).toInt32(globalObject);
                 *access.operator()<uint32_t>(registerSpace, 0) = result;
             } else {
                 uint64_t result = static_cast<uint64_t>(*access.operator()<uint32_t>(registerSpace, 0));
@@ -472,7 +478,7 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
             break;
         }
         case TypeKind::I64: {
-            uint64_t result = JSValue::decode(bitwise_cast<EncodedJSValue>(returned)).toBigInt64(globalObject);
+            uint64_t result = JSValue::decode(std::bit_cast<EncodedJSValue>(returned)).toBigInt64(globalObject);
             *access.operator()<uint64_t>(registerSpace, 0) = result;
             break;
         }
@@ -481,7 +487,7 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
             auto offset = GPRInfo::numberOfArgumentRegisters * sizeof(UCPURegister) + FPRInfo::toArgumentIndex(dest) * bytesForWidth(Width::Width64);
             if (returned.isNumber()) {
                 if (returned.isInt32()) {
-                    float result = static_cast<float>(*access.operator()<uint32_t>(registerSpace, 0));
+                    float result = static_cast<float>(*access.operator()<int32_t>(registerSpace, 0));
                     *access.operator()<float>(registerSpace, offset) = result;
                 } else {
 #if USE(JSVALUE64)
@@ -489,11 +495,11 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
 #else
                     uint64_t intermediate = *access.operator()<uint64_t>(registerSpace, 0);
 #endif
-                    double d = bitwise_cast<double>(intermediate);
+                    double d = std::bit_cast<double>(intermediate);
                     *access.operator()<float>(registerSpace, offset) = static_cast<float>(d);
                 }
             } else {
-                float result = static_cast<float>(JSValue::decode(bitwise_cast<EncodedJSValue>(returned)).toNumber(globalObject));
+                float result = static_cast<float>(JSValue::decode(std::bit_cast<EncodedJSValue>(returned)).toNumber(globalObject));
                 *access.operator()<float>(registerSpace, offset) = result;
             }
             break;
@@ -503,7 +509,7 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
             auto offset = GPRInfo::numberOfArgumentRegisters * sizeof(UCPURegister) + FPRInfo::toArgumentIndex(dest) * bytesForWidth(Width::Width64);
             if (returned.isNumber()) {
                 if (returned.isInt32()) {
-                    double result = static_cast<float>(*access.operator()<uint32_t>(registerSpace, 0));
+                    double result = static_cast<double>(*access.operator()<int32_t>(registerSpace, 0));
                     *access.operator()<double>(registerSpace, offset) = result;
                 } else {
 #if USE(JSVALUE64)
@@ -511,11 +517,11 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
 #else
                     uint64_t intermediate = *access.operator()<uint64_t>(registerSpace, 0);
 #endif
-                    double d = bitwise_cast<double>(intermediate);
+                    double d = std::bit_cast<double>(intermediate);
                     *access.operator()<double>(registerSpace, offset) = d;
                 }
             } else {
-                double result = static_cast<double>(JSValue::decode(bitwise_cast<EncodedJSValue>(returned)).toNumber(globalObject));
+                double result = static_cast<double>(JSValue::decode(std::bit_cast<EncodedJSValue>(returned)).toNumber(globalObject));
                 *access.operator()<double>(registerSpace, offset) = result;
             }
             break;
@@ -526,7 +532,7 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
                     // Do nothing.
                 } else if (Wasm::isFuncref(returnType) || (!Options::useWasmGC() && isRefWithTypeIndex(returnType))) {
                     // operationConvertToFuncref
-                    JSValue value = JSValue::decode(bitwise_cast<EncodedJSValue>(returned));
+                    JSValue value = JSValue::decode(std::bit_cast<EncodedJSValue>(returned));
                     WebAssemblyFunction* wasmFunction = nullptr;
                     WebAssemblyWrapperFunction* wasmWrapperFunction = nullptr;
                     if (UNLIKELY(!isWebAssemblyHostFunction(value, wasmFunction, wasmWrapperFunction) && !value.isNull())) {
@@ -544,10 +550,10 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
                     }
                 } else {
                     // operationConvertToAnyref
-                    JSValue value = JSValue::decode(bitwise_cast<EncodedJSValue>(returned));
+                    JSValue value = JSValue::decode(std::bit_cast<EncodedJSValue>(returned));
                     value = Wasm::internalizeExternref(value);
                     if (UNLIKELY(!Wasm::TypeInformation::castReference(value, returnType.isNullable(), returnType.index))) {
-                        throwTypeError(globalObject, scope, "Argument value did not match reference type"_s);
+                        throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
                         OPERATION_RETURN(scope);
                     }
                 }
@@ -556,100 +562,163 @@ JSC_DEFINE_JIT_OPERATION(operationWasmToJSExitMarshalReturnValues, void, (void* 
                 RELEASE_ASSERT_NOT_REACHED();
         }
         }
-    } else if (signature.returnCount() > 1) {
-        // operationIterateResults
-        JSValue result = JSValue::decode(bitwise_cast<EncodedJSValue>(returned));
-
-        unsigned iterationCount = 0;
-        MarkedArgumentBuffer buffer;
-        buffer.ensureCapacity(signature.returnCount());
-        forEachInIterable(globalObject, result, [&](VM&, JSGlobalObject*, JSValue value) -> void {
-            if (buffer.size() < signature.returnCount()) {
-                buffer.append(value);
-                if (UNLIKELY(buffer.hasOverflowed()))
-                    throwOutOfMemoryError(globalObject, scope);
-            }
-            ++iterationCount;
-        });
-
-        OPERATION_RETURN_IF_EXCEPTION(scope);
-        if (buffer.hasOverflowed()) {
-            throwOutOfMemoryError(globalObject, scope, "JS results to Wasm are too large"_s);
-            OPERATION_RETURN(scope);
-        }
-
-        if (iterationCount != signature.returnCount()) {
-            throwVMTypeError(globalObject, scope, "Incorrect number of values returned to Wasm from JS"_s);
-            OPERATION_RETURN(scope);
-        }
-        for (unsigned index = 0; index < buffer.size(); ++index) {
-            JSValue value = buffer.at(index);
-
-            uint64_t unboxedValue = 0;
-            const auto& returnType = signature.returnType(index);
-            switch (returnType.kind) {
-            case TypeKind::I32:
-                unboxedValue = value.toInt32(globalObject);
-                break;
-            case TypeKind::I64:
-                unboxedValue = value.toBigInt64(globalObject);
-                break;
-            case TypeKind::F32:
-                unboxedValue = bitwise_cast<uint32_t>(value.toFloat(globalObject));
-                break;
-            case TypeKind::F64:
-                unboxedValue = bitwise_cast<uint64_t>(value.toNumber(globalObject));
-                break;
-            default: {
-                if (Wasm::isRefType(returnType)) {
-                    if (isExternref(returnType)) {
-                        // Do nothing.
-                    } else if (isFuncref(returnType) || (!Options::useWasmGC() && isRefWithTypeIndex(returnType))) {
-                        WebAssemblyFunction* wasmFunction = nullptr;
-                        WebAssemblyWrapperFunction* wasmWrapperFunction = nullptr;
-                        if (UNLIKELY(!isWebAssemblyHostFunction(value, wasmFunction, wasmWrapperFunction) && !value.isNull())) {
-                            throwTypeError(globalObject, scope, "Funcref value is not a function"_s);
-                            OPERATION_RETURN(scope);
-                        }
-                        if (Wasm::isRefWithTypeIndex(returnType) && !value.isNull()) {
-                            Wasm::TypeIndex paramIndex = returnType.index;
-                            Wasm::TypeIndex argIndex = wasmFunction ? wasmFunction->typeIndex() : wasmWrapperFunction->typeIndex();
-                            if (paramIndex != argIndex) {
-                                throwTypeError(globalObject, scope, "Argument function did not match the reference type"_s);
-                                OPERATION_RETURN(scope);
-                            }
-                        }
-                    } else {
-                        ASSERT(Options::useWasmGC());
-                        value = Wasm::internalizeExternref(value);
-                        if (UNLIKELY(!Wasm::TypeInformation::castReference(value, returnType.isNullable(), returnType.index))) {
-                            throwTypeError(globalObject, scope, "Argument value did not match reference type"_s);
-                            OPERATION_RETURN(scope);
-                        }
-                    }
-                } else
-                    RELEASE_ASSERT_NOT_REACHED();
-                unboxedValue = bitwise_cast<uint64_t>(value);
-            }
-            }
-            OPERATION_RETURN_IF_EXCEPTION(scope);
-
-            auto rep = wasmCC.results[index];
-            if (rep.location.isGPR())
-                *access.operator()<uint64_t>(registerSpace, GPRInfo::toArgumentIndex(rep.location.jsr().payloadGPR()) * sizeof(UCPURegister)) = unboxedValue;
-            else if (rep.location.isFPR())
-                *access.operator()<uint64_t>(registerSpace, GPRInfo::numberOfArgumentRegisters * sizeof(UCPURegister) + FPRInfo::toArgumentIndex(rep.location.fpr()) * bytesForWidth(Width::Width64)) = unboxedValue;
-            else
-                *access.operator()<uint64_t>(callerStackFrame, rep.location.offsetFromSP()) = unboxedValue;
-        }
     }
 
     OPERATION_RETURN(scope);
 }
 
-#if ENABLE(WEBASSEMBLY_OMGJIT)
-static bool shouldTriggerOMGCompile(TierUpCount& tierUp, OMGCallee* replacement, uint32_t functionIndex)
+static constexpr unsigned gprToIndex(GPRReg r)
 {
+    for (unsigned i = 0; i < GPRInfo::numberOfArgumentRegisters; ++i) {
+        if (GPRInfo::toArgumentRegister(i) == r)
+            return i;
+    }
+    RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT();
+    return 0;
+}
+
+static constexpr unsigned fprToIndex(FPRReg r)
+{
+    for (unsigned i = 0; i < FPRInfo::numberOfArgumentRegisters; ++i) {
+        if (FPRInfo::toArgumentRegister(i) == r)
+            return i;
+    }
+    RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT();
+    return 0;
+}
+
+
+ALWAYS_INLINE void assertCalleeIsReferenced(CallFrame* frame, JSWebAssemblyInstance* instance)
+{
+#if ASSERT_ENABLED
+    CalleeGroup& calleeGroup = *instance->calleeGroup();
+    Wasm::Callee* callee = static_cast<Wasm::Callee*>(frame->callee().asNativeCallee());
+    TriState status;
+    {
+        Locker locker { calleeGroup.m_lock };
+        status = calleeGroup.calleeIsReferenced(locker, callee);
+    }
+    if (status == TriState::Indeterminate)
+        ASSERT(instance->vm().heap.isWasmCalleePendingDestruction(*callee));
+    else
+        ASSERT(status == TriState::True);
+#else
+    UNUSED_PARAM(frame);
+    UNUSED_PARAM(instance);
+#endif
+}
+
+
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmToJSExitIterateResults, bool, (JSWebAssemblyInstance* instance, const TypeDefinition* type, uint64_t* registerResults, uint64_t* calleeFramePointer))
+{
+    EncodedJSValue encResult = registerResults[0];
+    CallFrame* callFrame = DECLARE_WASM_CALL_FRAME(instance);
+    assertCalleeIsReferenced(callFrame, instance);
+    VM& vm = instance->vm();
+    JSGlobalObject* globalObject = instance->globalObject();
+    NativeCallFrameTracer tracer(vm, callFrame);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    const FunctionSignature* signature = type->as<FunctionSignature>();
+
+    auto wasmCallInfo = wasmCallingConvention().callInformationFor(*type, CallRole::Callee);
+
+    unsigned iterationCount = 0;
+    MarkedArgumentBuffer buffer;
+    buffer.ensureCapacity(signature->returnCount());
+    JSValue result = JSValue::decode(encResult);
+    forEachInIterable(globalObject, result, [&](VM&, JSGlobalObject*, JSValue value) -> void {
+        if (buffer.size() < signature->returnCount()) {
+            buffer.append(value);
+            if (UNLIKELY(buffer.hasOverflowed()))
+                throwOutOfMemoryError(globalObject, scope);
+        }
+        ++iterationCount;
+    });
+    RETURN_IF_EXCEPTION(scope, true);
+
+    if (buffer.hasOverflowed()) {
+        throwOutOfMemoryError(globalObject, scope, "JS results to Wasm are too large"_s);
+        return true;
+    }
+
+    if (iterationCount != signature->returnCount()) {
+        throwVMTypeError(globalObject, scope, "Incorrect number of values returned to Wasm from JS"_s);
+        return true;
+    }
+
+    for (unsigned index = 0; index < buffer.size(); ++index) {
+        JSValue value = buffer.at(index);
+
+        uint64_t unboxedValue = 0;
+        const auto& returnType = signature->returnType(index);
+        switch (returnType.kind) {
+        case TypeKind::I32:
+            unboxedValue = value.toInt32(globalObject);
+            break;
+        case TypeKind::I64:
+            unboxedValue = value.toBigInt64(globalObject);
+            break;
+        case TypeKind::F32:
+            unboxedValue = std::bit_cast<uint32_t>(value.toFloat(globalObject));
+            break;
+        case TypeKind::F64:
+            unboxedValue = std::bit_cast<uint64_t>(value.toNumber(globalObject));
+            break;
+        default: {
+            if (Wasm::isRefType(returnType)) {
+                if (isExternref(returnType)) {
+                    // Do nothing.
+                } else if (isFuncref(returnType) || (!Options::useWasmGC() && isRefWithTypeIndex(returnType))) {
+                    WebAssemblyFunction* wasmFunction = nullptr;
+                    WebAssemblyWrapperFunction* wasmWrapperFunction = nullptr;
+                    if (UNLIKELY(!isWebAssemblyHostFunction(value, wasmFunction, wasmWrapperFunction) && !value.isNull())) {
+                        throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
+                        return true;
+                    }
+                    if (Wasm::isRefWithTypeIndex(returnType) && !value.isNull()) {
+                        Wasm::TypeIndex paramIndex = returnType.index;
+                        Wasm::TypeIndex argIndex = wasmFunction ? wasmFunction->typeIndex() : wasmWrapperFunction->typeIndex();
+                        if (paramIndex != argIndex) {
+                            throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
+                            return true;
+                        }
+                    }
+                } else {
+                    ASSERT(Options::useWasmGC());
+                    value = Wasm::internalizeExternref(value);
+                    if (UNLIKELY(!Wasm::TypeInformation::castReference(value, returnType.isNullable(), returnType.index))) {
+                        throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
+                        return true;
+                    }
+                }
+            } else
+                RELEASE_ASSERT_NOT_REACHED();
+            unboxedValue = std::bit_cast<uint64_t>(value);
+        }
+        }
+        RETURN_IF_EXCEPTION(scope, true);
+
+        auto rep = wasmCallInfo.results[index];
+        if (rep.location.isGPR())
+            registerResults[gprToIndex(rep.location.jsr().payloadGPR())] = unboxedValue;
+        else if (rep.location.isFPR())
+            registerResults[GPRInfo::numberOfArgumentRegisters + fprToIndex(rep.location.fpr())] = unboxedValue;
+        else
+            calleeFramePointer[rep.location.offsetFromFP() / sizeof(uint64_t)] = unboxedValue;
+    }
+    return false;
+}
+
+#if ENABLE(WEBASSEMBLY_OMGJIT)
+static bool shouldTriggerOMGCompile(TierUpCount& tierUp, OMGCallee* replacement, FunctionCodeIndex functionIndex)
+{
+    if (!OMGPlan::ensureGlobalOMGAllowlist().containsWasmFunction(functionIndex)) {
+        dataLogLnIf(Options::verboseOSR(), "\tNot optimizing ", functionIndex, " as it's not in the allow list.");
+        tierUp.deferIndefinitely();
+        return false;
+    }
+
     if (!replacement && !tierUp.checkIfOptimizationThresholdReached()) {
         dataLogLnIf(Options::verboseOSR(), "\tdelayOMGCompile counter = ", tierUp, " for ", functionIndex);
         dataLogLnIf(Options::verboseOSR(), "\tChoosing not to OMG-optimize ", functionIndex, " yet.");
@@ -699,31 +768,42 @@ void loadValuesIntoBuffer(Probe::Context& context, const StackMap& values, uint6
     ASSERT(Options::useWasmSIMD() || savedFPWidth == SavedFPWidth::DontSaveVectors);
     unsigned valueSize = (savedFPWidth == SavedFPWidth::SaveVectors) ? 2 : 1;
 
-    dataLogLnIf(WasmOperationsInternal::verbose, "loadValuesIntoBuffer: valueSize = ", valueSize, "; values.size() = ", values.size());
+    constexpr bool verbose = false || WasmOperationsInternal::verbose;
+    dataLogLnIf(verbose, "loadValuesIntoBuffer: valueSize = ", valueSize, "; values.size() = ", values.size());
     for (unsigned index = 0; index < values.size(); ++index) {
         const OSREntryValue& value = values[index];
-        dataLogLnIf(Options::verboseOSR() || WasmOperationsInternal::verbose, "OMG OSR entry values[", index, "] ", value.type(), " ", value);
+        dataLogLnIf(Options::verboseOSR() || verbose, "OMG OSR entry values[", index, "] ", value.type(), " ", value);
+#if USE(JSVALUE32_64)
+        if (value.isRegPair(B3::ValueRep::OSRValueRep)) {
+            std::bit_cast<uint32_t*>(buffer + index * valueSize)[0] = context.gpr(value.gprLo(B3::ValueRep::OSRValueRep));
+            std::bit_cast<uint32_t*>(buffer + index * valueSize)[1] = context.gpr(value.gprHi(B3::ValueRep::OSRValueRep));
+            dataLogLnIf(verbose, "GPR Pair for value ", index, " ",
+                value.gprLo(B3::ValueRep::OSRValueRep), " = ", context.gpr(value.gprLo(B3::ValueRep::OSRValueRep)), " ",
+                value.gprHi(B3::ValueRep::OSRValueRep), " = ", context.gpr(value.gprHi(B3::ValueRep::OSRValueRep)));
+        } else
+#endif
+
         if (value.isGPR()) {
             switch (value.type().kind()) {
             case B3::Float:
             case B3::Double:
                 RELEASE_ASSERT_NOT_REACHED();
             default:
-                *bitwise_cast<uint64_t*>(buffer + index * valueSize) = context.gpr(value.gpr());
+                *std::bit_cast<uint64_t*>(buffer + index * valueSize) = context.gpr(value.gpr());
             }
-            dataLogLnIf(WasmOperationsInternal::verbose, "GPR for value ", index, " ", value.gpr(), " = ", context.gpr(value.gpr()));
+            dataLogLnIf(verbose, "GPR for value ", index, " ", value.gpr(), " = ", context.gpr(value.gpr()));
         } else if (value.isFPR()) {
             switch (value.type().kind()) {
             case B3::Float:
             case B3::Double:
-                dataLogLnIf(WasmOperationsInternal::verbose, "FPR for value ", index, " ", value.fpr(), " = ", context.fpr(value.fpr(), savedFPWidth));
-                *bitwise_cast<double*>(buffer + index * valueSize) = context.fpr(value.fpr(), savedFPWidth);
+                dataLogLnIf(verbose, "FPR for value ", index, " ", value.fpr(), " = ", context.fpr(value.fpr(), savedFPWidth));
+                *std::bit_cast<double*>(buffer + index * valueSize) = context.fpr(value.fpr(), savedFPWidth);
                 break;
             case B3::V128:
                 RELEASE_ASSERT(valueSize == 2);
 #if CPU(X86_64) || CPU(ARM64)
-                dataLogLnIf(WasmOperationsInternal::verbose, "Vector FPR for value ", index, " ", value.fpr(), " = ", context.vector(value.fpr()));
-                *bitwise_cast<v128_t*>(buffer + index * valueSize) = context.vector(value.fpr());
+                dataLogLnIf(verbose, "Vector FPR for value ", index, " ", value.fpr(), " = ", context.vector(value.fpr()));
+                *std::bit_cast<v128_t*>(buffer + index * valueSize) = context.vector(value.fpr());
 #else
                 UNREACHABLE_FOR_PLATFORM();
 #endif
@@ -734,39 +814,40 @@ void loadValuesIntoBuffer(Probe::Context& context, const StackMap& values, uint6
         } else if (value.isConstant()) {
             switch (value.type().kind()) {
             case B3::Float:
-                *bitwise_cast<float*>(buffer + index * valueSize) = value.floatValue();
+                *std::bit_cast<float*>(buffer + index * valueSize) = value.floatValue();
                 break;
             case B3::Double:
-                *bitwise_cast<double*>(buffer + index * valueSize) = value.doubleValue();
+                *std::bit_cast<double*>(buffer + index * valueSize) = value.doubleValue();
                 break;
             case B3::V128:
                 RELEASE_ASSERT_NOT_REACHED();
                 break;
             default:
-                *bitwise_cast<uint64_t*>(buffer + index * valueSize) = value.value();
+                *std::bit_cast<uint64_t*>(buffer + index * valueSize) = value.value();
             }
         } else if (value.isStack()) {
-            auto* baseLoad = bitwise_cast<uint8_t*>(context.fp()) + value.offsetFromFP();
-            auto* baseStore = bitwise_cast<uint8_t*>(buffer + index * valueSize);
+            auto* baseLoad = std::bit_cast<uint8_t*>(context.fp()) + value.offsetFromFP();
+            auto* baseStore = std::bit_cast<uint8_t*>(buffer + index * valueSize);
 
-            if (WasmOperationsInternal::verbose && (value.type().isFloat() || value.type().isVector())) {
-                dataLogLn("Stack float or vector for value ", index, " fp offset ", value.offsetFromFP(), " = ",
-                    *bitwise_cast<v128_t*>(baseLoad),
-                    " or double ", *bitwise_cast<double*>(baseLoad));
-            }
+            if (value.type().isFloat() || value.type().isVector()) {
+                dataLogLnIf(verbose, "Stack float or vector for value ", index, " fp offset ", value.offsetFromFP(), " = ",
+                    *std::bit_cast<v128_t*>(baseLoad),
+                    " or double ", *std::bit_cast<double*>(baseLoad));
+            } else
+                dataLogLnIf(verbose, "Stack for value ", index, " fp[", value.offsetFromFP(), "] = ", RawHex(*std::bit_cast<uint64_t*>(baseLoad)), " ", static_cast<int32_t>(*std::bit_cast<uint64_t*>(baseLoad)), " ", *std::bit_cast<int64_t*>(baseLoad));
 
             switch (value.type().kind()) {
             case B3::Float:
-                *bitwise_cast<float*>(baseStore) = *bitwise_cast<float*>(baseLoad);
+                *std::bit_cast<float*>(baseStore) = *std::bit_cast<float*>(baseLoad);
                 break;
             case B3::Double:
-                *bitwise_cast<double*>(baseStore) = *bitwise_cast<double*>(baseLoad);
+                *std::bit_cast<double*>(baseStore) = *std::bit_cast<double*>(baseLoad);
                 break;
             case B3::V128:
-                *bitwise_cast<v128_t*>(baseStore) = *bitwise_cast<v128_t*>(baseLoad);
+                *std::bit_cast<v128_t*>(baseStore) = *std::bit_cast<v128_t*>(baseLoad);
                 break;
             default:
-                *bitwise_cast<uint64_t*>(baseStore) = *bitwise_cast<uint64_t*>(baseLoad);
+                *std::bit_cast<uint64_t*>(baseStore) = *std::bit_cast<uint64_t*>(baseLoad);
                 break;
             }
         } else
@@ -799,46 +880,48 @@ static void doOSREntry(JSWebAssemblyInstance* instance, Probe::Context& context,
         if (dontRestoreRegisters.contains(entry.reg(), IgnoreVectors))
             continue;
         if (entry.reg().isGPR())
-            context.gpr(entry.reg().gpr()) = *bitwise_cast<UCPURegister*>(bitwise_cast<uint8_t*>(context.fp()) + entry.offset());
+            context.gpr(entry.reg().gpr()) = *std::bit_cast<UCPURegister*>(std::bit_cast<uint8_t*>(context.fp()) + entry.offset());
         else
-            context.fpr(entry.reg().fpr(), callee.savedFPWidth()) = *bitwise_cast<double*>(bitwise_cast<uint8_t*>(context.fp()) + entry.offset());
+            context.fpr(entry.reg().fpr(), callee.savedFPWidth()) = *std::bit_cast<double*>(std::bit_cast<uint8_t*>(context.fp()) + entry.offset());
     }
 
     // 3. Function epilogue, like a tail-call.
-    UCPURegister* framePointer = bitwise_cast<UCPURegister*>(context.fp());
+    UCPURegister* framePointer = std::bit_cast<UCPURegister*>(context.fp());
 #if CPU(X86_64)
     // move(framePointerRegister, stackPointerRegister);
     // pop(framePointerRegister);
-    context.fp() = bitwise_cast<UCPURegister*>(*framePointer);
+    context.fp() = std::bit_cast<UCPURegister*>(*framePointer);
     context.sp() = framePointer + 1;
     static_assert(prologueStackPointerDelta() == sizeof(void*) * 1);
 #elif CPU(ARM64E) || CPU(ARM64)
     // move(framePointerRegister, stackPointerRegister);
     // popPair(framePointerRegister, linkRegister);
-    context.fp() = bitwise_cast<UCPURegister*>(*framePointer);
-    context.gpr(ARM64Registers::lr) = bitwise_cast<UCPURegister>(*(framePointer + 1));
+    context.fp() = std::bit_cast<UCPURegister*>(*framePointer);
+    context.gpr(ARM64Registers::lr) = std::bit_cast<UCPURegister>(*(framePointer + 1));
     context.sp() = framePointer + 2;
     static_assert(prologueStackPointerDelta() == sizeof(void*) * 2);
 #if CPU(ARM64E)
     // LR needs to be untagged since OSR entry function prologue will tag it with SP. This is similar to tail-call.
-    context.gpr(ARM64Registers::lr) = bitwise_cast<UCPURegister>(untagCodePtrWithStackPointerForJITCall(context.gpr<void*>(ARM64Registers::lr), context.sp()));
+    context.gpr(ARM64Registers::lr) = std::bit_cast<UCPURegister>(untagCodePtrWithStackPointerForJITCall(context.gpr<void*>(ARM64Registers::lr), context.sp()));
 #endif
 #elif CPU(RISCV64)
     // move(framePointerRegister, stackPointerRegister);
     // popPair(framePointerRegister, linkRegister);
-    context.fp() = bitwise_cast<UCPURegister*>(*framePointer);
-    context.gpr(RISCV64Registers::ra) = bitwise_cast<UCPURegister>(*(framePointer + 1));
+    context.fp() = std::bit_cast<UCPURegister*>(*framePointer);
+    context.gpr(RISCV64Registers::ra) = std::bit_cast<UCPURegister>(*(framePointer + 1));
     context.sp() = framePointer + 2;
     static_assert(prologueStackPointerDelta() == sizeof(void*) * 2);
 #elif CPU(ARM)
-    UNUSED_VARIABLE(framePointer);
-    UNREACHABLE_FOR_PLATFORM(); // Should not try to tier up yet
+    context.fp() = std::bit_cast<UCPURegister*>(*framePointer);
+    context.gpr(ARMRegisters::lr) = std::bit_cast<UCPURegister>(*(framePointer + 1));
+    context.sp() = framePointer + 2;
+    static_assert(prologueStackPointerDelta() == sizeof(void*) * 2);
 #else
 #error Unsupported architecture.
 #endif
     // 4. Configure argument registers to jump to OSR entry from the caller of this runtime function.
-    context.gpr(GPRInfo::argumentGPR0) = bitwise_cast<UCPURegister>(buffer); // Modify this only when we definitely tier up.
-    context.gpr(GPRInfo::nonPreservedNonArgumentGPR0) = bitwise_cast<UCPURegister>(osrEntryCallee.entrypoint().taggedPtr<>());
+    context.gpr(GPRInfo::argumentGPR0) = std::bit_cast<UCPURegister>(buffer); // Modify this only when we definitely tier up.
+    context.gpr(GPRInfo::nonPreservedNonArgumentGPR0) = std::bit_cast<UCPURegister>(osrEntryCallee.entrypoint().taggedPtr<>());
 }
 
 inline bool shouldOMGJIT(JSWebAssemblyInstance* instance, unsigned functionIndex)
@@ -1120,7 +1203,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmTriggerOSREntryNow, void, (Probe:
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmLoopOSREnterBBQJIT, void, (Probe::Context & context))
 {
-    uint64_t* osrEntryScratchBuffer = bitwise_cast<uint64_t*>(context.gpr(GPRInfo::argumentGPR0));
+    uint64_t* osrEntryScratchBuffer = std::bit_cast<uint64_t*>(context.gpr(GPRInfo::argumentGPR0));
     unsigned loopIndex = osrEntryScratchBuffer[0]; // First entry in scratch buffer is the loop index when tiering up to BBQ.
 
     // We just populated the callee in the frame before we entered this operation, so let's use it.
@@ -1140,19 +1223,19 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmLoopOSREnterBBQJIT, void, (Probe:
             ASSERT(type.isFloat()); // We don't expect vectors from LLInt right now.
             context.fpr(value.fpr()) = encodedValue;
         } else if (value.isStack()) {
-            auto* baseStore = bitwise_cast<uint8_t*>(context.fp()) + value.offsetFromFP();
+            auto* baseStore = std::bit_cast<uint8_t*>(context.fp()) + value.offsetFromFP();
             switch (type.kind()) {
             case B3::Int32:
-                *bitwise_cast<uint32_t*>(baseStore) = static_cast<uint32_t>(encodedValue);
+                *std::bit_cast<uint32_t*>(baseStore) = static_cast<uint32_t>(encodedValue);
                 break;
             case B3::Int64:
-                *bitwise_cast<uint64_t*>(baseStore) = encodedValue;
+                *std::bit_cast<uint64_t*>(baseStore) = encodedValue;
                 break;
             case B3::Float:
-                *bitwise_cast<float*>(baseStore) = bitwise_cast<float>(static_cast<uint32_t>(encodedValue));
+                *std::bit_cast<float*>(baseStore) = std::bit_cast<float>(static_cast<uint32_t>(encodedValue));
                 break;
             case B3::Double:
-                *bitwise_cast<double*>(baseStore) = bitwise_cast<double>(encodedValue);
+                *std::bit_cast<double*>(baseStore) = std::bit_cast<double>(encodedValue);
                 break;
             case B3::V128:
                 RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("We shouldn't be receiving v128 values when tiering up from LLInt into BBQ.");
@@ -1168,31 +1251,10 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmLoopOSREnterBBQJIT, void, (Probe:
     for (const auto& entry : stackMap)
         writeValueToRep(osrEntryScratchBuffer[indexInScratchBuffer++], entry);
 
-    context.gpr(GPRInfo::nonPreservedNonArgumentGPR0) = bitwise_cast<UCPURegister>(callee.loopEntrypoints()[loopIndex].taggedPtr());
+    context.gpr(GPRInfo::nonPreservedNonArgumentGPR0) = std::bit_cast<UCPURegister>(callee.loopEntrypoints()[loopIndex].taggedPtr());
 }
 
 #endif
-
-
-ALWAYS_INLINE void assertCalleeIsReferenced(CallFrame* frame, JSWebAssemblyInstance* instance)
-{
-#if ASSERT_ENABLED
-    CalleeGroup& calleeGroup = *instance->calleeGroup();
-    Wasm::Callee* callee = static_cast<Wasm::Callee*>(frame->callee().asNativeCallee());
-    TriState status;
-    {
-        Locker locker { calleeGroup.m_lock };
-        status = calleeGroup.calleeIsReferenced(locker, callee);
-    }
-    if (status == TriState::Indeterminate)
-        ASSERT(instance->vm().heap.isWasmCalleePendingDestruction(*callee));
-    else
-        ASSERT(status == TriState::True);
-#else
-    UNUSED_PARAM(frame);
-    UNUSED_PARAM(instance);
-#endif
-}
 
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmUnwind, void*, (JSWebAssemblyInstance* instance))
@@ -1310,7 +1372,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationConvertToBigInt, EncodedJSValue, (JSW
 }
 
 // https://webassembly.github.io/multi-value/js-api/index.html#run-a-host-function
-JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, void, (JSWebAssemblyInstance* instance, const TypeDefinition* type, EncodedJSValue encResult, uint64_t* registerResults, uint64_t* calleeFramePointer))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, bool, (JSWebAssemblyInstance* instance, const TypeDefinition* type, EncodedJSValue encResult, uint64_t* registerResults, uint64_t* calleeFramePointer))
 {
     CallFrame* callFrame = DECLARE_WASM_CALL_FRAME(instance);
     assertCalleeIsReferenced(callFrame, instance);
@@ -1336,16 +1398,16 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, void, (JSWebAssemblyI
         }
         ++iterationCount;
     });
-    RETURN_IF_EXCEPTION(scope, void());
+    RETURN_IF_EXCEPTION(scope, true);
 
     if (buffer.hasOverflowed()) {
         throwOutOfMemoryError(globalObject, scope, "JS results to Wasm are too large"_s);
-        return;
+        return true;
     }
 
     if (iterationCount != signature->returnCount()) {
         throwVMTypeError(globalObject, scope, "Incorrect number of values returned to Wasm from JS"_s);
-        return;
+        return true;
     }
 
     for (unsigned index = 0; index < buffer.size(); ++index) {
@@ -1361,10 +1423,10 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, void, (JSWebAssemblyI
             unboxedValue = value.toBigInt64(globalObject);
             break;
         case TypeKind::F32:
-            unboxedValue = bitwise_cast<uint32_t>(value.toFloat(globalObject));
+            unboxedValue = std::bit_cast<uint32_t>(value.toFloat(globalObject));
             break;
         case TypeKind::F64:
-            unboxedValue = bitwise_cast<uint64_t>(value.toNumber(globalObject));
+            unboxedValue = std::bit_cast<uint64_t>(value.toNumber(globalObject));
             break;
         default: {
             if (Wasm::isRefType(returnType)) {
@@ -1375,14 +1437,14 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, void, (JSWebAssemblyI
                     WebAssemblyWrapperFunction* wasmWrapperFunction = nullptr;
                     if (UNLIKELY(!isWebAssemblyHostFunction(value, wasmFunction, wasmWrapperFunction) && !value.isNull())) {
                         throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
-                        return;
+                        return true;
                     }
                     if (Wasm::isRefWithTypeIndex(returnType) && !value.isNull()) {
                         Wasm::TypeIndex paramIndex = returnType.index;
                         Wasm::TypeIndex argIndex = wasmFunction ? wasmFunction->typeIndex() : wasmWrapperFunction->typeIndex();
                         if (paramIndex != argIndex) {
                             throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
-                            return;
+                            return true;
                         }
                     }
                 } else {
@@ -1390,15 +1452,15 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, void, (JSWebAssemblyI
                     value = Wasm::internalizeExternref(value);
                     if (UNLIKELY(!Wasm::TypeInformation::castReference(value, returnType.isNullable(), returnType.index))) {
                         throwTypeError(globalObject, scope, "Argument value did not match the reference type"_s);
-                        return;
+                        return true;
                     }
                 }
             } else
                 RELEASE_ASSERT_NOT_REACHED();
-            unboxedValue = bitwise_cast<uint64_t>(value);
+            unboxedValue = std::bit_cast<uint64_t>(value);
         }
         }
-        RETURN_IF_EXCEPTION(scope, void());
+        RETURN_IF_EXCEPTION(scope, true);
 
         auto rep = wasmCallInfo.results[index];
         if (rep.location.isGPR())
@@ -1408,6 +1470,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationIterateResults, void, (JSWebAssemblyI
         else
             calleeFramePointer[rep.location.offsetFromFP() / sizeof(uint64_t)] = unboxedValue;
     }
+    return false;
 }
 
 // FIXME: It would be much easier to inline this when we have a global GC, which could probably mean we could avoid
@@ -1711,7 +1774,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmArrayNew, EncodedJSValue, (JSWebA
     assertCalleeIsReferenced(callFrame, instance);
     VM& vm = instance->vm();
     NativeCallFrameTracer tracer(vm, callFrame);
-    return arrayNew(instance, typeIndex, size, value);
+    return JSValue::encode(arrayNew(instance, typeIndex, size, value));
 }
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmArrayNewVector, EncodedJSValue, (JSWebAssemblyInstance* instance, uint32_t typeIndex, uint32_t size, uint64_t lane0, uint64_t lane1))
@@ -1720,7 +1783,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmArrayNewVector, EncodedJSValue, (
     assertCalleeIsReferenced(callFrame, instance);
     VM& vm = instance->vm();
     NativeCallFrameTracer tracer(vm, callFrame);
-    return arrayNew(instance, typeIndex, size, v128_t { lane0, lane1 });
+    return JSValue::encode(arrayNew(instance, typeIndex, size, v128_t { lane0, lane1 }));
 }
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmArrayNewData, EncodedJSValue, (JSWebAssemblyInstance* instance, uint32_t typeIndex, uint32_t dataSegmentIndex, uint32_t arraySize, uint32_t offset))
@@ -1908,5 +1971,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmRefCast, EncodedJSValue, (JSWebAs
 } // namespace JSC::Wasm
 
 IGNORE_WARNINGS_END
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

@@ -66,6 +66,7 @@
 #import "WebScreenOrientationManagerProxy.h"
 #import "WebsiteDataStore.h"
 #import <Foundation/NSURLRequest.h>
+#import <WebCore/AppHighlight.h>
 #import <WebCore/ApplePayAMSUIRequest.h>
 #import <WebCore/DragItem.h>
 #import <WebCore/GeometryUtilities.h>
@@ -76,7 +77,7 @@
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
-#import <WebCore/PlaybackSessionInterfaceAVKit.h>
+#import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
 #import <WebCore/RunLoopObserver.h>
@@ -158,17 +159,21 @@ static bool exceedsRenderTreeSizeSizeThreshold(uint64_t thresholdSize, uint64_t 
 
 void WebPageProxy::didCommitLayerTree(const WebKit::RemoteLayerTreeTransaction& layerTreeTransaction)
 {
-    if (layerTreeTransaction.isMainFrameProcessTransaction())
+    if (layerTreeTransaction.isMainFrameProcessTransaction()) {
         themeColorChanged(layerTreeTransaction.themeColor());
-    pageExtendedBackgroundColorDidChange(layerTreeTransaction.pageExtendedBackgroundColor());
-    sampledPageTopColorChanged(layerTreeTransaction.sampledPageTopColor());
+        pageExtendedBackgroundColorDidChange(layerTreeTransaction.pageExtendedBackgroundColor());
+        sampledPageTopColorChanged(layerTreeTransaction.sampledPageTopColor());
+    }
 
-    if (!m_hasUpdatedRenderingAfterDidCommitLoad) {
-        if (layerTreeTransaction.transactionID() >= internals().firstLayerTreeTransactionIdAfterDidCommitLoad) {
-            m_hasUpdatedRenderingAfterDidCommitLoad = true;
-            stopMakingViewBlankDueToLackOfRenderingUpdateIfNecessary();
-            internals().lastVisibleContentRectUpdate = { };
-        }
+    if (!m_hasUpdatedRenderingAfterDidCommitLoad
+        && (layerTreeTransaction.transactionID() >= internals().firstLayerTreeTransactionIdAfterDidCommitLoad)) {
+        m_hasUpdatedRenderingAfterDidCommitLoad = true;
+#if ENABLE(SCREEN_TIME)
+        if (RefPtr pageClient = this->pageClient())
+            pageClient->didChangeScreenTimeWebpageControllerURL();
+#endif
+        stopMakingViewBlankDueToLackOfRenderingUpdateIfNecessary();
+        internals().lastVisibleContentRectUpdate = { };
     }
 
     if (RefPtr pageClient = this->pageClient())
@@ -400,14 +405,6 @@ void WebPageProxy::performDictionaryLookupAtLocation(const WebCore::FloatPoint& 
         return;
     
     protectedLegacyMainFrameProcess()->send(Messages::WebPage::PerformDictionaryLookupAtLocation(point), webPageIDInMainFrameProcess());
-}
-
-void WebPageProxy::performDictionaryLookupOfCurrentSelection()
-{
-    if (!hasRunningProcess())
-        return;
-    
-    protectedLegacyMainFrameProcess()->send(Messages::WebPage::PerformDictionaryLookupOfCurrentSelection(), webPageIDInMainFrameProcess());
 }
 
 void WebPageProxy::insertDictatedTextAsync(const String& text, const EditingRange& replacementRange, const Vector<TextAlternativeWithRange>& dictationAlternativesWithRange, InsertTextOptions&& options)
@@ -1244,7 +1241,7 @@ WebCore::WritingTools::Behavior WebPageProxy::writingToolsBehavior() const
     auto& editorState = this->editorState();
     auto& configuration = this->configuration();
 
-    if (configuration.writingToolsBehavior() == WebCore::WritingTools::Behavior::None || editorState.selectionIsNone || editorState.isInPasswordField)
+    if (configuration.writingToolsBehavior() == WebCore::WritingTools::Behavior::None || editorState.selectionIsNone || editorState.isInPasswordField || editorState.isInPlugin)
         return WebCore::WritingTools::Behavior::None;
 
     if (configuration.writingToolsBehavior() == WebCore::WritingTools::Behavior::Complete && editorState.isContentEditable)
@@ -1263,14 +1260,19 @@ void WebPageProxy::didBeginWritingToolsSession(const WebCore::WritingTools::Sess
     protectedLegacyMainFrameProcess()->send(Messages::WebPage::DidBeginWritingToolsSession(session, contexts), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::proofreadingSessionDidReceiveSuggestions(const WebCore::WritingTools::Session& session, const Vector<WebCore::WritingTools::TextSuggestion>& suggestions, const WebCore::WritingTools::Context& context, bool finished)
+void WebPageProxy::proofreadingSessionDidReceiveSuggestions(const WebCore::WritingTools::Session& session, const Vector<WebCore::WritingTools::TextSuggestion>& suggestions, const WebCore::CharacterRange& processedRange, const WebCore::WritingTools::Context& context, bool finished, CompletionHandler<void()>&& completionHandler)
 {
-    protectedLegacyMainFrameProcess()->send(Messages::WebPage::ProofreadingSessionDidReceiveSuggestions(session, suggestions, context, finished), webPageIDInMainFrameProcess());
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::ProofreadingSessionDidReceiveSuggestions(session, suggestions, processedRange, context, finished), WTFMove(completionHandler), webPageIDInMainFrameProcess());
 }
 
 void WebPageProxy::proofreadingSessionDidUpdateStateForSuggestion(const WebCore::WritingTools::Session& session, WebCore::WritingTools::TextSuggestion::State state, const WebCore::WritingTools::TextSuggestion& suggestion, const WebCore::WritingTools::Context& context)
 {
     protectedLegacyMainFrameProcess()->send(Messages::WebPage::ProofreadingSessionDidUpdateStateForSuggestion(session, state, suggestion, context), webPageIDInMainFrameProcess());
+}
+
+void WebPageProxy::willEndWritingToolsSession(const WebCore::WritingTools::Session& session, bool accepted, CompletionHandler<void()>&& completionHandler)
+{
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::WillEndWritingToolsSession(session, accepted), WTFMove(completionHandler), webPageIDInMainFrameProcess());
 }
 
 void WebPageProxy::didEndWritingToolsSession(const WebCore::WritingTools::Session& session, bool accepted)
@@ -1288,20 +1290,29 @@ void WebPageProxy::writingToolsSessionDidReceiveAction(const WebCore::WritingToo
     protectedLegacyMainFrameProcess()->send(Messages::WebPage::WritingToolsSessionDidReceiveAction(session, action), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::enableSourceTextAnimationAfterElementWithID(const String& elementID)
+void WebPageProxy::proofreadingSessionSuggestionTextRectsInRootViewCoordinates(const WebCore::CharacterRange& enclosingRangeRelativeToSessionRange, CompletionHandler<void(Vector<WebCore::FloatRect>&&)>&& completionHandler) const
 {
-    if (!hasRunningProcess())
-        return;
-
-    protectedLegacyMainFrameProcess()->send(Messages::WebPage::EnableSourceTextAnimationAfterElementWithID(elementID), webPageIDInMainFrameProcess());
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::ProofreadingSessionSuggestionTextRectsInRootViewCoordinates(enclosingRangeRelativeToSessionRange), WTFMove(completionHandler), webPageIDInMainFrameProcess());
 }
 
-void WebPageProxy::enableTextAnimationTypeForElementWithID(const String& elementID)
+void WebPageProxy::updateTextVisibilityForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, bool visible, const WTF::UUID& identifier, CompletionHandler<void()>&& completionHandler)
 {
-    if (!hasRunningProcess())
-        return;
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::UpdateTextVisibilityForActiveWritingToolsSession(rangeRelativeToSessionRange, visible, identifier), WTFMove(completionHandler), webPageIDInMainFrameProcess());
+}
 
-    protectedLegacyMainFrameProcess()->send(Messages::WebPage::EnableTextAnimationTypeForElementWithID(elementID), webPageIDInMainFrameProcess());
+void WebPageProxy::textPreviewDataForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void(std::optional<WebCore::TextIndicatorData>&&)>&& completionHandler)
+{
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::TextPreviewDataForActiveWritingToolsSession(rangeRelativeToSessionRange), WTFMove(completionHandler), webPageIDInMainFrameProcess());
+}
+
+void WebPageProxy::decorateTextReplacementsForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void()>&& completionHandler)
+{
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::DecorateTextReplacementsForActiveWritingToolsSession(rangeRelativeToSessionRange), WTFMove(completionHandler), webPageIDInMainFrameProcess());
+}
+
+void WebPageProxy::setSelectionForActiveWritingToolsSession(const WebCore::CharacterRange& rangeRelativeToSessionRange, CompletionHandler<void()>&& completionHandler)
+{
+    protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::SetSelectionForActiveWritingToolsSession(rangeRelativeToSessionRange), WTFMove(completionHandler), webPageIDInMainFrameProcess());
 }
 
 void WebPageProxy::addTextAnimationForAnimationID(IPC::Connection& connection, const WTF::UUID& uuid, const WebCore::TextAnimationData& styleData, const WebCore::TextIndicatorData& indicatorData)
@@ -1489,6 +1500,20 @@ WTF::MachSendRight WebPageProxy::createMachSendRightForRemoteLayerServer()
 void WebPageProxy::getInformationFromImageData(Vector<uint8_t>&& data, CompletionHandler<void(Expected<std::pair<String, Vector<IntSize>>, WebCore::ImageDecodingError>&&)>&& completionHandler)
 {
     ensureProtectedRunningProcess()->sendWithAsyncReply(Messages::WebPage::GetInformationFromImageData(WTFMove(data)), [preventProcessShutdownScope = protectedLegacyMainFrameProcess()->shutdownPreventingScope(), completionHandler = WTFMove(completionHandler)] (auto result) mutable {
+        completionHandler(WTFMove(result));
+    }, webPageIDInMainFrameProcess());
+}
+
+void WebPageProxy::createIconDataFromImageData(Ref<WebCore::SharedBuffer>&& buffer, const Vector<unsigned>& lengths, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
+{
+    ensureProtectedRunningProcess()->sendWithAsyncReply(Messages::WebPage::CreateIconDataFromImageData(WTFMove(buffer), lengths), [preventProcessShutdownScope = protectedLegacyMainFrameProcess()->shutdownPreventingScope(), completionHandler = WTFMove(completionHandler)] (auto result) mutable {
+        completionHandler(WTFMove(result));
+    }, webPageIDInMainFrameProcess());
+}
+
+void WebPageProxy::decodeImageData(Ref<WebCore::SharedBuffer>&& buffer, std::optional<WebCore::FloatSize> preferredSize, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&& completionHandler)
+{
+    ensureProtectedRunningProcess()->sendWithAsyncReply(Messages::WebPage::DecodeImageData(WTFMove(buffer), preferredSize), [preventProcessShutdownScope = protectedLegacyMainFrameProcess()->shutdownPreventingScope(), completionHandler = WTFMove(completionHandler)] (auto result) mutable {
         completionHandler(WTFMove(result));
     }, webPageIDInMainFrameProcess());
 }

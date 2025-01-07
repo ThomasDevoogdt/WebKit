@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,6 +40,7 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ReportingObserverCallback);
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(ReportingObserver);
 
 static bool isVisibleToReportingObservers(const String& type)
@@ -62,10 +63,10 @@ Ref<ReportingObserver> ReportingObserver::create(ScriptExecutionContext& scriptE
 
 static WeakPtr<ReportingScope> reportingScopeForContext(ScriptExecutionContext& scriptExecutionContext)
 {
-    if (RefPtr document = dynamicDowncast<Document>(&scriptExecutionContext))
+    if (RefPtr document = dynamicDowncast<Document>(scriptExecutionContext))
         return document->reportingScope();
 
-    if (RefPtr workerGlobalScope = dynamicDowncast<WorkerGlobalScope>(&scriptExecutionContext))
+    if (RefPtr workerGlobalScope = dynamicDowncast<WorkerGlobalScope>(scriptExecutionContext))
         return workerGlobalScope->reportingScope();
 
     RELEASE_ASSERT_NOT_REACHED();

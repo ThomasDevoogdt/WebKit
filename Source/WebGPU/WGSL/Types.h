@@ -27,6 +27,7 @@
 
 #include "ASTForward.h"
 #include "WGSLEnums.h"
+#include <array>
 #include <functional>
 #include <wtf/FixedVector.h>
 #include <wtf/HashMap.h>
@@ -153,7 +154,7 @@ struct Array {
 
 struct Struct {
     AST::Structure& structure;
-    UncheckedKeyHashMap<String, const Type*> fields { };
+    HashMap<String, const Type*> fields { };
 };
 
 struct PrimitiveStruct {
@@ -171,8 +172,8 @@ public:
         static constexpr unsigned exp = 1;
 
         static constexpr std::pair<ComparableASCIILiteral, unsigned> mapEntries[] {
-            { "exp", exp },
-            { "fract", fract },
+            { "exp"_s, exp },
+            { "fract"_s, fract },
         };
 
         static constexpr SortedArrayMap map { mapEntries };
@@ -184,8 +185,8 @@ public:
         static constexpr unsigned whole = 1;
 
         static constexpr std::pair<ComparableASCIILiteral, unsigned> mapEntries[] {
-            { "fract", fract },
-            { "whole", whole },
+            { "fract"_s, fract },
+            { "whole"_s, whole },
         };
 
         static constexpr SortedArrayMap map { mapEntries };
@@ -197,18 +198,18 @@ public:
         static constexpr unsigned exchanged = 1;
 
         static constexpr std::pair<ComparableASCIILiteral, unsigned> mapEntries[] {
-            { "exchanged", exchanged },
-            { "old_value", oldValue },
+            { "exchanged"_s, exchanged },
+            { "old_value"_s, oldValue },
         };
 
         static constexpr SortedArrayMap map { mapEntries };
     };
 
-    static constexpr SortedArrayMap<std::pair<ComparableASCIILiteral, unsigned>[2]> keys[] {
+    static constexpr auto keys = std::to_array<SortedArrayMap<std::pair<ComparableASCIILiteral, unsigned>[2]>>({
         FrexpResult::map,
         ModfResult::map,
         AtomicCompareExchangeResult::map,
-    };
+    });
 
     String name;
     Kind kind;
@@ -319,7 +320,7 @@ public:
     unsigned length() const { return m_string.length(); }
     bool is8Bit() const { return m_string.is8Bit(); }
     template<typename CharacterType>
-    void writeTo(CharacterType* destination) const
+    void writeTo(std::span<CharacterType> destination) const
     {
         StringView { m_string }.getCharacters(destination);
         WTF_STRINGTYPEADAPTER_COPIED_WTF_STRING();

@@ -36,13 +36,11 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
-ALLOW_COMMA_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
 #include <webrtc/api/data_channel_interface.h>
 
-ALLOW_UNUSED_PARAMETERS_END
-ALLOW_COMMA_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace webrtc {
 struct DataChannelInit;

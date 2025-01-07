@@ -8,19 +8,13 @@
 #ifndef skgpu_graphite_ShaderCodeDictionary_DEFINED
 #define skgpu_graphite_ShaderCodeDictionary_DEFINED
 
-#include "include/core/SkBlendMode.h"
 #include "include/core/SkSpan.h"
-#include "include/core/SkTypes.h"
-#include "include/private/base/SkMacros.h"
-#include "include/private/base/SkTArray.h"
-#include "include/private/base/SkThreadAnnotations.h"
 #include "include/private/base/SkTo.h"
 #include "src/base/SkArenaAlloc.h"
 #include "src/base/SkEnumBitMask.h"
 #include "src/base/SkSpinlock.h"
 #include "src/core/SkKnownRuntimeEffects.h"
 #include "src/core/SkTHash.h"
-#include "src/gpu/Blend.h"
 #include "src/gpu/graphite/BuiltInCodeSnippetID.h"
 #include "src/gpu/graphite/PaintParamsKey.h"
 #include "src/gpu/graphite/ResourceTypes.h"
@@ -36,16 +30,7 @@
 
 class SkRuntimeEffect;
 
-namespace skgpu {
-class Swizzle;
-}
-
 namespace skgpu::graphite {
-
-class Caps;
-enum class DstReadRequirement;
-class RenderStep;
-class RuntimeEffectDictionary;
 
 // TODO: How to represent the type (e.g., 2D) of texture being sampled?
 class TextureAndSampler {
@@ -59,15 +44,15 @@ private:
 };
 
 enum class SnippetRequirementFlags : uint32_t {
-    kNone             = 0x0,
+    kNone                  = 0x0,
     // Signature of the ShaderNode
-    kLocalCoords      = 0x1,
-    kPriorStageOutput = 0x2,  // AKA the "input" color, or the "src" argument for a blender
-    kBlenderDstColor  = 0x4,  // The "dst" argument for a blender
+    kLocalCoords           = 0x1,
+    kPriorStageOutput      = 0x2,  // AKA the "input" color, or the "src" argument for a blender
+    kBlenderDstColor       = 0x4,  // The "dst" argument for a blender
     // Special values and/or behaviors required for the snippet
-    kPrimitiveColor   = 0x8,
-    kGradientBuffer   = 0x10,
-    kStoresData       = 0x20, // Indicates that the node stores numerical data
+    kPrimitiveColor        = 0x8,
+    kGradientBuffer        = 0x10,
+    kStoresSamplerDescData = 0x20, // Indicates that the node stores numerical sampler data
 };
 SK_MAKE_BITMASK_OPS(SnippetRequirementFlags)
 
@@ -85,6 +70,8 @@ struct ShaderSnippet {
         std::string fBlenderDstColor;
         std::string fFragCoord;
     };
+
+    static const Args kDefaultArgs;
 
     ShaderSnippet() = default;
 
@@ -117,8 +104,8 @@ struct ShaderSnippet {
     bool needsBlenderDstColor() const {
         return SkToBool(fSnippetRequirementFlags & SnippetRequirementFlags::kBlenderDstColor);
     }
-    bool storesData() const {
-        return SkToBool(fSnippetRequirementFlags & SnippetRequirementFlags::kStoresData);
+    bool storesSamplerDescData() const {
+        return SkToBool(fSnippetRequirementFlags & SnippetRequirementFlags::kStoresSamplerDescData);
     }
 
     const char* fName = nullptr;
@@ -178,9 +165,14 @@ public:
 
             fRequiredFlags |= (child->requiredFlags() & ~mask);
         }
-        // Data should only be provided if the snippet has the kStoresData flag.
-        SkASSERT(fData.empty() || snippet->storesData());
+        // Data should only be provided if the snippet has the kStoresSamplerDescData flag.
+        SkASSERT(fData.empty() || snippet->storesSamplerDescData());
     }
+
+    std::string generateDefaultPreamble(const ShaderInfo& shaderInfo) const;
+    std::string invokeAndAssign(const ShaderInfo& shaderInfo,
+                                const ShaderSnippet::Args& args,
+                                std::string* funcBody) const;
 
     int32_t codeSnippetId() const { return fCodeID; }
     int32_t keyIndex() const { return fKeyIndex; }
@@ -203,66 +195,6 @@ private:
 
     SkEnumBitMask<SnippetRequirementFlags> fRequiredFlags;
     SkSpan<const uint32_t> fData; // Subspan of PaintParamsKey's fData; shares same owner
-};
-
-// ShaderInfo holds all root ShaderNodes defined for a PaintParams as well as the extracted fixed
-// function blending parameters and other aggregate requirements for the effect trees that have
-// been linked into a single fragment program (sans any RenderStep fragment work and fixed SkSL
-// logic required for all rendering in Graphite).
-class ShaderInfo {
-public:
-    ShaderInfo(UniquePaintParamsID id,
-               const ShaderCodeDictionary* dict,
-               const RuntimeEffectDictionary* rteDict,
-               const char* ssboIndex);
-
-    bool needsLocalCoords() const {
-        return SkToBool(fRootNodes[0]->requiredFlags() & SnippetRequirementFlags::kLocalCoords);
-    }
-    const RuntimeEffectDictionary* runtimeEffectDictionary() const {
-        return fRuntimeEffectDictionary;
-    }
-    const char* ssboIndex() const { return fSsboIndex; }
-
-    DstReadRequirement dstReadRequirement() const { return fDstReadRequirement; }
-    const skgpu::BlendInfo& blendInfo() const { return fBlendInfo; }
-
-    const skia_private::TArray<uint32_t>& data() const { return fData; }
-
-    // Determines numTexturesAndSamplersUsed, hasPaintUniforms, hasGradientBuffer, and if a valid
-    // SamplerDesc ptr is passed in, any immutable sampler SamplerDescs.
-    std::string toSkSL(const Caps* caps,
-                       const RenderStep* step,
-                       bool useStorageBuffers,
-                       Swizzle writeSwizzle,
-                       int* outNumTexturesAndSamplersUsed,
-                       bool* outHasPaintUniforms,
-                       bool* outHasGradientBuffer,
-                       skia_private::TArray<SamplerDesc>* outDescs = nullptr);
-
-private:
-    // Recursive method which traverses ShaderNodes in a depth-first manner to aggregate all
-    // ShaderNode data (not owned by ShaderNode) into ShaderInfo's owned fData.
-    // TODO(b/347072931): Ideally, this method could go away and each snippet's data could remain
-    // tied to its ID instead of accumulating it all here.
-    void aggregateSnippetData(const ShaderNode*);
-
-    // All shader nodes and arrays of children pointers are held in this arena
-    SkArenaAlloc fShaderNodeAlloc{256};
-
-    const RuntimeEffectDictionary* fRuntimeEffectDictionary;
-    const char* fSsboIndex;
-
-    // De-compressed shader tree from a PaintParamsKey. There can be 1 or 2 root nodes, the first
-    // being the paint effects (rooted with a BlendCompose for the final paint blend) and the
-    // optional second being any analytic clip effect (geometric or shader treated as coverage).
-    SkSpan<const ShaderNode*> fRootNodes;
-    // The blendInfo represents the actual GPU blend operations, which may or may not completely
-    // implement the paint and coverage blending defined by the root nodes.
-    skgpu::BlendInfo fBlendInfo;
-    DstReadRequirement fDstReadRequirement;
-
-    skia_private::TArray<uint32_t> fData;
 };
 
 // ShaderCodeDictionary is a thread-safe dictionary of ShaderSnippets to code IDs for use with
@@ -294,7 +226,7 @@ public:
         return &fBuiltInCodeSnippets[SkTo<int>(codeSnippetID)];
     }
 
-    int findOrCreateRuntimeEffectSnippet(const SkRuntimeEffect* effect);
+    int findOrCreateRuntimeEffectSnippet(const SkRuntimeEffect* effect) SK_EXCLUDES(fSpinLock);
 
 private:
     const char* addTextToArena(std::string_view text);

@@ -59,6 +59,9 @@ public:
     static Ref<RemoteMediaResourceManager> create() { return adoptRef(*new RemoteMediaResourceManager()); }
     ~RemoteMediaResourceManager();
 
+    void ref() const final { IPC::WorkQueueMessageReceiver::ref(); }
+    void deref() const final { IPC::WorkQueueMessageReceiver::deref(); }
+
     void initializeConnection(IPC::Connection*);
     void stopListeningForIPC();
 
@@ -81,7 +84,7 @@ private:
     RefPtr<RemoteMediaResource> resourceForId(RemoteMediaResourceIdentifier);
 
     Lock m_lock;
-    UncheckedKeyHashMap<RemoteMediaResourceIdentifier, ThreadSafeWeakPtr<RemoteMediaResource>> m_remoteMediaResources WTF_GUARDED_BY_LOCK(m_lock);
+    HashMap<RemoteMediaResourceIdentifier, ThreadSafeWeakPtr<RemoteMediaResource>> m_remoteMediaResources WTF_GUARDED_BY_LOCK(m_lock);
 
     RefPtr<IPC::Connection> m_connection;
 };

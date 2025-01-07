@@ -34,6 +34,8 @@
 #include "WaiterListManager.h"
 #include <wtf/SIMDHelpers.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(AtomicsObject);
@@ -89,11 +91,11 @@ void AtomicsObject::finishCreation(VM& vm, JSGlobalObject* globalObject)
     FOR_EACH_ATOMICS_FUNC(PUT_DIRECT_NATIVE_FUNC)
 #undef PUT_DIRECT_NATIVE_FUNC
 
-    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("pause"_s, atomicsFuncPause, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public, AtomicsPauseIntrinsic);
+    if (Options::useAtomicsPause())
+        JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("pause"_s, atomicsFuncPause, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public, AtomicsPauseIntrinsic);
 
-    if (vm.vmType == VM::Default)
+    if (vm.vmType == VM::VMType::Default)
         JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION("waitAsync"_s, atomicsFuncWaitAsync, static_cast<unsigned>(PropertyAttribute::DontEnum), 4, ImplementationVisibility::Public, AtomicsWaitAsyncIntrinsic);
-
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
 
@@ -740,3 +742,4 @@ IGNORE_WARNINGS_END
 
 } // namespace JSC
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

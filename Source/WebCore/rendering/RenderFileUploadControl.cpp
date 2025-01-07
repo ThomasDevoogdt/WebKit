@@ -119,7 +119,7 @@ int RenderFileUploadControl::maxFilenameLogicalWidth() const
 #if PLATFORM(COCOA)
     int iconLogicalWidth = nodeLogicalHeight(uploadButton());
 #endif
-    return std::max(0, roundToInt(contentLogicalWidth()) - nodeLogicalWidth(uploadButton()) - afterButtonSpacing
+    return std::max(0, roundToInt(contentBoxLogicalWidth()) - nodeLogicalWidth(uploadButton()) - afterButtonSpacing
         - (inputElement().icon() ? iconLogicalWidth + iconFilenameSpacing : 0));
 }
 
@@ -148,8 +148,8 @@ void RenderFileUploadControl::paintControl(PaintInfo& paintInfo, const LayoutPoi
         paintInfo.context().clip(clipRect);
     }
 
-    auto isHorizontalWritingMode = style().isHorizontalWritingMode();
-    auto isFlippedBlocksWritingMode = style().isFlippedBlocksWritingMode();
+    auto isHorizontalWritingMode = writingMode().isHorizontal();
+    auto isBlockFlipped = writingMode().isBlockFlipped();
     auto logicalPaintOffset = isHorizontalWritingMode ? paintOffset : paintOffset.transposedPoint();
 
     if (paintInfo.phase == PaintPhase::Foreground) {
@@ -162,7 +162,7 @@ void RenderFileUploadControl::paintControl(PaintInfo& paintInfo, const LayoutPoi
 #endif
         // Determine where the filename should be placed
         LayoutUnit contentLogicalLeft = logicalPaintOffset.x() + logicalLeftOffsetForContent();
-        if (style().isLeftToRightDirection())
+        if (writingMode().isBidiLTR())
             contentLogicalLeft += textIndentOffset();
         else
             contentLogicalLeft -= textIndentOffset();
@@ -175,10 +175,10 @@ void RenderFileUploadControl::paintControl(PaintInfo& paintInfo, const LayoutPoi
         LayoutUnit buttonAndIconLogicalWidth = buttonLogicalWidth + afterButtonSpacing
             + (inputElement().icon() ? iconLogicalWidth + iconFilenameSpacing : 0);
         LayoutUnit textLogicalLeft;
-        if (style().isLeftToRightDirection())
+        if (writingMode().isBidiLTR())
             textLogicalLeft = contentLogicalLeft + buttonAndIconLogicalWidth;
         else
-            textLogicalLeft = contentLogicalLeft + contentLogicalWidth() - buttonAndIconLogicalWidth - font.width(textRun);
+            textLogicalLeft = contentLogicalLeft + contentBoxLogicalWidth() - buttonAndIconLogicalWidth - font.width(textRun);
 
         // We want to match the button's baseline
         // FIXME: Make this work with transforms.
@@ -193,13 +193,13 @@ void RenderFileUploadControl::paintControl(PaintInfo& paintInfo, const LayoutPoi
                         auto metrics = textBox->style().fontCascade().metricsOfPrimaryFont();
 
                         if (!isHorizontalWritingMode) {
-                            if (isFlippedBlocksWritingMode)
+                            if (isBlockFlipped)
                                 return textVisualRect.x() - metrics.intAscent();
 
                             return textVisualRect.x() + metrics.intDescent();
                         }
 
-                        if (isFlippedBlocksWritingMode)
+                        if (isBlockFlipped)
                             return textVisualRect.y() - metrics.intDescent();
 
                         return textVisualRect.y() + metrics.intAscent();
@@ -229,13 +229,13 @@ void RenderFileUploadControl::paintControl(PaintInfo& paintInfo, const LayoutPoi
 
         if (inputElement().icon()) {
             // Determine where the icon should be placed
-            LayoutUnit borderAndPaddingOffsetForIcon = (!isHorizontalWritingMode && isFlippedBlocksWritingMode) ? borderAndPaddingAfter() : borderAndPaddingBefore();
-            LayoutUnit iconLogicalTop = logicalPaintOffset.y() + borderAndPaddingOffsetForIcon  + (contentLogicalHeight() - iconLogicalHeight) / 2;
+            LayoutUnit borderAndPaddingOffsetForIcon = (!isHorizontalWritingMode && isBlockFlipped) ? borderAndPaddingAfter() : borderAndPaddingBefore();
+            LayoutUnit iconLogicalTop = logicalPaintOffset.y() + borderAndPaddingOffsetForIcon  + (contentBoxLogicalHeight() - iconLogicalHeight) / 2;
             LayoutUnit iconLogicalLeft;
-            if (style().isLeftToRightDirection())
+            if (writingMode().isBidiLTR())
                 iconLogicalLeft = contentLogicalLeft + buttonLogicalWidth + afterButtonSpacing;
             else
-                iconLogicalLeft = contentLogicalLeft + contentLogicalWidth() - buttonLogicalWidth - afterButtonSpacing - iconLogicalWidth;
+                iconLogicalLeft = contentLogicalLeft + contentBoxLogicalWidth() - buttonLogicalWidth - afterButtonSpacing - iconLogicalWidth;
 
             IntRect iconRect(iconLogicalLeft, iconLogicalTop, iconLogicalWidth, iconLogicalHeight);
             if (!isHorizontalWritingMode)
@@ -298,7 +298,7 @@ void RenderFileUploadControl::computePreferredLogicalWidths()
     else
         computeIntrinsicLogicalWidths(m_minPreferredLogicalWidth, m_maxPreferredLogicalWidth);
 
-    RenderBox::computePreferredLogicalWidths(style().logicalMinWidth(), style().logicalMaxWidth(), style().isHorizontalWritingMode() ? horizontalBorderAndPaddingExtent() : verticalBorderAndPaddingExtent());
+    RenderBox::computePreferredLogicalWidths(style().logicalMinWidth(), style().logicalMaxWidth(), writingMode().isHorizontal() ? horizontalBorderAndPaddingExtent() : verticalBorderAndPaddingExtent());
 
     setPreferredLogicalWidthsDirty(false);
 }

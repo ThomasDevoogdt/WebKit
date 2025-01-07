@@ -27,6 +27,7 @@
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
 
+#include "Connection.h"
 #include "MessageReceiver.h"
 #include "PushMessageForTesting.h"
 #include "WebPushMessage.h"
@@ -75,6 +76,9 @@ class PushClientConnection : public RefCounted<PushClientConnection>, public Ide
 public:
     static RefPtr<PushClientConnection> create(xpc_connection_t, IPC::Decoder&);
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     std::optional<WebCore::PushSubscriptionSetIdentifier> subscriptionSetIdentifierForOrigin(const WebCore::SecurityOriginData&) const;
     const String& hostAppCodeSigningIdentifier() const { return m_hostAppCodeSigningIdentifier; }
     bool hostAppHasPushInjectEntitlement() const { return m_hostAppHasPushInjectEntitlement; };
@@ -116,6 +120,7 @@ private:
     void cancelNotification(WebCore::SecurityOriginData&&, const WTF::UUID& notificationID);
     void setAppBadge(WebCore::SecurityOriginData&&, std::optional<uint64_t>);
     void getAppBadgeForTesting(CompletionHandler<void(std::optional<uint64_t>)>&&);
+    void setProtocolVersionForTesting(unsigned, CompletionHandler<void()>&&);
 
     OSObjectPtr<xpc_connection_t> m_xpcConnection;
     String m_hostAppCodeSigningIdentifier;

@@ -27,12 +27,14 @@
 #define ResponsivenessTimer_h
 
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RunLoop.h>
 #include <wtf/WeakRef.h>
 
 namespace WebKit {
 
-class ResponsivenessTimer {
+class ResponsivenessTimer : public RefCounted<ResponsivenessTimer> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     class Client : public AbstractRefCountedAndCanMakeWeakPtr<Client> {
     public:
@@ -47,7 +49,7 @@ public:
     };
 
     static constexpr Seconds defaultResponsivenessTimeout = 3_s;
-    ResponsivenessTimer(ResponsivenessTimer::Client&, Seconds responsivenessTimeout);
+    static Ref<ResponsivenessTimer> create(ResponsivenessTimer::Client&, Seconds responsivenessTimeout);
     ~ResponsivenessTimer();
 
     void start();
@@ -75,13 +77,13 @@ public:
     void processTerminated();
 
 private:
-    Ref<Client> protectedClient() const;
+    ResponsivenessTimer(ResponsivenessTimer::Client&, Seconds responsivenessTimeout);
 
     void timerFired();
 
     bool mayBecomeUnresponsive() const;
 
-    WeakRef<ResponsivenessTimer::Client> m_client;
+    WeakPtr<ResponsivenessTimer::Client> m_client;
 
     RunLoop::Timer m_timer;
     MonotonicTime m_restartFireTime;

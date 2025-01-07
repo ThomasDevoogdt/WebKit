@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,14 +27,33 @@
 #include "ImageBufferBackend.h"
 
 #include "GraphicsContext.h"
-#include "Image.h"
+#include "ImageBuffer.h"
 #include "PixelBuffer.h"
 #include "PixelBufferConversion.h"
 #include <wtf/TZoneMallocInlines.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ThreadSafeImageBufferFlusher);
+
+IntSize ImageBufferBackend::calculateSafeBackendSize(const Parameters& parameters)
+{
+    IntSize backendSize = parameters.backendSize;
+    if (backendSize.isEmpty())
+        return backendSize;
+
+    auto bytesPerRow = 4 * CheckedUint32(backendSize.width());
+    if (bytesPerRow.hasOverflowed())
+        return { };
+
+    CheckedSize numBytes = CheckedUint32(backendSize.height()) * bytesPerRow;
+    if (numBytes.hasOverflowed())
+        return { };
+
+    return backendSize;
+}
 
 size_t ImageBufferBackend::calculateMemoryCost(const IntSize& backendSize, unsigned bytesPerRow)
 {
@@ -142,6 +161,11 @@ void ImageBufferBackend::putPixelBuffer(const PixelBuffer& sourcePixelBuffer, co
     convertImagePixels(source, destination, destinationRect.size());
 }
 
+RefPtr<SharedBuffer> ImageBufferBackend::sinkIntoPDFDocument()
+{
+    return nullptr;
+}
+
 AffineTransform ImageBufferBackend::calculateBaseTransform(const Parameters& parameters)
 {
     AffineTransform baseTransform;
@@ -154,6 +178,13 @@ AffineTransform ImageBufferBackend::calculateBaseTransform(const Parameters& par
     baseTransform.scale(parameters.resolutionScale);
     return baseTransform;
 }
+
+#if USE(SKIA)
+RefPtr<ImageBuffer> ImageBufferBackend::copyAcceleratedImageBufferBorrowingBackendRenderTarget(const ImageBuffer&) const
+{
+    return nullptr;
+}
+#endif
 
 TextStream& operator<<(TextStream& ts, VolatilityState state)
 {
@@ -171,3 +202,5 @@ TextStream& operator<<(TextStream& ts, const ImageBufferBackend& imageBufferBack
 }
 
 } // namespace WebCore
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

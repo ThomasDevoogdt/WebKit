@@ -68,6 +68,9 @@ public:
     NetworkMDNSRegister(NetworkConnectionToWebProcess&);
     ~NetworkMDNSRegister();
 
+    void ref() const;
+    void deref() const;
+
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
 #if ENABLE_MDNS
@@ -85,11 +88,11 @@ private:
     WeakRef<NetworkConnectionToWebProcess> m_connection;
     HashSet<String> m_registeredNames;
 
-    UncheckedKeyHashMap<WebCore::ScriptExecutionContextIdentifier, Vector<String>> m_perDocumentRegisteredNames;
+    HashMap<WebCore::ScriptExecutionContextIdentifier, Vector<String>> m_perDocumentRegisteredNames;
 
 #if ENABLE_MDNS
     struct DNSServiceDeallocator;
-    UncheckedKeyHashMap<WebCore::ScriptExecutionContextIdentifier, std::unique_ptr<_DNSServiceRef_t, DNSServiceDeallocator>> m_services;
+    HashMap<WebCore::ScriptExecutionContextIdentifier, std::unique_ptr<_DNSServiceRef_t, DNSServiceDeallocator>> m_services;
 #endif
 };
 

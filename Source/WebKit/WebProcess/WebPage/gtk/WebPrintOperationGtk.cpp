@@ -26,7 +26,6 @@
 #include "config.h"
 #include "WebPrintOperationGtk.h"
 
-#include "WebCoreArgumentCoders.h"
 #include "WebErrors.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
@@ -81,7 +80,7 @@ WebPrintOperationGtk::PrintPagesData::PrintPagesData(WebPrintOperationGtk* print
     }
 
     if (printOperation->m_pagesToPrint == GTK_PRINT_PAGES_RANGES) {
-        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
         Vector<GtkPageRange> pageRanges;
         GtkPageRange* ranges = printOperation->m_pageRanges;
         size_t rangesCount = printOperation->m_pageRangesCount;

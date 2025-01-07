@@ -26,16 +26,14 @@
 #include "config.h"
 #include "RFC8941.h"
 
-#include "ParsingUtilities.h"
 #include "RFC7230.h"
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/StringParsingBuffer.h>
 #include <wtf/text/StringView.h>
 
 namespace RFC8941 {
-
-using namespace WebCore;
 
 template<typename CharacterType> constexpr bool isEndOfToken(CharacterType character)
 {
@@ -52,10 +50,10 @@ template<typename CharType> static StringView parseKey(StringParsingBuffer<CharT
 {
     if (buffer.atEnd() || !isASCIILower(*buffer))
         return { };
-    auto keyStart = buffer.position();
+    auto keyStart = buffer.span();
     ++buffer;
     skipUntil<isEndOfKey>(buffer);
-    return std::span(keyStart, buffer.position() - keyStart);
+    return keyStart.first(buffer.position() - keyStart.data());
 }
 
 // Parsing a String (https://datatracker.ietf.org/doc/html/rfc8941#section-4.2.5).
@@ -90,9 +88,9 @@ template<typename CharType> static std::optional<Token> parseToken(StringParsing
 {
     if (buffer.atEnd() || (!isASCIIAlpha(*buffer) && *buffer != '*'))
         return std::nullopt;
-    auto tokenStart = buffer.position();
+    auto tokenStart = buffer.span();
     skipUntil<isEndOfToken>(buffer);
-    return Token { String({ tokenStart, buffer.position() }) };
+    return Token { String(tokenStart.first(buffer.position() - tokenStart.data())) };
 }
 
 // Parsing a Boolean (https://datatracker.ietf.org/doc/html/rfc8941#section-4.2.8).
@@ -126,7 +124,7 @@ template<typename CharType> static std::optional<BareItem> parseBareItem(StringP
 // Parsing Parameters (https://datatracker.ietf.org/doc/html/rfc8941#section-4.2.3.2).
 template<typename CharType> static std::optional<Parameters> parseParameters(StringParsingBuffer<CharType>& buffer)
 {
-    UncheckedKeyHashMap<String, BareItem> parameters;
+    HashMap<String, BareItem> parameters;
     while (buffer.hasCharactersRemaining()) {
         if (!skipExactly(buffer, ';'))
             break;
@@ -197,9 +195,9 @@ template<typename CharType> static std::optional<std::pair<ItemOrInnerList, Para
 }
 
 // Parsing a dictionary (https://datatracker.ietf.org/doc/html/rfc8941#section-4.2.2).
-template<typename CharType> static std::optional<UncheckedKeyHashMap<String, std::pair<ItemOrInnerList, Parameters>>> parseDictionary(StringParsingBuffer<CharType>& buffer)
+template<typename CharType> static std::optional<HashMap<String, std::pair<ItemOrInnerList, Parameters>>> parseDictionary(StringParsingBuffer<CharType>& buffer)
 {
-    UncheckedKeyHashMap<String, std::pair<ItemOrInnerList, Parameters>> dictionary;
+    HashMap<String, std::pair<ItemOrInnerList, Parameters>> dictionary;
     while (buffer.hasCharactersRemaining()) {
         auto key = parseKey(buffer);
         if (key.isNull())
@@ -253,12 +251,12 @@ std::optional<std::pair<BareItem, Parameters>> parseItemStructuredFieldValue(Str
 }
 
 // https://datatracker.ietf.org/doc/html/rfc8941#section-4.2 with type "dictionary".
-std::optional<UncheckedKeyHashMap<String, std::pair<ItemOrInnerList, Parameters>>> parseDictionaryStructuredFieldValue(StringView header)
+std::optional<HashMap<String, std::pair<ItemOrInnerList, Parameters>>> parseDictionaryStructuredFieldValue(StringView header)
 {
     if (header.isEmpty())
         return std::nullopt;
 
-    return readCharactersForParsing(WTFMove(header), [](auto buffer) -> std::optional<UncheckedKeyHashMap<String, std::pair<ItemOrInnerList, Parameters>>> {
+    return readCharactersForParsing(WTFMove(header), [](auto buffer) -> std::optional<HashMap<String, std::pair<ItemOrInnerList, Parameters>>> {
         skipWhile(buffer, ' ');
 
         auto dictionary = parseDictionary(buffer);

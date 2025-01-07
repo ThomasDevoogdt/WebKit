@@ -25,6 +25,7 @@
 #include "config.h"
 #include "CSSCalcTree+Serialization.h"
 
+#include "AnchorPositionEvaluator.h"
 #include "CSSCalcSymbolTable.h"
 #include "CSSCalcTree+Traversal.h"
 #include "CSSCalcTree.h"
@@ -32,6 +33,8 @@
 #include "CSSPrimitiveNumericTypes+Serialization.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSUnits.h"
+#include "ContainerQueryFeatures.h"
+#include "MediaQueryFeatures.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -85,7 +88,7 @@ template<typename Op> static void serializeMathFunctionPrefix(StringBuilder&, co
 
 static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<Sum>&, SerializationState&);
 static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<Product>&, SerializationState&);
-static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<Progress>&, SerializationState&);
+static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<ContainerProgress>&, SerializationState&);
 static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<Anchor>&, SerializationState&);
 static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<AnchorSize>&, SerializationState&);
 template<typename Op> static void serializeMathFunctionArguments(StringBuilder&, const IndirectNode<Op>&, SerializationState&);
@@ -191,10 +194,8 @@ static unsigned sortPriority(CSSUnitType unit)
     case CSSUnitType::CSS_IDENT:
     case CSSUnitType::CSS_PROPERTY_ID:
     case CSSUnitType::CSS_QUIRKY_EM:
-    case CSSUnitType::CSS_RGBCOLOR:
     case CSSUnitType::CSS_STRING:
     case CSSUnitType::CSS_UNKNOWN:
-    case CSSUnitType::CSS_UNRESOLVED_COLOR:
     case CSSUnitType::CSS_URI:
     case CSSUnitType::CSS_VALUE_ID:
     case CSSUnitType::CustomIdent:
@@ -266,7 +267,7 @@ template<Numeric Op> void serializeMathFunction(StringBuilder& builder, const Op
         return;
     }
 
-    // `formatCSSNumberValue` implements the appropriate logic for steps 2 & steps 3-5 for Numeric expressions.
+    // `CSS::SerializableNumber` serialization implements the appropriate logic for steps 2 & steps 3-5 for Numeric expressions.
 
     // 2. If fn represents an infinite or NaN value: let s be the string "calc(".
     // 2.1. Let s be the string "calc(".
@@ -369,13 +370,18 @@ void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<P
     serializeCalculationTree(builder, fn, state);
 }
 
-void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<Progress>& fn, SerializationState& state)
+void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<ContainerProgress>& fn, SerializationState& state)
 {
-    serializeCalculationTree(builder, fn->progress, state);
-    builder.append(" from "_s);
-    serializeCalculationTree(builder, fn->from, state);
-    builder.append(" to "_s);
-    serializeCalculationTree(builder, fn->to, state);
+    serializeIdentifier(fn->feature->name(), builder);
+    if (!fn->container.isNull()) {
+        builder.append(' ', nameLiteralForSerialization(CSSValueOf), ' ');
+        serializeIdentifier(fn->container, builder);
+    }
+
+    builder.append(", "_s);
+    serializeCalculationTree(builder, fn->start, state);
+    builder.append(", "_s);
+    serializeCalculationTree(builder, fn->end, state);
 }
 
 void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<Anchor>& anchor, SerializationState& state)
@@ -400,6 +406,30 @@ void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<A
     }
 }
 
+static void serializeAnchorSizeDimension(StringBuilder& builder, Style::AnchorSizeDimension dimension)
+{
+    switch (dimension) {
+    case Style::AnchorSizeDimension::Width:
+        builder.append("width"_s);
+        break;
+    case Style::AnchorSizeDimension::Height:
+        builder.append("height"_s);
+        break;
+    case Style::AnchorSizeDimension::Block:
+        builder.append("block"_s);
+        break;
+    case Style::AnchorSizeDimension::Inline:
+        builder.append("inline"_s);
+        break;
+    case Style::AnchorSizeDimension::SelfBlock:
+        builder.append("self-block"_s);
+        break;
+    case Style::AnchorSizeDimension::SelfInline:
+        builder.append("self-inline"_s);
+        break;
+    }
+}
+
 void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<AnchorSize>& anchorSize, SerializationState& state)
 {
     bool hasElementName = !anchorSize->elementName.isNull();
@@ -407,15 +437,15 @@ void serializeMathFunctionArguments(StringBuilder& builder, const IndirectNode<A
     if (hasElementName)
         serializeIdentifier(anchorSize->elementName, builder);
 
-    if (anchorSize->size) {
+    if (anchorSize->dimension) {
         if (hasElementName)
             builder.append(' ');
 
-        builder.append(nameLiteralForSerialization(*anchorSize->size));
+        serializeAnchorSizeDimension(builder, *anchorSize->dimension);
     }
 
     if (anchorSize->fallback) {
-        if (hasElementName || anchorSize->size)
+        if (hasElementName || anchorSize->dimension)
             builder.append(", "_s);
 
         serializeWithoutOmittingPrefix(builder, *anchorSize->fallback, state);
@@ -431,6 +461,20 @@ template<typename Op> void serializeMathFunctionArguments(StringBuilder& builder
                 builder.append(std::exchange(separator, ", "_s));
                 serializeCalculationTree(builder, *root, state);
             }
+        },
+        [&](const AtomString& root) {
+            if (!root.isNull()) {
+                builder.append(std::exchange(separator, ", "_s));
+                serializeIdentifier(root, builder);
+            }
+        },
+        [&](const MQ::MediaProgressProviding* root) {
+            builder.append(std::exchange(separator, ", "_s));
+            serializeIdentifier(root->name(), builder);
+        },
+        [&](const CQ::ContainerProgressProviding* root) {
+            builder.append(std::exchange(separator, ", "_s));
+            serializeIdentifier(root->name(), builder);
         },
         [&](const auto& root) {
             builder.append(std::exchange(separator, ", "_s));
@@ -472,7 +516,7 @@ template<Numeric Op> void serializeCalculationTree(StringBuilder& builder, const
 {
     // 2. If root is a numeric value, or a non-math function, serialize root per the normal rules for it and return the result.
 
-    formatCSSNumberValue(builder, root.value, CSSPrimitiveValue::unitTypeString(toCSSUnit(root)));
+    CSS::serializationForCSS(builder, CSS::SerializableNumber { root.value, CSSPrimitiveValue::unitTypeString(toCSSUnit(root)) });
 }
 
 void serializeCalculationTree(StringBuilder& builder, const Symbol& root, SerializationState&)

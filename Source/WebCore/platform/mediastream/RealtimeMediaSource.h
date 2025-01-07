@@ -47,7 +47,7 @@
 #include "RealtimeMediaSourceFactory.h"
 #include "RealtimeMediaSourceIdentifier.h"
 #include "VideoFrameTimeMetadata.h"
-#include <wtf/AbstractRefCounted.h>
+#include <wtf/AbstractThreadSafeRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
@@ -113,7 +113,7 @@ public:
     virtual void hasStartedProducingData() { }
 };
 
-class WEBCORE_EXPORT RealtimeMediaSource : public AbstractRefCounted
+class WEBCORE_EXPORT RealtimeMediaSource : public AbstractThreadSafeRefCountedAndCanMakeWeakPtr
 #if !RELEASE_LOG_DISABLED
     , public LoggerHelper
 #endif
@@ -124,10 +124,10 @@ public:
         virtual ~AudioSampleObserver() = default;
 
         // CheckedPtr interface
-        virtual uint32_t ptrCount() const = 0;
-        virtual uint32_t ptrCountWithoutThreadCheck() const = 0;
-        virtual void incrementPtrCount() const = 0;
-        virtual void decrementPtrCount() const = 0;
+        virtual uint32_t checkedPtrCount() const = 0;
+        virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+        virtual void incrementCheckedPtrCount() const = 0;
+        virtual void decrementCheckedPtrCount() const = 0;
 
         // May be called on a background thread.
         virtual void audioSamplesAvailable(const WTF::MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t /*numberOfFrames*/) = 0;
@@ -226,7 +226,6 @@ public:
 
     virtual const RealtimeMediaSourceCapabilities& capabilities() = 0;
     virtual const RealtimeMediaSourceSettings& settings() = 0;
-    virtual ThreadSafeWeakPtrControlBlock& controlBlock() const = 0;
 
     using TakePhotoNativePromise = NativePromise<std::pair<Vector<uint8_t>, String>, String>;
     virtual Ref<TakePhotoNativePromise> takePhoto(PhotoSettings&&);
@@ -301,6 +300,10 @@ public:
     void registerOwnerCallback(OwnerCallback&&);
 
     virtual bool isPowerEfficient() const { return false; }
+
+#if USE(GSTREAMER)
+    virtual std::pair<GstClockTime, GstClockTime> queryCaptureLatency() const;
+#endif
 
 protected:
     RealtimeMediaSource(const CaptureDevice&, MediaDeviceHashSalts&& hashSalts = { }, std::optional<PageIdentifier> = std::nullopt);
@@ -381,10 +384,10 @@ private:
     WeakHashSet<RealtimeMediaSourceObserver> m_observers;
 
     mutable Lock m_audioSampleObserversLock;
-    HashSet<CheckedPtr<AudioSampleObserver>> m_audioSampleObservers WTF_GUARDED_BY_LOCK(m_audioSampleObserversLock);
+    UncheckedKeyHashSet<CheckedPtr<AudioSampleObserver>> m_audioSampleObservers WTF_GUARDED_BY_LOCK(m_audioSampleObserversLock);
 
     mutable Lock m_videoFrameObserversLock;
-    UncheckedKeyHashMap<VideoFrameObserver*, std::unique_ptr<VideoFrameAdaptor>> m_videoFrameObservers WTF_GUARDED_BY_LOCK(m_videoFrameObserversLock);
+    HashMap<VideoFrameObserver*, std::unique_ptr<VideoFrameAdaptor>> m_videoFrameObservers WTF_GUARDED_BY_LOCK(m_videoFrameObserversLock);
 
     CaptureDevice m_device;
 

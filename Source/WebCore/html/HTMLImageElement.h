@@ -204,13 +204,14 @@ private:
     void invalidateAttributeMapping();
     void collectExtraStyleForPresentationalHints(MutableStyleProperties&) override;
 
-    Ref<Element> cloneElementWithoutAttributesAndChildren(Document& targetDocument) final;
+    Ref<Element> cloneElementWithoutAttributesAndChildren(TreeScope&) final;
 
     // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;
 
     void didAttachRenderers() override;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const RenderStyle&) const final;
     void setBestFitURLAndDPRFromImageCandidate(const ImageCandidate&);
 
     bool canStartSelection() const override;

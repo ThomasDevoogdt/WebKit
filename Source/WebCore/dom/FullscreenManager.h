@@ -61,6 +61,7 @@ public:
 
     // WHATWG Fullscreen API
     WEBCORE_EXPORT Element* fullscreenElement() const;
+    RefPtr<Element> protectedFullscreenElement() const { return fullscreenElement(); }
     WEBCORE_EXPORT bool isFullscreenEnabled() const;
     WEBCORE_EXPORT void exitFullscreen(RefPtr<DeferredPromise>&&);
 
@@ -68,6 +69,7 @@ public:
     bool isFullscreen() const { return m_fullscreenElement.get(); }
     bool isFullscreenKeyboardInputAllowed() const { return m_fullscreenElement.get() && m_areKeysEnabledInFullscreen; }
     Element* currentFullscreenElement() const { return m_fullscreenElement.get(); }
+    RefPtr<Element> protectedCurrentFullscreenElement() const { return currentFullscreenElement(); }
     WEBCORE_EXPORT void cancelFullscreen();
 
     enum FullscreenCheckType {
@@ -89,12 +91,6 @@ public:
 
     WEBCORE_EXPORT bool isAnimatingFullscreen() const;
     WEBCORE_EXPORT void setAnimatingFullscreen(bool);
-
-    enum class ResizeType : uint8_t {
-        DOMWindow           = 1 << 0,
-        VisualViewport      = 1 << 1,
-    };
-    void addPendingScheduledResize(ResizeType);
 
     void clear();
     void emptyEventQueue();
@@ -130,8 +126,6 @@ private:
     RefPtr<Element> m_fullscreenElement;
     Deque<GCReachableRef<Node>> m_fullscreenChangeEventTargetQueue;
     Deque<GCReachableRef<Node>> m_fullscreenErrorEventTargetQueue;
-
-    OptionSet<ResizeType> m_pendingScheduledResize;
 
     bool m_areKeysEnabledInFullscreen { false };
     bool m_isAnimatingFullscreen { false };

@@ -52,9 +52,9 @@ static void parseUserData(API::Object* userData, String& webProcessExtensionsDir
 {
     ASSERT(userData->type() == API::Object::Type::String);
 
-    CString userDataString = static_cast<API::String*>(userData)->string().utf8();
+    CString userDataString = downcast<API::String>(userData)->string().utf8();
 
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE port
     GRefPtr<GVariant> variant = adoptGRef(g_variant_parse(nullptr, userDataString.data(),
         userDataString.data() + userDataString.length(), nullptr, nullptr));
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

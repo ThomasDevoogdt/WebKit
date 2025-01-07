@@ -33,6 +33,7 @@
 #include <wtf/Scope.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
 
 #if !OS(WINDOWS)
@@ -88,7 +89,7 @@ static String fromStdFileSystemPath(const std::filesystem::path& path)
 //     - Pipe              (7C)
 //     - Delete            (7F)
 
-static const bool needsEscaping[128] = {
+constexpr std::array<bool, 128> needsEscaping = {
     true,  true,  true,  true,  true,  true,  true,  true,  /* 00-07 */
     true,  true,  true,  true,  true,  true,  true,  true,  /* 08-0F */
 
@@ -316,13 +317,7 @@ MappedFileData::MappedFileData(const String& filePath, MappedFileMode mapMode, b
 
 #if HAVE(MMAP)
 
-MappedFileData::~MappedFileData()
-{
-    if (!m_fileData.data())
-        return;
-
-    munmap(m_fileData.data(), m_fileData.size());
-}
+MappedFileData::~MappedFileData() = default;
 
 bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openMode, MappedFileMode mapMode)
 {
@@ -359,11 +354,11 @@ bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openM
 #endif
     }
 
-    auto* data = mmap(0, size, pageProtection, MAP_FILE | (mapMode == MappedFileMode::Shared ? MAP_SHARED : MAP_PRIVATE), fd, 0);
-    if (data == MAP_FAILED)
+    auto fileData = MallocSpan<uint8_t, Mmap>::mmap(size, pageProtection, MAP_FILE | (mapMode == MappedFileMode::Shared ? MAP_SHARED : MAP_PRIVATE), fd);
+    if (!fileData)
         return false;
 
-    m_fileData = { static_cast<uint8_t*>(data), size };
+    m_fileData = WTFMove(fileData);
     return true;
 }
 #endif
@@ -408,6 +403,11 @@ bool makeSafeToUseMemoryMapForPath(const String&)
 #if !PLATFORM(COCOA)
 
 String createTemporaryZipArchive(const String&)
+{
+    return { };
+}
+
+String extractTemporaryZipArchive(const String&)
 {
     return { };
 }
@@ -482,8 +482,7 @@ MappedFileData mapToFile(const String& path, size_t bytesSize, Function<void(con
     auto mapData = mappedFile.mutableSpan();
 
     apply([&mapData](std::span<const uint8_t> chunk) {
-        memcpySpan(mapData, chunk);
-        mapData = mapData.subspan(chunk.size());
+        memcpySpan(consumeSpan(mapData, chunk.size()), chunk);
         return true;
     });
 
@@ -648,6 +647,9 @@ bool moveFile(const String& oldPath, const String& newPath)
     if (!ec)
         return true;
 
+    if (isAncestor(oldPath, newPath))
+        return false;
+
     // Fall back to copying and then deleting source as rename() does not work across volumes.
     ec = { };
     std::filesystem::copy(fsOldPath, fsNewPath, std::filesystem::copy_options::overwrite_existing | std::filesystem::copy_options::recursive, ec);
@@ -740,6 +742,16 @@ bool hardLinkOrCopyFile(const String& targetPath, const String& linkPath)
     return !ec;
 }
 
+bool copyFile(const String& targetPath, const String& sourcePath)
+{
+    auto fsTargetPath = toStdFileSystemPath(targetPath);
+    auto fsSourcePath = toStdFileSystemPath(sourcePath);
+
+    std::error_code ec;
+    std::filesystem::copy_file(fsSourcePath, fsTargetPath, std::filesystem::copy_options::overwrite_existing, ec);
+    return !ec;
+}
+
 std::optional<uint64_t> hardLinkCount(const String& path)
 {
     std::error_code ec;
@@ -825,6 +837,17 @@ String parentPath(const String& path)
 String lexicallyNormal(const String& path)
 {
     return fromStdFileSystemPath(toStdFileSystemPath(path).lexically_normal());
+}
+
+bool isAncestor(const String& possibleAncestor, const String& possibleChild)
+{
+    auto possibleChildLexicallyNormal = lexicallyNormal(possibleChild);
+    auto possibleAncestorLexicallyNormal = lexicallyNormal(possibleAncestor);
+    if (possibleChildLexicallyNormal.endsWith(static_cast<UChar>(std::filesystem::path::preferred_separator)))
+        possibleChildLexicallyNormal = possibleChildLexicallyNormal.left(possibleChildLexicallyNormal.length() - 1);
+    if (possibleAncestorLexicallyNormal.endsWith(static_cast<UChar>(std::filesystem::path::preferred_separator)))
+        possibleAncestorLexicallyNormal = possibleAncestorLexicallyNormal.left(possibleAncestorLexicallyNormal.length() - 1);
+    return possibleChildLexicallyNormal.startsWith(possibleAncestorLexicallyNormal) && possibleChildLexicallyNormal.length() != possibleAncestorLexicallyNormal.length();
 }
 
 String createTemporaryFile(StringView prefix, StringView suffix)

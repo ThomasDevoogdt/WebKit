@@ -34,7 +34,6 @@
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include "RemoteMediaPlayerProxyConfiguration.h"
 #include "SampleBufferDisplayLayerManager.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include "WebProcessCreationParameters.h"
 #include <WebCore/ContentTypeUtilities.h>
@@ -118,7 +117,7 @@ RemoteMediaPlayerManager::RemoteMediaPlayerManager() = default;
 
 RemoteMediaPlayerManager::~RemoteMediaPlayerManager() = default;
 
-using RemotePlayerTypeCache = UncheckedKeyHashMap<MediaPlayerEnums::MediaEngineIdentifier, std::unique_ptr<RemoteMediaPlayerMIMETypeCache>, WTF::IntHash<MediaPlayerEnums::MediaEngineIdentifier>, WTF::StrongEnumHashTraits<MediaPlayerEnums::MediaEngineIdentifier>>;
+using RemotePlayerTypeCache = HashMap<MediaPlayerEnums::MediaEngineIdentifier, std::unique_ptr<RemoteMediaPlayerMIMETypeCache>, WTF::IntHash<MediaPlayerEnums::MediaEngineIdentifier>, WTF::StrongEnumHashTraits<MediaPlayerEnums::MediaEngineIdentifier>>;
 static RemotePlayerTypeCache& mimeCaches()
 {
     static NeverDestroyed<RemotePlayerTypeCache> caches;
@@ -279,6 +278,11 @@ GPUProcessConnection& RemoteMediaPlayerManager::gpuProcessConnection()
     }
 
     return *gpuProcessConnection;
+}
+
+Ref<GPUProcessConnection> RemoteMediaPlayerManager::protectedGPUProcessConnection()
+{
+    return gpuProcessConnection();
 }
 
 void RemoteMediaPlayerManager::gpuProcessConnectionDidClose(GPUProcessConnection& connection)

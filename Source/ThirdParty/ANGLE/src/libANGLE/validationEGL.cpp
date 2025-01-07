@@ -788,22 +788,6 @@ bool ValidateGetPlatformDisplayCommon(const ValidationContext *val,
                 case EGL_PLATFORM_ANGLE_D3D_LUID_LOW_ANGLE:
                     luidSpecified = true;
                     break;
-                case EGL_PLATFORM_ANGLE_DEVICE_CONTEXT_VOLATILE_EAGL_ANGLE:
-                    // The property does not have an effect if it's not active, so do not check
-                    // for non-support.
-                    switch (value)
-                    {
-                        case EGL_FALSE:
-                        case EGL_TRUE:
-                            break;
-                        default:
-                            val->setError(EGL_BAD_ATTRIBUTE,
-                                          "Invalid value for "
-                                          "EGL_PLATFORM_ANGLE_DEVICE_CONTEXT_VOLATILE_"
-                                          "EAGL_ANGLE attrib");
-                            return false;
-                    }
-                    break;
                 case EGL_PLATFORM_ANGLE_DEVICE_CONTEXT_VOLATILE_CGL_ANGLE:
                     // The property does not have an effect if it's not active, so do not check
                     // for non-support.
@@ -5526,7 +5510,23 @@ bool ValidateSurfaceAttrib(const ValidationContext *val,
             break;
 
         case EGL_FRONT_BUFFER_AUTO_REFRESH_ANDROID:
-            ASSERT(value == EGL_TRUE || value == EGL_FALSE);
+            if (!display->getExtensions().frontBufferAutoRefreshANDROID)
+            {
+                val->setError(EGL_BAD_ATTRIBUTE,
+                              "EGL_FRONT_BUFFER_AUTO_REFRESH_ANDROID cannot be used without "
+                              "EGL_ANDROID_front_buffer_auto_refresh support.");
+                return false;
+            }
+            switch (value)
+            {
+                case EGL_TRUE:
+                case EGL_FALSE:
+                    break;
+
+                default:
+                    val->setError(EGL_BAD_ATTRIBUTE, "Invalid value.");
+                    return false;
+            }
             break;
 
         case EGL_RENDER_BUFFER:
@@ -6070,10 +6070,7 @@ bool ValidateQueryStringiANGLE(const ValidationContext *val,
     {
         case EGL_FEATURE_NAME_ANGLE:
         case EGL_FEATURE_CATEGORY_ANGLE:
-        case EGL_FEATURE_DESCRIPTION_ANGLE:
-        case EGL_FEATURE_BUG_ANGLE:
         case EGL_FEATURE_STATUS_ANGLE:
-        case EGL_FEATURE_CONDITION_ANGLE:
             break;
         default:
             val->setError(EGL_BAD_PARAMETER, "name is not valid.");
@@ -6384,13 +6381,6 @@ bool ValidateQueryDeviceAttribEXT(const ValidationContext *val,
             break;
         case EGL_D3D9_DEVICE_ANGLE:
             if (!device->getExtensions().deviceD3D9)
-            {
-                val->setError(EGL_BAD_ATTRIBUTE);
-                return false;
-            }
-            break;
-        case EGL_EAGL_CONTEXT_ANGLE:
-            if (!device->getExtensions().deviceEAGL)
             {
                 val->setError(EGL_BAD_ATTRIBUTE);
                 return false;

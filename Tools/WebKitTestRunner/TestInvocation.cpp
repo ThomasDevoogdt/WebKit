@@ -76,6 +76,11 @@ static void postPageMessage(const char* name)
     postPageMessage(name, WKRetainPtr<WKTypeRef> { });
 }
 
+Ref<TestInvocation> TestInvocation::create(WKURLRef url, const TestOptions& options)
+{
+    return adoptRef(*new TestInvocation(url, options));
+}
+
 TestInvocation::TestInvocation(WKURLRef url, const TestOptions& options)
     : m_options(options)
     , m_url(url)
@@ -92,11 +97,6 @@ TestInvocation::~TestInvocation()
 {
     if (m_pendingUIScriptInvocationData)
         m_pendingUIScriptInvocationData->testInvocation = nullptr;
-}
-
-WKURLRef TestInvocation::url() const
-{
-    return m_url.get();
 }
 
 bool TestInvocation::urlContains(StringView searchString) const
@@ -317,16 +317,14 @@ void TestInvocation::dumpResults()
 
 void TestInvocation::dumpAudio(WKDataRef audioData)
 {
-    size_t length = WKDataGetSize(audioData);
-    if (!length)
+    auto span = WKDataGetSpan(audioData);
+    if (span.empty())
         return;
 
-    const unsigned char* data = WKDataGetBytes(audioData);
-
     printf("Content-Type: audio/wav\n");
-    printf("Content-Length: %lu\n", static_cast<unsigned long>(length));
+    printf("Content-Length: %lu\n", static_cast<unsigned long>(span.size()));
 
-    fwrite(data, 1, length, stdout);
+    fwrite(span.data(), 1, span.size(), stdout);
     printf("#EOF\n");
     fprintf(stderr, "#EOF\n");
 }
@@ -382,9 +380,6 @@ void TestInvocation::didReceiveMessageFromInjectedBundle(WKStringRef messageName
         done();
         return;
     }
-
-    if (WKStringIsEqualToUTF8CString(messageName, "NotifyDone"))
-        return postPageMessage("NotifyDone");
 
     if (WKStringIsEqualToUTF8CString(messageName, "TextOutput") || WKStringIsEqualToUTF8CString(messageName, "FinalTextOutput")) {
         m_textOutput.append(toWTFString(stringValue(messageBody)));
@@ -622,6 +617,11 @@ void TestInvocation::didReceiveMessageFromInjectedBundle(WKStringRef messageName
         return;
     }
 
+    if (WKStringIsEqualToUTF8CString(messageName, "SetUseDarkAppearanceForTesting")) {
+        TestController::singleton().setUseDarkAppearanceForTesting(booleanValue(messageBody));
+        return;
+    }
+
     if (WKStringIsEqualToUTF8CString(messageName, "SetShouldDownloadUndisplayableMIMETypes")) {
         TestController::singleton().setShouldDownloadUndisplayableMIMETypes(booleanValue(messageBody));
         return;
@@ -746,6 +746,12 @@ WKRetainPtr<WKTypeRef> TestInvocation::didReceiveSynchronousMessageFromInjectedB
         m_canOpenWindows = booleanValue(messageBody);
         return nullptr;
     }
+
+    if (WKStringIsEqualToUTF8CString(messageName, "ResolveNotifyDone"))
+        return adoptWK(WKBooleanCreate(resolveNotifyDone()));
+
+    if (WKStringIsEqualToUTF8CString(messageName, "ResolveForceImmediateCompletion"))
+        return adoptWK(WKBooleanCreate(resolveForceImmediateCompletion()));
 
     if (WKStringIsEqualToUTF8CString(messageName, "SetWindowIsKey")) {
         TestController::singleton().mainWebView()->setWindowIsKey(booleanValue(messageBody));
@@ -879,8 +885,11 @@ WKRetainPtr<WKTypeRef> TestInvocation::didReceiveSynchronousMessageFromInjectedB
         return nullptr;
     }
 
-    if (WKStringIsEqualToUTF8CString(messageName, "SetMockCameraOrientation")) {
-        TestController::singleton().setMockCameraOrientation(uint64Value(messageBody));
+    if (WKStringIsEqualToUTF8CString(messageName, "SetMockCameraRotation")) {
+        auto messageBodyDictionary = dictionaryValue(messageBody);
+        auto rotation = uint64Value(messageBodyDictionary, "Rotation");
+        auto persistentID = stringValue(messageBodyDictionary, "PersistentID");
+        TestController::singleton().setMockCameraOrientation(rotation, persistentID);
         return nullptr;
     }
 
@@ -1553,6 +1562,30 @@ void TestInvocation::setWaitUntilDone(bool waitUntilDone)
     m_waitUntilDone = waitUntilDone;
     if (waitUntilDone && TestController::singleton().useWaitToDumpWatchdogTimer())
         initializeWaitToDumpWatchdogTimerIfNeeded();
+}
+
+bool TestInvocation::resolveNotifyDone()
+{
+    if (!m_waitUntilDone)
+        return false;
+    m_waitUntilDone = false;
+    if (m_options.siteIsolationEnabled()) {
+        postPageMessage("NotifyDone");
+        return false;
+    }
+    return true;
+}
+
+bool TestInvocation::resolveForceImmediateCompletion()
+{
+    if (!m_waitUntilDone)
+        return false;
+    m_waitUntilDone = false;
+    if (m_options.siteIsolationEnabled()) {
+        postPageMessage("ForceImmediateCompletion");
+        return false;
+    }
+    return true;
 }
 
 void TestInvocation::done()

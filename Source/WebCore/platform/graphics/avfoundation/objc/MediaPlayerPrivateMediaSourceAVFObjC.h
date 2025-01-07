@@ -54,14 +54,14 @@ typedef struct OpaqueFigVideoTarget *FigVideoTargetRef;
 namespace WebCore {
 
 class AudioTrackPrivate;
-class CDMSessionMediaSourceAVFObjC;
+class CDMSessionAVContentKeySession;
 class EffectiveRateChangedListener;
 class InbandTextTrackPrivate;
 class MediaSourcePrivateAVFObjC;
 class PixelBufferConformerCV;
 class VideoLayerManagerObjC;
+class VideoMediaSampleRenderer;
 class VideoTrackPrivate;
-class WebCoreDecompressionSession;
 
 class MediaPlayerPrivateMediaSourceAVFObjC
     : public CanMakeWeakPtr<MediaPlayerPrivateMediaSourceAVFObjC>
@@ -119,9 +119,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
 
     MediaTime currentTime() const override;
     bool timeIsProgressing() const final;
-    WebCoreDecompressionSession *decompressionSession() const { return m_decompressionSession.get(); }
-    WebSampleBufferVideoRendering *layerOrVideoRenderer() const;
-    bool hasVideoRenderer() const { return layerOrVideoRenderer() || decompressionSession(); }
+    bool hasVideoRenderer() const;
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     RetainPtr<PlatformLayer> createVideoFullscreenLayer() override;
@@ -134,7 +132,8 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     void setCDMSession(LegacyCDMSession*) override;
-    CDMSessionMediaSourceAVFObjC* cdmSession() const;
+    CDMSessionAVContentKeySession* cdmSession() const;
+    void keyAdded() final;
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -241,9 +240,6 @@ private:
     void maybePurgeLastImage();
     void paint(GraphicsContext&, const FloatRect&) override;
     void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&) override;
-#if PLATFORM(COCOA) && !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
-    void willBeAskedToPaintGL() final;
-#endif
     RefPtr<VideoFrame> videoFrameForCurrentTime() final;
     DestinationColorSpace colorSpace() final;
 
@@ -255,7 +251,8 @@ private:
     void setPresentationSize(const IntSize&) final;
     void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRight&&) final;
 
-    void updateDisplayLayerAndDecompressionSession();
+    void updateDisplayLayer();
+    RefPtr<VideoMediaSampleRenderer> layerOrVideoRenderer() const;
 
     // NOTE: Because the only way for MSE to recieve data is through an ArrayBuffer provided by
     // javascript running in the page, the video will, by necessity, always be CORS correct and
@@ -286,14 +283,17 @@ private:
 
     void ensureLayer();
     void destroyLayer();
-    void ensureDecompressionSession();
-    MediaPlayerEnums::NeedsRenderingModeChanged destroyDecompressionSession();
     void ensureVideoRenderer();
     void destroyVideoRenderer();
+
+    bool isUsingRenderlessMediaSampleRenderer() const;
+    void ensureRenderlessVideoMediaSampleRenderer();
+    MediaPlayerEnums::NeedsRenderingModeChanged destroyRenderlessVideoMediaSampleRenderer();
 
     bool shouldEnsureLayerOrVideoRenderer() const;
     void ensureLayerOrVideoRenderer(MediaPlayerEnums::NeedsRenderingModeChanged);
     void destroyLayerOrVideoRenderer();
+    Ref<VideoMediaSampleRenderer> createVideoMediaSampleRendererForRendererer(WebSampleBufferVideoRendering *);
     void configureLayerOrVideoRenderer(WebSampleBufferVideoRendering *);
 
     bool shouldBePlaying() const;
@@ -311,7 +311,7 @@ private:
     std::optional<VideoFrameMetadata> videoFrameMetadata() final { return std::exchange(m_videoFrameMetadata, { }); }
     void setResourceOwner(const ProcessIdentity& resourceOwner) final { m_resourceOwner = resourceOwner; }
 
-    void checkNewVideoFrameMetadata(CMTime);
+    void checkNewVideoFrameMetadata(MediaTime, double);
     MediaTime clampTimeToSensicalValue(const MediaTime&) const;
 
     void setShouldDisableHDR(bool) final;
@@ -328,6 +328,12 @@ private:
 
     void isInFullscreenOrPictureInPictureChanged(bool) final;
 
+    void setDecompressionSessionPreferences(bool preferDecompressionSession, bool canFallbackToDecompressionSession) final
+    {
+        m_preferDecompressionSession = preferDecompressionSession;
+        m_canFallbackToDecompressionSession = canFallbackToDecompressionSession;
+    }
+
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     bool supportsLinearMediaPlayer() const final { return true; }
 #endif
@@ -343,6 +349,9 @@ private:
     };
 
     AcceleratedVideoMode acceleratedVideoMode() const;
+    bool canUseDecompressionSession() const;
+    bool isUsingDecompressionSession() const;
+    bool willUseDecompressionSessionIfNeeded() const;
 
     std::optional<SeekTarget> m_pendingSeek;
 
@@ -350,8 +359,8 @@ private:
     WeakPtrFactory<MediaPlayerPrivateMediaSourceAVFObjC> m_sizeChangeObserverWeakPtrFactory;
     RefPtr<MediaSourcePrivateAVFObjC> m_mediaSourcePrivate;
     RetainPtr<AVAsset> m_asset;
-    RetainPtr<AVSampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
-    RetainPtr<AVSampleBufferVideoRenderer> m_sampleBufferVideoRenderer;
+    RefPtr<VideoMediaSampleRenderer> m_sampleBufferDisplayLayer;
+    RefPtr<VideoMediaSampleRenderer> m_sampleBufferVideoRenderer;
 
     struct AudioRendererProperties {
         bool hasAudibleSample { false };
@@ -366,13 +375,13 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     RetainPtr<id> m_gapObserver;
     RetainPtr<id> m_performTaskObserver;
     RetainPtr<CVPixelBufferRef> m_lastPixelBuffer;
+    MediaTime m_lastPixelBufferPresentationTimeStamp;
     RefPtr<NativeImage> m_lastImage;
     std::unique_ptr<PixelBufferConformerCV> m_rgbConformer;
-    RefPtr<WebCoreDecompressionSession> m_decompressionSession;
     Deque<RetainPtr<id>> m_sizeChangeObservers;
     Timer m_seekTimer;
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    WeakPtr<CDMSessionMediaSourceAVFObjC> m_session;
+    WeakPtr<CDMSessionAVContentKeySession> m_session;
 #endif
     MediaPlayer::NetworkState m_networkState;
     MediaPlayer::ReadyState m_readyState;
@@ -385,9 +394,6 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     bool m_isSynchronizerSeeking { false };
     SeekState m_seekState { SeekCompleted };
     mutable bool m_loadingProgressed { false };
-#if !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
-    bool m_hasBeenAskedToPaintGL { false };
-#endif
     bool m_hasAvailableVideoFrame { false };
     bool m_allRenderersHaveAvailableSamples { false };
     bool m_visible { false };
@@ -409,6 +415,8 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     ProcessIdentity m_resourceOwner;
     bool m_shouldMaintainAspectRatio { true };
     bool m_needsPlaceholderImage { false };
+    bool m_preferDecompressionSession { false };
+    bool m_canFallbackToDecompressionSession { false };
 #if HAVE(SPATIAL_TRACKING_LABEL)
     String m_defaultSpatialTrackingLabel;
     String m_spatialTrackingLabel;

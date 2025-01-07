@@ -41,6 +41,10 @@
 #include <WebCore/RemoteFrame.h>
 #include <wtf/TZoneMallocInlines.h>
 
+#if ENABLE(MODEL_PROCESS)
+#include <WebCore/ModelContext.h>
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -83,11 +87,13 @@ Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayer(PlatformLayer*
     return PlatformCALayerRemote::create(platformLayer, owner, *m_context);
 }
 
-Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayer(WebCore::LayerHostingContextIdentifier layerHostingContextIdentifier, PlatformCALayerClient* owner)
+#if ENABLE(MODEL_PROCESS)
+Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayer(Ref<WebCore::ModelContext> modelContext, PlatformCALayerClient* owner)
 {
     RELEASE_ASSERT(m_context.get());
-    return PlatformCALayerRemote::create(layerHostingContextIdentifier.toUInt64(), owner, *m_context);
+    return PlatformCALayerRemote::create(modelContext, owner, *m_context);
 }
+#endif
 
 #if ENABLE(MODEL_ELEMENT)
 Ref<PlatformCALayer> GraphicsLayerCARemote::createPlatformCALayer(Ref<WebCore::Model> model, PlatformCALayerClient* owner)
@@ -206,6 +212,29 @@ RefPtr<WebCore::GraphicsLayerAsyncContentsDisplayDelegate> GraphicsLayerCARemote
 
     delegate->setDestinationLayerID(layerID);
     return delegate;
+}
+
+bool GraphicsLayerCARemote::shouldDirectlyCompositeImageBuffer(ImageBuffer* image) const
+{
+    return !!dynamicDowncast<ImageBufferBackendHandleSharing>(image->toBackendSharing());
+}
+
+void GraphicsLayerCARemote::setLayerContentsToImageBuffer(PlatformCALayer* layer, ImageBuffer* image)
+{
+    if (!image)
+        return;
+
+    image->flushDrawingContextAsync();
+
+    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(image->toBackendSharing());
+    if (!sharing)
+        return;
+
+    auto backendHandle = sharing->createBackendHandle(SharedMemory::Protection::ReadOnly);
+    ASSERT(backendHandle);
+
+    layer->setAcceleratesDrawing(true);
+    downcast<PlatformCALayerRemote>(layer)->setRemoteDelegatedContents({ ImageBufferBackendHandle { *backendHandle }, { }, std::nullopt  });
 }
 
 GraphicsLayer::LayerMode GraphicsLayerCARemote::layerMode() const

@@ -69,6 +69,7 @@
 #include "XMLDocumentParserScope.h"
 #include <libxml/parser.h>
 #include <libxml/parserInternals.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -78,6 +79,8 @@
 #include "XMLTreeViewer.h"
 #include <libxslt/xslt.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WebCore {
 
@@ -376,15 +379,15 @@ public:
     {
     }
 
-    int readOutBytes(char* outputBuffer, unsigned askedToRead)
+    int readOutBytes(std::span<char> outputBuffer)
     {
-        unsigned bytesLeft = m_buffer.size() - m_currentOffset;
-        unsigned lenToCopy = std::min(askedToRead, bytesLeft);
-        if (lenToCopy) {
-            memcpy(outputBuffer, m_buffer.data() + m_currentOffset, lenToCopy);
-            m_currentOffset += lenToCopy;
+        size_t bytesLeft = m_buffer.size() - m_currentOffset;
+        size_t lengthToCopy = std::min(outputBuffer.size(), bytesLeft);
+        if (lengthToCopy) {
+            memcpySpan(outputBuffer, m_buffer.subspan(m_currentOffset, lengthToCopy));
+            m_currentOffset += lengthToCopy;
         }
-        return lenToCopy;
+        return lengthToCopy;
     }
 
 private:
@@ -524,7 +527,7 @@ static int readFunc(void* context, char* buffer, int len)
         return 0;
 
     OffsetBuffer* data = static_cast<OffsetBuffer*>(context);
-    return data->readOutBytes(buffer, len);
+    return data->readOutBytes(unsafeMakeSpan(buffer, len));
 }
 
 static int writeFunc(void*, const char*, int)
@@ -599,7 +602,7 @@ RefPtr<XMLParserContext> XMLParserContext::createMemoryParser(xmlSAXHandlerPtr h
     if (!parser)
         return nullptr;
 
-    memcpy(parser->sax, handlers, sizeof(xmlSAXHandler));
+    memcpySpan(asMutableByteSpan(*parser->sax), asByteSpan(*handlers));
 
     // Substitute entities.
     // FIXME: Why is XML_PARSE_NODICT needed? This is different from what createStringParser does.
@@ -633,7 +636,7 @@ XMLDocumentParser::XMLDocumentParser(Document& document, IsInFrameView isInFrame
 {
 }
 
-XMLDocumentParser::XMLDocumentParser(DocumentFragment& fragment, UncheckedKeyHashMap<AtomString, AtomString>&& prefixToNamespaceMap, const AtomString& defaultNamespaceURI, OptionSet<ParserContentPolicy> parserContentPolicy)
+XMLDocumentParser::XMLDocumentParser(DocumentFragment& fragment, HashMap<AtomString, AtomString>&& prefixToNamespaceMap, const AtomString& defaultNamespaceURI, OptionSet<ParserContentPolicy> parserContentPolicy)
     : ScriptableDocumentParser(fragment.document(), parserContentPolicy)
     , m_pendingCallbacks(makeUnique<PendingCallbacks>())
     , m_currentNode(&fragment)
@@ -818,7 +821,7 @@ void XMLDocumentParser::startElementNs(const xmlChar* xmlLocalName, const xmlCha
         customElementReactionStack.emplace(m_currentNode->document().globalObject());
     }
 
-    auto newElement = m_currentNode->document().createElement(qName, true);
+    auto newElement = m_currentNode->treeScope().createElement(qName, true);
 
     Vector<Attribute> prefixedAttributes;
     if (!handleNamespaceAttributes(prefixedAttributes, libxmlNamespaces, numNamespaces)) {
@@ -1284,7 +1287,7 @@ static void ignorableWhitespaceHandler(void*, const xmlChar*, int)
 void XMLDocumentParser::initializeParserContext(const CString& chunk)
 {
     xmlSAXHandler sax;
-    memset(&sax, 0, sizeof(sax));
+    zeroBytes(sax);
 
     sax.error = normalErrorHandler;
     sax.fatalError = fatalErrorHandler;
@@ -1469,7 +1472,7 @@ bool XMLDocumentParser::appendFragmentSource(const String& chunk)
 
 // --------------------------------
 
-using AttributeParseState = std::optional<UncheckedKeyHashMap<String, String>>;
+using AttributeParseState = std::optional<HashMap<String, String>>;
 
 static void attributesStartElementNsHandler(void* closure, const xmlChar* xmlLocalName, const xmlChar* /*xmlPrefix*/, const xmlChar* /*xmlURI*/, int /*numNamespaces*/, const xmlChar** /*namespaces*/, int numAttributes, int /*numDefaulted*/, const xmlChar** libxmlAttributes)
 {
@@ -1478,7 +1481,7 @@ static void attributesStartElementNsHandler(void* closure, const xmlChar* xmlLoc
 
     auto& state = *static_cast<AttributeParseState*>(static_cast<xmlParserCtxtPtr>(closure)->_private);
 
-    state = UncheckedKeyHashMap<String, String> { };
+    state = HashMap<String, String> { };
 
     xmlSAX2Attributes* attributes = reinterpret_cast<xmlSAX2Attributes*>(libxmlAttributes);
     for (int i = 0; i < numAttributes; i++) {
@@ -1492,14 +1495,14 @@ static void attributesStartElementNsHandler(void* closure, const xmlChar* xmlLoc
     }
 }
 
-std::optional<UncheckedKeyHashMap<String, String>> parseAttributes(CachedResourceLoader& cachedResourceLoader, const String& string)
+std::optional<HashMap<String, String>> parseAttributes(CachedResourceLoader& cachedResourceLoader, const String& string)
 {
     auto parseString = makeString("<?xml version=\"1.0\"?><attrs "_s, string, " />"_s);
 
     AttributeParseState attributes;
 
     xmlSAXHandler sax;
-    memset(&sax, 0, sizeof(sax));
+    zeroBytes(sax);
     sax.startElementNs = attributesStartElementNsHandler;
     sax.initialized = XML_SAX2_MAGIC;
 
@@ -1513,3 +1516,5 @@ std::optional<UncheckedKeyHashMap<String, String>> parseAttributes(CachedResourc
 }
 
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

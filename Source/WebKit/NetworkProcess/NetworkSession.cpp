@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -58,6 +58,7 @@
 #include <WebCore/SWServer.h>
 #include <numeric>
 #include <wtf/RuntimeApplicationChecks.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
@@ -77,7 +78,7 @@ using namespace WebCore;
 constexpr Seconds cachedNetworkResourceLoaderLifetime { 30_s };
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSession);
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(NetworkSessionCachedNetworkResourceLoader, NetworkSession::CachedNetworkResourceLoader);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSession::CachedNetworkResourceLoader);
 
 std::unique_ptr<NetworkSession> NetworkSession::create(NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
 {
@@ -135,7 +136,7 @@ static WebPushD::WebPushDaemonConnectionConfiguration configurationWithHostAudit
     auto token = networkProcess.parentProcessConnection()->getAuditToken();
     if (token) {
         Vector<uint8_t> auditTokenData(sizeof(*token));
-        memcpy(auditTokenData.data(), &(*token), sizeof(*token));
+        memcpySpan(auditTokenData.mutableSpan(), asByteSpan(*token));
         configuration.hostAppAuditTokenData = WTFMove(auditTokenData);
     }
 #endif
@@ -158,7 +159,7 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
     , m_persistedDomains(parameters.resourceLoadStatisticsParameters.persistedDomains)
     , m_privateClickMeasurement(managerOrProxy(*this, networkProcess, parameters))
     , m_privateClickMeasurementDebugModeEnabled(parameters.enablePrivateClickMeasurementDebugMode)
-    , m_broadcastChannelRegistry(makeUniqueRef<NetworkBroadcastChannelRegistry>(networkProcess))
+    , m_broadcastChannelRegistry(NetworkBroadcastChannelRegistry::create(networkProcess))
     , m_testSpeedMultiplier(parameters.testSpeedMultiplier)
     , m_allowsServerPreconnect(parameters.allowsServerPreconnect)
     , m_shouldRunServiceWorkersOnMainThreadForTesting(parameters.shouldRunServiceWorkersOnMainThreadForTesting)
@@ -166,7 +167,7 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
     , m_inspectionForServiceWorkersAllowed(parameters.inspectionForServiceWorkersAllowed)
     , m_storageManager(createNetworkStorageManager(networkProcess, parameters))
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
-    , m_notificationManager(parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration))
+    , m_notificationManager(NetworkNotificationManager::create(parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration), networkProcess))
 #endif
 {
     if (!m_sessionID.isEphemeral()) {
@@ -202,7 +203,9 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
 
     setBlobRegistryTopOriginPartitioningEnabled(parameters.isBlobRegistryTopOriginPartitioningEnabled);
     setShouldSendPrivateTokenIPCForTesting(parameters.shouldSendPrivateTokenIPCForTesting);
+#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
     setOptInCookiePartitioningEnabled(parameters.isOptInCookiePartitioningEnabled);
+#endif
 
     SandboxExtension::consumePermanently(parameters.serviceWorkerRegistrationDirectoryExtensionHandle);
     m_serviceWorkerInfo = ServiceWorkerInfo {
@@ -520,12 +523,17 @@ void NetworkSession::setShouldSendPrivateTokenIPCForTesting(bool enabled)
     m_shouldSendPrivateTokenIPCForTesting = enabled;
 }
 
+#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
 void NetworkSession::setOptInCookiePartitioningEnabled(bool enabled)
 {
+    if (!m_resourceLoadStatistics)
+        return;
+
     RELEASE_LOG(Storage, "NetworkSession::setOptInCookiePartitioningEnabled as %" PUBLIC_LOG_STRING " for session %" PRIu64, enabled ? "enabled" : "disabled", m_sessionID.toUInt64());
     if (CheckedPtr storageSession = networkStorageSession())
         storageSession->setOptInCookiePartitioningEnabled(enabled);
 }
+#endif
 
 void NetworkSession::allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo& certificateInfo)
 {
@@ -557,6 +565,11 @@ void NetworkSession::removeKeptAliveLoad(NetworkResourceLoader& loader)
     m_keptAliveLoads.remove(loader);
 }
 
+Ref<NetworkSession::CachedNetworkResourceLoader> NetworkSession::CachedNetworkResourceLoader::create(Ref<NetworkResourceLoader>&& loader)
+{
+    return adoptRef(*new NetworkSession::CachedNetworkResourceLoader(WTFMove(loader)));
+}
+
 NetworkSession::CachedNetworkResourceLoader::CachedNetworkResourceLoader(Ref<NetworkResourceLoader>&& loader)
     : m_expirationTimer(*this, &CachedNetworkResourceLoader::expirationTimerFired)
     , m_loader(WTFMove(loader))
@@ -584,7 +597,7 @@ void NetworkSession::addLoaderAwaitingWebProcessTransfer(Ref<NetworkResourceLoad
     ASSERT(m_sessionID == loader->sessionID());
     auto identifier = loader->identifier();
     ASSERT(!m_loadersAwaitingWebProcessTransfer.contains(identifier));
-    m_loadersAwaitingWebProcessTransfer.add(identifier, makeUnique<CachedNetworkResourceLoader>(WTFMove(loader)));
+    m_loadersAwaitingWebProcessTransfer.add(identifier, CachedNetworkResourceLoader::create(WTFMove(loader)));
 }
 
 RefPtr<NetworkResourceLoader> NetworkSession::takeLoaderAwaitingWebProcessTransfer(NetworkResourceLoadIdentifier identifier)
@@ -620,6 +633,11 @@ NetworkLoadScheduler& NetworkSession::networkLoadScheduler()
     if (!m_networkLoadScheduler)
         m_networkLoadScheduler = NetworkLoadScheduler::create();
     return *m_networkLoadScheduler;
+}
+
+Ref<NetworkLoadScheduler> NetworkSession::protectedNetworkLoadScheduler()
+{
+    return networkLoadScheduler();
 }
 
 String NetworkSession::attributedBundleIdentifierFromPageIdentifier(WebPageProxyIdentifier identifier) const
@@ -782,10 +800,10 @@ void NetworkSession::softUpdate(ServiceWorkerJobData&& jobData, bool shouldRefre
     m_softUpdateLoaders.add(makeUnique<ServiceWorkerSoftUpdateLoader>(*this, WTFMove(jobData), shouldRefreshCache, WTFMove(request), WTFMove(completionHandler)));
 }
 
-void NetworkSession::createContextConnection(const WebCore::RegistrableDomain& registrableDomain, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&& completionHandler)
+void NetworkSession::createContextConnection(const WebCore::Site& site, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&& completionHandler)
 {
-    ASSERT(!registrableDomain.isEmpty());
-    m_networkProcess->parentProcessConnection()->sendWithAsyncReply(Messages::NetworkProcessProxy::EstablishRemoteWorkerContextConnectionToNetworkProcess { RemoteWorkerType::ServiceWorker, registrableDomain, requestingProcessIdentifier, serviceWorkerPageIdentifier, m_sessionID }, [completionHandler = WTFMove(completionHandler)] (auto) mutable {
+    ASSERT(!site.isEmpty());
+    m_networkProcess->parentProcessConnection()->sendWithAsyncReply(Messages::NetworkProcessProxy::EstablishRemoteWorkerContextConnectionToNetworkProcess { RemoteWorkerType::ServiceWorker, site, requestingProcessIdentifier, serviceWorkerPageIdentifier, m_sessionID }, [completionHandler = WTFMove(completionHandler)] (auto) mutable {
         completionHandler();
     }, 0);
 }
@@ -881,6 +899,23 @@ void NetworkSession::setPersistedDomains(HashSet<WebCore::RegistrableDomain>&& d
 
     if (m_resourceLoadStatistics)
         m_resourceLoadStatistics->setPersistedDomains(m_persistedDomains);
+}
+
+CheckedRef<PrefetchCache> NetworkSession::checkedPrefetchCache()
+{
+    return m_prefetchCache;
+}
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+Ref<NetworkNotificationManager> NetworkSession::protectedNotificationManager()
+{
+    return m_notificationManager.get();
+}
+#endif
+
+Ref<NetworkBroadcastChannelRegistry> NetworkSession::protectedBroadcastChannelRegistry()
+{
+    return m_broadcastChannelRegistry;
 }
 
 } // namespace WebKit

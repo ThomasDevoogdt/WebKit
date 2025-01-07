@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #import "HTMLConverter.h"
 
 #import "ArchiveResource.h"
+#import "CSSColorValue.h"
 #import "CSSComputedStyleDeclaration.h"
 #import "CSSParser.h"
 #import "CSSPrimitiveValue.h"
@@ -76,6 +77,7 @@
 #import <wtf/ASCIICType.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/text/MakeString.h>
+#import <wtf/text/ParsingUtilities.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/StringToIntegerConversion.h>
 
@@ -131,8 +133,10 @@ const unichar WebNextLineCharacter = 0x0085;
 static const CGFloat defaultFontSize = 12;
 static const CGFloat minimumFontSize = 1;
 
+using NodeSet = UncheckedKeyHashSet<Ref<Node>>;
+
 class HTMLConverterCaches {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(HTMLConverterCaches);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLConverterCaches);
 public:
     String propertyValueForNode(Node&, CSSPropertyID );
     bool floatPropertyValueForNode(Node&, CSSPropertyID, float&);
@@ -149,8 +153,10 @@ public:
 
 private:
     UncheckedKeyHashMap<Element*, std::unique_ptr<ComputedStyleExtractor>> m_computedStyles;
-    HashSet<Ref<Node>> m_ancestorsUnderCommonAncestor;
+    NodeSet m_ancestorsUnderCommonAncestor;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLConverterCaches);
 
 @interface NSTextList (WebCoreNSTextListDetails)
 + (NSDictionary *)_standardMarkerAttributesForAttributes:(NSDictionary *)attrs;
@@ -467,7 +473,7 @@ static bool stringFromCSSValue(CSSValue& value, String& result)
                 return true;
             }
         }
-    } else if (value.isValueList()) {
+    } else if (value.isValueList() || value.isAppleColorFilterPropertyValue() || value.isFilterPropertyValue() || value.isTextShadowPropertyValue() || value.isBoxShadowPropertyValue()) {
         result = value.cssText();
         return true;
     }
@@ -810,12 +816,12 @@ Color HTMLConverterCaches::colorPropertyValueForNode(Node& node, CSSPropertyID p
     bool ignoreDefaultColor = propertyId == CSSPropertyColor;
 
     if (auto value = computedStylePropertyForElement(*element, propertyId); value && value->isColor())
-        return normalizedColor(value->color(), ignoreDefaultColor, *element);
+        return normalizedColor(CSSColorValue::absoluteColor(*value), ignoreDefaultColor, *element);
 
     bool inherit = false;
     if (auto value = inlineStylePropertyForElement(*element, propertyId)) {
         if (value->isColor())
-            return normalizedColor(value->color(), ignoreDefaultColor, *element);
+            return normalizedColor(CSSColorValue::absoluteColor(*value), ignoreDefaultColor, *element);
         if (isValueID(*value, CSSValueInherit))
             inherit = true;
     }
@@ -1457,14 +1463,14 @@ void HTMLConverter::_fillInBlock(NSTextBlock *block, Element& element, PlatformC
         [block setBorderColor:color.get() forEdge:NSMaxYEdge];
 }
 
-static inline BOOL read2DigitNumber(const char **pp, int8_t *outval)
+static inline BOOL read2DigitNumber(std::span<const char>& p, int8_t& outval)
 {
     BOOL result = NO;
-    char c1 = *(*pp)++, c2;
+    char c1 = consume(p);
     if (isASCIIDigit(c1)) {
-        c2 = *(*pp)++;
+        char c2 = consume(p);
         if (isASCIIDigit(c2)) {
-            *outval = 10 * (c1 - '0') + (c2 - '0');
+            outval = 10 * (c1 - '0') + (c2 - '0');
             result = YES;
         }
     }
@@ -1473,37 +1479,37 @@ static inline BOOL read2DigitNumber(const char **pp, int8_t *outval)
 
 static inline NSDate *_dateForString(NSString *string)
 {
-    const char *p = [string UTF8String];
+    auto p = spanIncludingNullTerminator([string UTF8String]);
     RetainPtr<NSDateComponents> dateComponents = adoptNS([[NSDateComponents alloc] init]);
 
     // Set the time zone to GMT
     [dateComponents setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 
     NSInteger year = 0;
-    while (*p && isASCIIDigit(*p))
-        year = 10 * year + *p++ - '0';
-    if (*p++ != '-')
+    while (p.front() && isASCIIDigit(p.front()))
+        year = 10 * year + consume(p) - '0';
+    if (consume(p) != '-')
         return nil;
     [dateComponents setYear:year];
 
     int8_t component;
-    if (!read2DigitNumber(&p, &component) || *p++ != '-')
+    if (!read2DigitNumber(p, component) || consume(p) != '-')
         return nil;
     [dateComponents setMonth:component];
 
-    if (!read2DigitNumber(&p, &component) || *p++ != 'T')
+    if (!read2DigitNumber(p, component) || consume(p) != 'T')
         return nil;
     [dateComponents setDay:component];
 
-    if (!read2DigitNumber(&p, &component) || *p++ != ':')
+    if (!read2DigitNumber(p, component) || consume(p) != ':')
         return nil;
     [dateComponents setHour:component];
 
-    if (!read2DigitNumber(&p, &component) || *p++ != ':')
+    if (!read2DigitNumber(p, component) || consume(p) != ':')
         return nil;
     [dateComponents setMinute:component];
 
-    if (!read2DigitNumber(&p, &component) || *p++ != 'Z')
+    if (!read2DigitNumber(p, component) || consume(p) != 'Z')
         return nil;
     [dateComponents setSecond:component];
     
@@ -2150,7 +2156,7 @@ void HTMLConverter::_processText(Text& text)
     if (outputString.length()) {
         String textTransform = _caches->propertyValueForNode(text, CSSPropertyTextTransform);
         if (textTransform == "capitalize"_s)
-            outputString = capitalize(outputString, ' '); // FIXME: Needs to take locale into account to work correctly.
+            outputString = capitalize(outputString); // FIXME: Needs to take locale into account to work correctly.
         else if (textTransform == "uppercase"_s)
             outputString = outputString.convertToUppercaseWithoutLocale(); // FIXME: Needs locale to work correctly.
         else if (textTransform == "lowercase"_s)
@@ -2611,7 +2617,8 @@ AttributedString attributedString(const SimpleRange& range, IgnoreUserSelectNone
 }
 
 // This function uses TextIterator, which makes offsets in its result compatible with HTML editing.
-AttributedString editingAttributedString(const SimpleRange& range, OptionSet<IncludedElement> includedElements)
+enum class ReplaceAllNoBreakSpaces : bool { No, Yes };
+static AttributedString editingAttributedStringInternal(const SimpleRange& range, TextIteratorBehaviors behaviors, OptionSet<IncludedElement> includedElements, ReplaceAllNoBreakSpaces replaceAllNoBreakSpaces)
 {
     ElementCache<RefPtr<Element>> enclosingLinkCache;
     ElementCache<bool> elementQualifiesForWritingToolsPreservationCache;
@@ -2619,7 +2626,7 @@ AttributedString editingAttributedString(const SimpleRange& range, OptionSet<Inc
     RetainPtr string = adoptNS([[NSMutableAttributedString alloc] init]);
     RetainPtr attributes = adoptNS([[NSMutableDictionary alloc] init]);
     NSUInteger stringLength = 0;
-    for (TextIterator it(range); !it.atEnd(); it.advance()) {
+    for (TextIterator it { range, behaviors }; !it.atEnd(); it.advance()) {
         RefPtr node = it.node();
 
         if (RefPtr imageElement = dynamicDowncast<HTMLImageElement>(node.get()); imageElement && includedElements.contains(IncludedElement::Images)) {
@@ -2649,8 +2656,15 @@ AttributedString editingAttributedString(const SimpleRange& range, OptionSet<Inc
         else if (!includedElements.contains(IncludedElement::NonRenderedContent))
             continue;
 
+        bool replaceNoBreakSpaces = [&] {
+            if (replaceAllNoBreakSpaces == ReplaceAllNoBreakSpaces::Yes)
+                return true;
+
+            return renderer && renderer->style().nbspMode() == NBSPMode::Space;
+        }();
+
         RetainPtr<NSString> text;
-        if (!renderer || renderer->style().nbspMode() == NBSPMode::Normal)
+        if (!replaceNoBreakSpaces)
             text = it.text().createNSStringWithoutCopying();
         else
             text = makeStringByReplacingAll(it.text(), noBreakSpace, ' ');
@@ -2661,6 +2675,16 @@ AttributedString editingAttributedString(const SimpleRange& range, OptionSet<Inc
     }
 
     return AttributedString::fromNSAttributedString(WTFMove(string));
+}
+
+AttributedString editingAttributedString(const SimpleRange& range, OptionSet<IncludedElement> includedElements)
+{
+    return editingAttributedStringInternal(range, { }, includedElements, ReplaceAllNoBreakSpaces::No);
+}
+
+AttributedString editingAttributedStringReplacingNoBreakSpace(const SimpleRange& range, TextIteratorBehaviors behaviors, OptionSet<IncludedElement> includedElements)
+{
+    return editingAttributedStringInternal(range, behaviors, includedElements, ReplaceAllNoBreakSpaces::Yes);
 }
     
 }

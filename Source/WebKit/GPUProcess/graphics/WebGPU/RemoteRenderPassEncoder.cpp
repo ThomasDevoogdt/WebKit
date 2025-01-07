@@ -49,7 +49,7 @@ RemoteRenderPassEncoder::RemoteRenderPassEncoder(WebCore::WebGPU::RenderPassEnco
     , m_gpu(gpu)
     , m_identifier(identifier)
 {
-    m_streamConnection->startReceivingMessages(*this, Messages::RemoteRenderPassEncoder::messageReceiverName(), m_identifier.toUInt64());
+    Ref { m_streamConnection }->startReceivingMessages(*this, Messages::RemoteRenderPassEncoder::messageReceiverName(), m_identifier.toUInt64());
 }
 
 RemoteRenderPassEncoder::~RemoteRenderPassEncoder() = default;
@@ -61,7 +61,7 @@ void RemoteRenderPassEncoder::destruct()
 
 void RemoteRenderPassEncoder::stopListeningForIPC()
 {
-    m_streamConnection->stopReceivingMessages(Messages::RemoteRenderPassEncoder::messageReceiverName(), m_identifier.toUInt64());
+    Ref { m_streamConnection }->stopReceivingMessages(Messages::RemoteRenderPassEncoder::messageReceiverName(), m_identifier.toUInt64());
 }
 
 void RemoteRenderPassEncoder::setPipeline(WebGPUIdentifier renderPipeline)
@@ -199,7 +199,7 @@ void RemoteRenderPassEncoder::endOcclusionQuery()
 
 void RemoteRenderPassEncoder::executeBundles(Vector<WebGPUIdentifier>&& renderBundles)
 {
-    Vector<std::reference_wrapper<WebCore::WebGPU::RenderBundle>> convertedBundles;
+    Vector<Ref<WebCore::WebGPU::RenderBundle>> convertedBundles;
     convertedBundles.reserveInitialCapacity(renderBundles.size());
     for (WebGPUIdentifier identifier : renderBundles) {
         auto convertedBundle = protectedObjectHeap()->convertRenderBundleFromBacking(identifier);

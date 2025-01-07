@@ -124,6 +124,7 @@ RefPtr<GraphicsLayer> PDFPresentationController::makePageContainerLayer(PDFDocum
     pageBackgroundLayer->setDrawsContent(true);
     pageBackgroundLayer->setAcceleratesDrawing(true);
     pageBackgroundLayer->setShouldUpdateRootRelativeScaleFactor(false);
+    pageBackgroundLayer->setAllowsTiling(false);
     pageBackgroundLayer->setNeedsDisplay(); // We only need to paint this layer once when page backgrounds change.
 
     // FIXME: <https://webkit.org/b/276981> Need to add a 1px black border with alpha 0.0586.
@@ -165,6 +166,44 @@ FloatRect PDFPresentationController::layoutBoundsForPageAtIndex(PDFDocumentLayou
 bool PDFPresentationController::pluginShouldCachePagePreviews() const
 {
     return m_plugin->shouldCachePagePreviews();
+}
+
+float PDFPresentationController::scaleForPagePreviews() const
+{
+    return m_plugin->scaleForPagePreviews();
+}
+
+void PDFPresentationController::setNeedsRepaintForPageCoverage(RepaintRequirements repaintRequirements, const PDFPageCoverage& coverage)
+{
+    // HoverOverlay is currently painted to PDFContent.
+    if (repaintRequirements.contains(RepaintRequirement::HoverOverlay)) {
+        repaintRequirements.remove(RepaintRequirement::HoverOverlay);
+        repaintRequirements.add(RepaintRequirement::PDFContent);
+    }
+
+    auto layerCoverages = layerCoveragesForRepaintPageCoverage(repaintRequirements, coverage);
+    for (auto& layerCoverage : layerCoverages)
+        Ref { layerCoverage.layer }->setNeedsDisplayInRect(layerCoverage.bounds);
+
+    // Unite consecutive PDFContent display rects and send them as render rect to AsyncRenderer.
+    if (RefPtr asyncRenderer = asyncRendererIfExists()) {
+        RefPtr<GraphicsLayer> layer;
+        FloatRect bounds;
+        for (auto& layerCoverage : layerCoverages) {
+            if (!layerCoverage.repaintRequirements.contains(RepaintRequirement::PDFContent))
+                continue;
+            if (layerCoverage.layer.ptr() != layer) {
+                if (layer && !bounds.isEmpty())
+                    asyncRenderer->setNeedsRenderForRect(*layer, bounds);
+                layer = layerCoverage.layer.ptr();
+                bounds = layerCoverage.bounds;
+            } else
+                bounds.unite(layerCoverage.bounds);
+        }
+        if (layer && !bounds.isEmpty())
+            asyncRenderer->setNeedsRenderForRect(*layer, bounds);
+        asyncRenderer->setNeedsPagePreviewRenderForPageCoverage(coverage);
+    }
 }
 
 PDFDocumentLayout::PageIndex PDFPresentationController::nearestPageIndexForDocumentPoint(const FloatPoint& point) const

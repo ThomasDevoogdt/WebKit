@@ -71,9 +71,9 @@ struct PendingReply {
     RefPtr<WebKit::RemoteObjectRegistry> _remoteObjectRegistry;
 
     RetainPtr<NSMapTable> _remoteObjectProxies;
-    UncheckedKeyHashMap<String, std::pair<RetainPtr<id>, RetainPtr<_WKRemoteObjectInterface>>> _exportedObjects;
+    HashMap<String, std::pair<RetainPtr<id>, RetainPtr<_WKRemoteObjectInterface>>> _exportedObjects;
 
-    UncheckedKeyHashMap<uint64_t, PendingReply> _pendingReplies;
+    HashMap<uint64_t, PendingReply> _pendingReplies;
 }
 
 - (void)registerExportedObject:(id)object interface:(_WKRemoteObjectInterface *)interface
@@ -333,7 +333,7 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
     auto pendingReply = it->value;
     _pendingReplies.remove(it);
 
-    auto decoder = adoptNS([[WKRemoteObjectDecoder alloc] initWithInterface:pendingReply.interface.get() rootObjectDictionary:static_cast<API::Dictionary*>(encodedInvocation.get()) replyToSelector:pendingReply.selector]);
+    auto decoder = adoptNS([[WKRemoteObjectDecoder alloc] initWithInterface:pendingReply.interface.get() rootObjectDictionary:downcast<API::Dictionary>(encodedInvocation.get()) replyToSelector:pendingReply.selector]);
 
     NSInvocation *replyInvocation = [decoder decodeObjectOfClass:[NSInvocation class] forKey:invocationKey];
 

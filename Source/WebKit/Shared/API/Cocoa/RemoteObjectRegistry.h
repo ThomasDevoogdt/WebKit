@@ -47,9 +47,6 @@ class RemoteObjectRegistry : public IPC::MessageReceiver {
 public:
     virtual ~RemoteObjectRegistry();
 
-    virtual void ref() const = 0;
-    virtual void deref() const = 0;
-
     virtual void sendInvocation(const RemoteObjectInvocation&);
     void sendReplyBlock(uint64_t replyID, const UserData& blockInvocation);
     void sendUnusedReply(uint64_t replyID);
@@ -72,7 +69,7 @@ private:
     void releaseUnusedReplyBlock(uint64_t replyID);
 
     WeakObjCPtr<_WKRemoteObjectRegistry> m_remoteObjectRegistry;
-    UncheckedKeyHashMap<uint64_t, RefPtr<ProcessThrottler::BackgroundActivity>> m_pendingReplies;
+    HashMap<uint64_t, RefPtr<ProcessThrottler::BackgroundActivity>> m_pendingReplies;
 };
 
 } // namespace WebKit

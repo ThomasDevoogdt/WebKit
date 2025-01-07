@@ -39,6 +39,10 @@
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/text/WTFString.h>
 
+#if ENABLE(SCREEN_TIME)
+#import <pal/cocoa/ScreenTimeSoftLink.h>
+#endif
+
 namespace WebKit {
 
 PageClientImplCocoa::PageClientImplCocoa(WKWebView *webView)
@@ -57,17 +61,11 @@ void PageClientImplCocoa::topContentInsetDidChange()
 void PageClientImplCocoa::themeColorWillChange()
 {
     [m_webView willChangeValueForKey:@"themeColor"];
-
-    // FIXME: Remove old `-[WKWebView _themeColor]` SPI <rdar://76662644>
-    [m_webView willChangeValueForKey:@"_themeColor"];
 }
 
 void PageClientImplCocoa::themeColorDidChange()
 {
     [m_webView didChangeValueForKey:@"themeColor"];
-
-    // FIXME: Remove old `-[WKWebView _themeColor]` SPI <rdar://76662644>
-    [m_webView didChangeValueForKey:@"_themeColor"];
 }
 
 void PageClientImplCocoa::underPageBackgroundColorWillChange()
@@ -78,18 +76,6 @@ void PageClientImplCocoa::underPageBackgroundColorWillChange()
 void PageClientImplCocoa::underPageBackgroundColorDidChange()
 {
     [m_webView didChangeValueForKey:@"underPageBackgroundColor"];
-}
-
-void PageClientImplCocoa::pageExtendedBackgroundColorWillChange()
-{
-    // FIXME: Remove old `-[WKWebView _pageExtendedBackgroundColor]` SPI <rdar://77789732>
-    [m_webView willChangeValueForKey:@"_pageExtendedBackgroundColor"];
-}
-
-void PageClientImplCocoa::pageExtendedBackgroundColorDidChange()
-{
-    // FIXME: Remove old `-[WKWebView _pageExtendedBackgroundColor]` SPI <rdar://77789732>
-    [m_webView didChangeValueForKey:@"_pageExtendedBackgroundColor"];
 }
 
 void PageClientImplCocoa::sampledPageTopColorWillChange()
@@ -319,6 +305,36 @@ void PageClientImplCocoa::removeTextAnimationForAnimationID(const WTF::UUID& uui
     [m_webView _removeTextAnimationForAnimationID:uuid];
 }
 
+#endif
+
+#if ENABLE(SCREEN_TIME)
+void PageClientImplCocoa::installScreenTimeWebpageController()
+{
+    [m_webView _installScreenTimeWebpageController];
+}
+
+void PageClientImplCocoa::didChangeScreenTimeWebpageControllerURL()
+{
+    updateScreenTimeWebpageControllerURL(webView().get());
+}
+
+void PageClientImplCocoa::updateScreenTimeWebpageControllerURL(WKWebView *webView)
+{
+    if (!PAL::isScreenTimeFrameworkAvailable())
+        return;
+
+    RetainPtr screenTimeWebpageController = [webView _screenTimeWebpageController];
+    if (!screenTimeWebpageController)
+        return;
+
+    NakedPtr<WebKit::WebPageProxy> pageProxy = [webView _page];
+    if (pageProxy && !pageProxy->preferences().screenTimeEnabled()) {
+        [webView _uninstallScreenTimeWebpageController];
+        return;
+    }
+
+    [screenTimeWebpageController setURL:[webView _mainFrameURL]];
+}
 #endif
 
 #if ENABLE(GAMEPAD)

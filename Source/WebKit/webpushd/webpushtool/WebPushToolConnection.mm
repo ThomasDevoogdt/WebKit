@@ -39,9 +39,8 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/StdLibExtras.h>
 #import <wtf/TZoneMallocInlines.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WebPushTool {
 
@@ -144,7 +143,7 @@ void Connection::sendAuditToken()
 
     Vector<uint8_t> tokenVector;
     tokenVector.resize(32);
-    memcpy(tokenVector.data(), &token, sizeof(token));
+    memcpySpan(tokenVector.mutableSpan(), asByteSpan(token));
     configuration.hostAppAuditTokenData = WTFMove(tokenVector);
 
     sendWithoutUsingIPCConnection(Messages::PushClientConnection::InitializeConnection(WTFMove(configuration)));
@@ -193,7 +192,5 @@ bool Connection::performSendWithAsyncReplyWithoutUsingIPCConnection(UniqueRef<IP
 
 
 } // namespace WebPushTool
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEB_PUSH_NOTIFICATIONS)

@@ -183,7 +183,8 @@ void Font::platformGlyphInit()
 
 Font::~Font()
 {
-    SystemFallbackFontCache::forCurrentThread().remove(this);
+    if (auto* cache = SystemFallbackFontCache::forCurrentThreadIfExists())
+        cache->remove(this);
 }
 
 RenderingResourceIdentifier Font::renderingResourceIdentifier() const
@@ -286,7 +287,7 @@ static std::optional<size_t> codePointSupportIndex(char32_t codePoint)
     }
 
 #ifndef NDEBUG
-    char32_t codePointOrder[] = {
+    auto codePointOrder = std::to_array<char32_t>({
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
         0x7F,
@@ -312,7 +313,7 @@ static std::optional<size_t> codePointSupportIndex(char32_t codePoint)
         firstStrongIsolate,
         objectReplacementCharacter,
         zeroWidthNoBreakSpace
-    };
+    });
     bool found = false;
     for (size_t i = 0; i < std::size(codePointOrder); ++i) {
         if (codePointOrder[i] == codePoint) {
@@ -487,6 +488,10 @@ const Font* Font::smallCapsFont(const FontDescription& fontDescription) const
 
 const RefPtr<Font> Font::halfWidthFont() const
 {
+    if (isSystemFontFallbackPlaceholder()) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
     DerivedFonts& derivedFontData = ensureDerivedFontData();
     if (!derivedFontData.halfWidthFont)
         derivedFontData.halfWidthFont = createHalfWidthFont();

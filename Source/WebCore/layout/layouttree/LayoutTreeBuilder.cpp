@@ -32,6 +32,7 @@
 #include "HTMLTableCellElement.h"
 #include "HTMLTableColElement.h"
 #include "HTMLTableElement.h"
+#include "InlineDisplayContent.h"
 #include "LayoutBox.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutChildIterator.h"
@@ -91,9 +92,7 @@ template<typename CharacterType>
 static bool canUseSimplifiedTextMeasuringForCharacters(std::span<const CharacterType> characters, const FontCascade& fontCascade, bool whitespaceIsCollapsed)
 {
     auto& primaryFont = fontCascade.primaryFont();
-    auto* rawCharacters = characters.data();
-    for (unsigned i = 0; i < characters.size(); ++i) {
-        auto character = rawCharacters[i]; // Not using characters[i] to bypass the bounds check.
+    for (auto character : characters) {
         if (!fontCascade.canUseSimplifiedTextMeasuring(character, AutoVariant, whitespaceIsCollapsed, primaryFont))
             return false;
     }
@@ -589,4 +588,3 @@ void printLayoutTreeForLiveDocuments()
 
 }
 }
-

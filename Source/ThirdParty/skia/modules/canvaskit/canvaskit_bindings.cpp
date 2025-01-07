@@ -66,7 +66,6 @@
 #include "src/core/SkPathPriv.h"
 #include "src/core/SkResourceCache.h"
 #include "src/image/SkImage_Base.h"
-#include "src/sksl/SkSLCompiler.h"
 
 #include "modules/canvaskit/WasmCommon.h"
 #include <emscripten.h>
@@ -125,6 +124,11 @@
 
 #if defined(CK_INCLUDE_RUNTIME_EFFECT)
 #include "include/sksl/SkSLDebugTrace.h"
+#include "src/sksl/SkSLCompiler.h"
+#include "src/sksl/tracing/SkSLDebugTracePriv.h"
+#if defined(CK_DEBUG_TRACE_JSON)
+#include "tools/sksltrace/SkSLTraceUtils.h"
+#endif
 #endif
 
 #ifndef CK_NO_FONTS
@@ -1471,9 +1475,10 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .function("rotate", select_overload<void (SkScalar, SkScalar, SkScalar)>(&SkCanvas::rotate))
         .function("save", &SkCanvas::save)
         .function("_saveLayer", optional_override([](SkCanvas& self, const SkPaint* p, WASMPointerF32 fPtr,
-                                                     const SkImageFilter* backdrop, SkCanvas::SaveLayerFlags flags)->int {
+                                                     const SkImageFilter* backdrop, SkCanvas::SaveLayerFlags flags,
+                                                     SkTileMode backdropFilterTileMode)->int {
             SkRect* bounds = reinterpret_cast<SkRect*>(fPtr);
-            return self.saveLayer(SkCanvas::SaveLayerRec(bounds, p, backdrop, flags));
+            return self.saveLayer(SkCanvas::SaveLayerRec(bounds, p, backdrop, backdropFilterTileMode, nullptr, flags));
         }), allow_raw_pointers())
         .function("saveLayerPaint", optional_override([](SkCanvas& self, const SkPaint p)->int {
             return self.saveLayer(SkCanvas::SaveLayerRec(nullptr, &p, 0));
@@ -2218,15 +2223,22 @@ EMSCRIPTEN_BINDINGS(Skia) {
             return nullptr;
         }), allow_raw_pointers());
 
-#ifdef CK_INCLUDE_RUNTIME_EFFECT
+#if defined(CK_INCLUDE_RUNTIME_EFFECT)
     class_<SkSL::DebugTrace>("DebugTrace")
         .smart_ptr<sk_sp<SkSL::DebugTrace>>("sk_sp<DebugTrace>")
-        .function("writeTrace", optional_override([](SkSL::DebugTrace& self) -> std::string {
+        .function("writeTrace", optional_override([](const SkSL::DebugTrace* self) -> std::string {
+#if defined(CK_DEBUG_TRACE_JSON)
             SkDynamicMemoryWStream wstream;
-            self.writeTrace(&wstream);
+            SkSLTraceUtils::WriteTrace(static_cast<const SkSL::DebugTracePriv&>(*self), &wstream);
             sk_sp<SkData> trace = wstream.detachAsData();
             return std::string(reinterpret_cast<const char*>(trace->bytes()), trace->size());
-        }));
+#else
+            SkDynamicMemoryWStream wstream;
+            self->dump(&wstream);
+            sk_sp<SkData> trace = wstream.detachAsData();
+            return std::string(reinterpret_cast<const char*>(trace->bytes()), trace->size());
+#endif
+        }), allow_raw_pointers());
 
     value_object<SkRuntimeEffect::TracedShader>("TracedShader")
         .field("shader",     &SkRuntimeEffect::TracedShader::shader)

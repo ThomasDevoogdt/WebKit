@@ -43,7 +43,6 @@ class FrameView;
 class FrameLoaderClient;
 class FrameLoadRequest;
 class HTMLFrameOwnerElement;
-class HistoryController;
 class NavigationScheduler;
 class Page;
 class RenderWidget;
@@ -98,11 +97,8 @@ public:
 
     WEBCORE_EXPORT void disconnectOwnerElement();
     NavigationScheduler& navigationScheduler() const { return m_navigationScheduler.get(); }
-    CheckedRef<NavigationScheduler> checkedNavigationScheduler() const;
+    Ref<NavigationScheduler> protectedNavigationScheduler() const;
     WEBCORE_EXPORT void takeWindowProxyAndOpenerFrom(Frame&);
-
-    HistoryController& history() const { return m_history.get(); }
-    WEBCORE_EXPORT CheckedRef<HistoryController> checkedHistory() const;
 
     virtual void frameDetached() = 0;
     virtual bool preventsParentFromBeingComplete() const = 0;
@@ -150,7 +146,6 @@ private:
     mutable UniqueRef<NavigationScheduler> m_navigationScheduler;
     WeakPtr<Frame> m_opener;
     WeakHashSet<Frame> m_openedFrames;
-    mutable UniqueRef<HistoryController> m_history;
     std::optional<OwnerPermissionsPolicyData> m_ownerPermisssionsPolicyOverride;
 };
 

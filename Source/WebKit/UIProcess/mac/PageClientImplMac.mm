@@ -123,7 +123,7 @@ void PageClientImpl::setImpl(WebViewImpl& impl)
     m_impl = impl;
 }
 
-std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& webProcessProxy)
+Ref<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& webProcessProxy)
 {
     return m_impl->createDrawingAreaProxy(webProcessProxy);
 }
@@ -346,10 +346,6 @@ void PageClientImpl::setCursor(const WebCore::Cursor& cursor)
 void PageClientImpl::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
 {
     [NSCursor setHiddenUntilMouseMoves:hiddenUntilMouseMoves];
-}
-
-void PageClientImpl::didChangeViewportProperties(const WebCore::ViewportAttributes&)
-{
 }
 
 void PageClientImpl::registerEditCommand(Ref<WebEditCommandProxy>&& command, UndoOrRedo undoOrRedo)
@@ -945,11 +941,6 @@ NSObject *PageClientImpl::immediateActionAnimationControllerForHitTestResult(Ref
     return m_impl->immediateActionAnimationControllerForHitTestResult(hitTestResult.get(), type, userData.get());
 }
 
-void PageClientImpl::didHandleAcceptedCandidate()
-{
-    m_impl->didHandleAcceptedCandidate();
-}
-
 void PageClientImpl::videoControlsManagerDidChange()
 {
     PageClientImplCocoa::videoControlsManagerDidChange();
@@ -1021,6 +1012,17 @@ void PageClientImpl::requestScrollToRect(const WebCore::FloatRect& targetRect, c
 bool PageClientImpl::windowIsFrontWindowUnderMouse(const NativeWebMouseEvent& event)
 {
     return m_impl->windowIsFrontWindowUnderMouse(event.nativeEvent());
+}
+
+std::optional<float> PageClientImpl::computeAutomaticTopContentInset()
+{
+    RetainPtr window = [m_view window];
+    if (([window styleMask] & NSWindowStyleMaskFullSizeContentView) && ![window titlebarAppearsTransparent] && ![m_view enclosingScrollView]) {
+        NSRect contentLayoutRectInWebViewCoordinates = [m_view convertRect:[window contentLayoutRect] fromView:nil];
+        return std::max<float>(contentLayoutRectInWebViewCoordinates.origin.y, 0);
+    }
+
+    return std::nullopt;
 }
 
 WebCore::UserInterfaceLayoutDirection PageClientImpl::userInterfaceLayoutDirection()
@@ -1114,7 +1116,9 @@ bool PageClientImpl::canHandleContextMenuWritingTools() const
 void PageClientImpl::handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool tool, WebCore::IntRect selectionRect)
 {
     RetainPtr webView = this->webView();
-    [[PAL::getWTWritingToolsClass() sharedInstance] showTool:WebKit::convertToPlatformRequestedTool(tool) forSelectionRect:selectionRect ofView:m_view forDelegate:webView.get() smartReplyConfiguration:nil];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    [[PAL::getWTWritingToolsClass() sharedInstance] showTool:WebKit::convertToPlatformRequestedTool(tool) forSelectionRect:selectionRect ofView:m_view forDelegate:webView.get()];
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 #endif

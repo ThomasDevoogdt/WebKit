@@ -31,9 +31,9 @@
 #include "DaemonDecoder.h"
 #include "DaemonEncoder.h"
 #include "Logging.h"
+#include "NetworkProcess.h"
 #include "NetworkSession.h"
 #include "PushClientConnectionMessages.h"
-#include "WebProcessProxy.h"
 #include "WebPushDaemonConnectionConfiguration.h"
 #include "WebPushMessage.h"
 #include <WebCore/SecurityOriginData.h>
@@ -44,13 +44,13 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkNotificationManager);
 
-static inline Ref<NetworkConnectionToWebProcess> connectionToWebProcess(const IPC::Connection& connection)
+Ref<NetworkNotificationManager> NetworkNotificationManager::create(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 {
-    // FIXME: Check the type.
-    return static_cast<NetworkConnectionToWebProcess&>(*connection.client());
+    return adoptRef(*new NetworkNotificationManager(webPushMachServiceName, WTFMove(configuration), networkProcess));
 }
 
-NetworkNotificationManager::NetworkNotificationManager(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration)
+NetworkNotificationManager::NetworkNotificationManager(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
+    : m_networkProcess(networkProcess)
 {
     if (!webPushMachServiceName.isEmpty())
         m_connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTFMove(configuration));
@@ -252,7 +252,8 @@ void NetworkNotificationManager::getPermissionStateSync(WebCore::SecurityOriginD
 
 std::optional<SharedPreferencesForWebProcess> NetworkNotificationManager::sharedPreferencesForWebProcess(const IPC::Connection& connection) const
 {
-    return connectionToWebProcess(connection)->sharedPreferencesForWebProcess();
+    Ref networkProcess = m_networkProcess;
+    return networkProcess->webProcessConnection(connection)->sharedPreferencesForWebProcess();
 }
 
 RefPtr<WebPushD::Connection> NetworkNotificationManager::protectedConnection() const

@@ -28,35 +28,64 @@
 
 #if ENABLE(MEDIA_RECORDER)
 
-#include "ContentType.h"
-#include "MediaRecorderPrivateOptions.h"
-#include "MediaRecorderPrivateWriterCocoa.h"
+#include "MediaRecorderPrivateWriterAVFObjC.h"
 #include "MediaRecorderPrivateWriterWebM.h"
+#include "MediaSample.h"
+#include "MediaStrategy.h"
+#include "PlatformStrategies.h"
+#include <wtf/MediaTime.h>
+#include <wtf/NativePromise.h>
 
 namespace WebCore {
 
-RefPtr<MediaRecorderPrivateWriter> MediaRecorderPrivateWriter::create(bool hasAudio, bool hasVideo, const MediaRecorderPrivateOptions& options)
-{
-#if PLATFORM(COCOA)
-    ContentType mimeType(options.mimeType);
-    auto containerType = mimeType.containerType();
-    Ref writer =
-#if ENABLE(MEDIA_RECORDER_WEBM)
-    (equalLettersIgnoringASCIICase(containerType, "audio/webm"_s) || equalLettersIgnoringASCIICase(containerType, "video/webm"_s)) ? MediaRecorderPrivateWriterWebM::create(hasAudio, hasVideo) :
-#endif
-    MediaRecorderPrivateWriterAVFObjC::create(hasAudio, hasVideo);
+MediaRecorderPrivateWriter::MediaRecorderPrivateWriter() = default;
+MediaRecorderPrivateWriter::~MediaRecorderPrivateWriter() = default;
 
-    if (!writer->initialize(options))
-        return nullptr;
-    return writer;
-#else
-    UNUSED_VARIABLE(hasAudio);
-    UNUSED_VARIABLE(hasVideo);
-    UNUSED_VARIABLE(options);
-    return nullptr;
+std::unique_ptr<MediaRecorderPrivateWriter> MediaRecorderPrivateWriter::create(String type, MediaRecorderPrivateWriterListener& listener)
+{
+    if (hasPlatformStrategies()) {
+        auto writer = platformStrategies()->mediaStrategy().createMediaRecorderPrivateWriter(type, listener);
+        if (writer)
+            return writer;
+    }
+    if (equalLettersIgnoringASCIICase(type, "video/mp4"_s) || equalLettersIgnoringASCIICase(type, "audio/mp4"_s))
+        return MediaRecorderPrivateWriterAVFObjC::create(listener);
+#if ENABLE(MEDIA_RECORDER_WEBM)
+    if (equalLettersIgnoringASCIICase(type, "video/webm"_s) || equalLettersIgnoringASCIICase(type, "audio/webm"_s))
+        return MediaRecorderPrivateWriterWebM::create(listener);
 #endif
+    return nullptr;
 }
 
-} // namespae WebCore
+Ref<MediaRecorderPrivateWriter::WriterPromise> MediaRecorderPrivateWriter::writeFrames(Deque<UniqueRef<MediaSamplesBlock>>&& samples, const MediaTime& endTime)
+{
+    while (!samples.isEmpty())
+        m_pendingFrames.append(samples.takeFirst());
+
+    auto result = Result::Success;
+    while (!m_pendingFrames.isEmpty() && result == Result::Success)
+        result = writeFrame(m_pendingFrames.takeFirst().get());
+
+    // End the segment if we succeded in writing all frames, otherwise we will retry them on the next call.
+    if (m_pendingFrames.isEmpty())
+        forceNewSegment(endTime);
+
+    m_lastEndTime = endTime;
+
+    return result == Result::Success ? WriterPromise::createAndResolve() : WriterPromise::createAndReject(result);
+}
+
+Ref<GenericPromise> MediaRecorderPrivateWriter::close()
+{
+    ASSERT(m_lastEndTime.isValid(), "writeFrames must have been called once");
+
+    if (!m_pendingFrames.isEmpty())
+        writeFrames({ }, m_lastEndTime); // Attempt one last time to write the frames we do have.
+
+    m_pendingFrames.clear();
+    return close(m_lastEndTime);
+}
+
+} // namespace WebCore
 
 #endif // ENABLE(MEDIA_RECORDER)

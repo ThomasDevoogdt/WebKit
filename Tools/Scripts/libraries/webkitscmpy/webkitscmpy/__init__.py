@@ -22,8 +22,8 @@
 
 import sys
 
-if sys.version_info < (3, 6):
-    raise ImportError("webkitscmpy requires Python 3.6 or above")
+if sys.version_info < (3, 9):  # noqa: UP036
+    raise ImportError("webkitscmpy requires Python 3.9 or above")
 
 import logging
 import os
@@ -51,8 +51,6 @@ except ImportError:
     )
 
 version = Version(7, 0, 0)
-if sys.version_info < (3, 0):
-    raise ImportError('webkitscmpy no longer supports Python 2')
 
 AutoInstall.register(Package('fasteners', Version(0, 15, 0)))
 AutoInstall.register(Package('markupsafe', Version(2, 1, 5), pypi_name='MarkupSafe', wheel=True))
@@ -61,8 +59,7 @@ AutoInstall.register(Package('monotonic', Version(1, 5)))
 AutoInstall.register(Package('xmltodict', Version(0, 11, 0)))
 AutoInstall.register(Package('webkitbugspy', Version(0, 8, 0)), local=True)
 
-if sys.version_info > (3, 6):
-    AutoInstall.register(Package('rapidfuzz', Version(3, 4, 0)))
+AutoInstall.register(Package('rapidfuzz', Version(3, 4, 0)))
 
 from webkitscmpy.contributor import Contributor
 from webkitscmpy.commit import Commit

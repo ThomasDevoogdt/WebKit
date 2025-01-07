@@ -33,6 +33,7 @@
 #include "FaceDetectorInterface.h"
 #include "FileList.h"
 #include "FloatRect.h"
+#include "FrameLoader.h"
 #include "FrameTree.h"
 #include "Geolocation.h"
 #include "HTMLFormElement.h"
@@ -46,8 +47,10 @@
 #include "LocalFrameLoaderClient.h"
 #include "Page.h"
 #include "PageGroupLoadDeferrer.h"
+#include "PopupMenu.h"
 #include "PopupOpeningObserver.h"
 #include "RenderObject.h"
+#include "SearchPopupMenu.h"
 #include "Settings.h"
 #include "ShareData.h"
 #include "StorageNamespace.h"
@@ -236,11 +239,11 @@ void Chrome::runModal()
     // JavaScript that runs within the nested event loop must not be run in the context of the
     // script that called showModalDialog. Null out entryScope to break the connection.
 
-    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(m_page->mainFrame());
-    if (!localMainFrame)
+    RefPtr localTopDocument = m_page->localTopDocument();
+    if (!localTopDocument)
         return;
 
-    SetForScope entryScopeNullifier { localMainFrame->document()->vm().entryScope, nullptr };
+    SetForScope entryScopeNullifier { localTopDocument->vm().entryScope, nullptr };
 
     TimerBase::fireTimersInNestedEventLoop();
     m_client->runModal();
@@ -350,7 +353,7 @@ bool Chrome::runJavaScriptPrompt(LocalFrame& frame, const String& prompt, const 
 
 void Chrome::mouseDidMoveOverElement(const HitTestResult& result, OptionSet<PlatformEventModifier> modifiers)
 {
-    if (RefPtr localMainFrame = dynamicDowncast<LocalFrame>(m_page->mainFrame())) {
+    if (RefPtr localMainFrame = m_page->localMainFrame()) {
         if (result.innerNode() && result.innerNode()->document().isDNSPrefetchEnabled())
             localMainFrame->protectedLoader()->client().prefetchDNS(result.absoluteLinkURL().host().toString());
     }
@@ -377,7 +380,7 @@ void Chrome::getToolTip(const HitTestResult& result, String& toolTip, TextDirect
                     if (RefPtr form = input->form()) {
                         toolTip = form->action();
                         if (form->renderer())
-                            toolTipDirection = form->renderer()->style().direction();
+                            toolTipDirection = form->renderer()->writingMode().computedTextDirection();
                         else
                             toolTipDirection = TextDirection::LTR;
                     }
@@ -443,7 +446,7 @@ void Chrome::disableSuddenTermination()
 
 #if ENABLE(INPUT_TYPE_COLOR)
 
-std::unique_ptr<ColorChooser> Chrome::createColorChooser(ColorChooserClient& client, const Color& initialColor)
+RefPtr<ColorChooser> Chrome::createColorChooser(ColorChooserClient& client, const Color& initialColor)
 {
 #if PLATFORM(IOS_FAMILY)
     UNUSED_PARAM(client);
@@ -547,9 +550,9 @@ void Chrome::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
     m_client->setCursorHiddenUntilMouseMoves(hiddenUntilMouseMoves);
 }
 
-RefPtr<ImageBuffer> Chrome::createImageBuffer(const FloatSize& size, RenderingPurpose purpose, float resolutionScale, const DestinationColorSpace& colorSpace, ImageBufferPixelFormat pixelFormat, OptionSet<ImageBufferOptions> options) const
+RefPtr<ImageBuffer> Chrome::createImageBuffer(const FloatSize& size, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const DestinationColorSpace& colorSpace, ImageBufferPixelFormat pixelFormat) const
 {
-    return m_client->createImageBuffer(size, purpose, resolutionScale, colorSpace, pixelFormat, options);
+    return m_client->createImageBuffer(size, renderingMode, purpose, resolutionScale, colorSpace, pixelFormat);
 }
 
 RefPtr<ImageBuffer> Chrome::sinkIntoImageBuffer(std::unique_ptr<SerializedImageBuffer> imageBuffer)

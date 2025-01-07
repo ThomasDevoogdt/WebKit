@@ -132,36 +132,24 @@ RenderElement* Styleable::renderer() const
         }
         break;
     case PseudoId::ViewTransition:
-        if (element.renderer())
+        if (element.renderer() && element.renderer()->isDocumentElementRenderer())
             return element.renderer()->view().viewTransitionRoot().get();
         break;
     case PseudoId::ViewTransitionGroup:
     case PseudoId::ViewTransitionImagePair:
     case PseudoId::ViewTransitionNew:
     case PseudoId::ViewTransitionOld: {
-        if (!element.renderer())
-            return nullptr;
-
-        WeakPtr viewTransitionRoot = element.renderer()->view().viewTransitionRoot();
-        if (!viewTransitionRoot)
+        if (!element.renderer() || !element.renderer()->isDocumentElementRenderer())
             return nullptr;
 
         // Find the right ::view-transition-group().
-        RenderBlockFlow* correctGroup = nullptr;
-        for (auto& group : childrenOfType<RenderBlockFlow>(*viewTransitionRoot.get())) {
-            if (group.style().pseudoElementNameArgument() == pseudoElementIdentifier->nameArgument) {
-                correctGroup = &group;
-                break;
-            }
-        }
-
-        // If we can't find the correct group, return nullptr.
+        CheckedPtr correctGroup = element.renderer()->view().viewTransitionGroupForName(pseudoElementIdentifier->nameArgument);
         if (!correctGroup)
             return nullptr;
 
         // Return early if we're looking for ::view-transition-group().
         if (pseudoElementIdentifier->pseudoId == PseudoId::ViewTransitionGroup)
-            return correctGroup;
+            return correctGroup.get();
 
         // Go through all descendants until we find the relevant pseudo element otherwise.
         for (auto& descendant : descendantsOfType<RenderBox>(*correctGroup)) {
@@ -309,6 +297,8 @@ void Styleable::willChangeRenderer() const
 void Styleable::cancelStyleOriginatedAnimations() const
 {
     cancelStyleOriginatedAnimations({ });
+    if (CheckedPtr timelinesController = element.protectedDocument()->timelinesController())
+        timelinesController->unregisterNamedTimelinesAssociatedWithElement(element);
 }
 
 void Styleable::cancelStyleOriginatedAnimations(const WeakStyleOriginatedAnimations& animationsToCancelSilently) const
@@ -475,11 +465,11 @@ static bool transitionMatchesProperty(const Animation& transition, const Animata
                 if (!std::holds_alternative<CSSPropertyID>(property))
                     return false;
                 auto propertyIdToMatch = std::get<CSSPropertyID>(property);
-                auto resolvedPropertyId = CSSProperty::resolveDirectionAwareProperty(propertyId, style.direction(), style.writingMode());
+                auto resolvedPropertyId = CSSProperty::resolveDirectionAwareProperty(propertyId, style.writingMode());
                 if (resolvedPropertyId == propertyIdToMatch)
                     return true;
                 for (auto longhand : shorthandForProperty(resolvedPropertyId)) {
-                    auto resolvedLonghand = CSSProperty::resolveDirectionAwareProperty(longhand, style.direction(), style.writingMode());
+                    auto resolvedLonghand = CSSProperty::resolveDirectionAwareProperty(longhand, style.writingMode());
                     if (resolvedLonghand == propertyIdToMatch)
                         return true;
                 }
@@ -498,7 +488,7 @@ static bool transitionMatchesProperty(const Animation& transition, const Animata
     return false;
 }
 
-static void compileTransitionPropertiesInStyle(const RenderStyle& style, CSSPropertiesBitSet& transitionProperties, HashSet<AtomString>& transitionCustomProperties, bool& transitionPropertiesContainAll)
+static void compileTransitionPropertiesInStyle(const RenderStyle& style, CSSPropertiesBitSet& transitionProperties, UncheckedKeyHashSet<AtomString>& transitionCustomProperties, bool& transitionPropertiesContainAll)
 {
     auto* transitions = style.transitions();
     if (!transitions) {
@@ -519,7 +509,7 @@ static void compileTransitionPropertiesInStyle(const RenderStyle& style, CSSProp
         case Animation::TransitionMode::SingleProperty: {
             WTF::switchOn(transitionProperty.animatableProperty,
                 [&] (CSSPropertyID propertyId) {
-                    auto resolvedPropertyId = CSSProperty::resolveDirectionAwareProperty(propertyId, style.direction(), style.writingMode());
+                    auto resolvedPropertyId = CSSProperty::resolveDirectionAwareProperty(propertyId, style.writingMode());
                     if (isShorthand(resolvedPropertyId)) {
                         for (auto longhand : shorthandForProperty(resolvedPropertyId))
                             transitionProperties.m_properties.set(longhand);
@@ -784,7 +774,7 @@ void Styleable::updateCSSTransitions(const RenderStyle& currentStyle, const Rend
     // First, let's compile the list of all CSS properties found in the current style and the after-change style.
     bool transitionPropertiesContainAll = false;
     CSSPropertiesBitSet transitionProperties;
-    HashSet<AtomString> transitionCustomProperties;
+    UncheckedKeyHashSet<AtomString> transitionCustomProperties;
     compileTransitionPropertiesInStyle(currentStyle, transitionProperties, transitionCustomProperties, transitionPropertiesContainAll);
     compileTransitionPropertiesInStyle(newStyle, transitionProperties, transitionCustomProperties, transitionPropertiesContainAll);
 
@@ -893,7 +883,7 @@ void Styleable::updateCSSScrollTimelines(const RenderStyle* currentStyle, const 
 
         for (auto& previousTimelineName : currentStyle->scrollTimelineNames()) {
             if (!currentTimelineNames.contains(previousTimelineName))
-                timelinesController->unregisterNamedScrollTimeline(previousTimelineName);
+                timelinesController->unregisterNamedTimeline(previousTimelineName, element);
         }
     };
 
@@ -943,7 +933,7 @@ void Styleable::updateCSSViewTimelines(const RenderStyle* currentStyle, const Re
 
         for (auto& previousTimelineName : currentStyle->viewTimelineNames()) {
             if (!currentTimelineNames.contains(previousTimelineName))
-                timelinesController->unregisterNamedViewTimelineForSubject(previousTimelineName, element);
+                timelinesController->unregisterNamedTimeline(previousTimelineName, element);
         }
     };
 
@@ -968,18 +958,18 @@ void Styleable::queryContainerDidChange() const
 
 bool Styleable::capturedInViewTransition() const
 {
-    RefPtr activeViewTransition = element.document().activeViewTransition();
-    if (!activeViewTransition || activeViewTransition->phase() != ViewTransitionPhase::Animating)
-        return false;
-
-    for (auto& [name, capturedElement] : activeViewTransition->namedElements().map()) {
-        if (auto newStyleable = capturedElement->newElement.styleable()) {
-            if (*newStyleable == *this)
-                return true;
-        }
-    }
-
-    return false;
+    return !element.viewTransitionCapturedName(pseudoElementIdentifier).isNull();
 }
+
+void Styleable::setCapturedInViewTransition(AtomString captureName)
+{
+    element.setViewTransitionCapturedName(pseudoElementIdentifier, captureName);
+    if (CheckedPtr renderer = this->renderer()) {
+        bool changed = renderer->setCapturedInViewTransition(!captureName.isNull());
+        if (changed)
+            element.invalidateStyleAndLayerComposition();
+    }
+}
+
 
 } // namespace WebCore

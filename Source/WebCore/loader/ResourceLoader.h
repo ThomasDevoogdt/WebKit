@@ -39,6 +39,7 @@
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
 #include <wtf/Forward.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -59,8 +60,12 @@ class LegacyPreviewLoader;
 class LocalFrame;
 class NetworkLoadMetrics;
 
+#if ENABLE(CONTENT_EXTENSIONS)
+class ResourceMonitor;
+#endif
+
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ResourceLoader);
-class ResourceLoader : public CanMakeWeakPtr<ResourceLoader>, public RefCounted<ResourceLoader>, protected ResourceHandleClient {
+class ResourceLoader : public RefCountedAndCanMakeWeakPtr<ResourceLoader>, protected ResourceHandleClient {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ResourceLoader);
 public:
     virtual ~ResourceLoader() = 0;
@@ -224,6 +229,10 @@ private:
     void receivedCancellation(ResourceHandle*, const AuthenticationChallenge& challenge) override { receivedCancellation(challenge); }
 #if PLATFORM(IOS_FAMILY)
     RetainPtr<CFDictionaryRef> connectionProperties(ResourceHandle*) override;
+#endif
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    ResourceMonitor* resourceMonitorIfExists();
 #endif
 
 #if USE(SOUP)

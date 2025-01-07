@@ -48,16 +48,18 @@ constexpr static auto largeBufferSize = 32 * 1024 * 1024;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Queue);
 
-Queue::Queue(id<MTLCommandQueue> commandQueue, Device& device)
+Queue::Queue(id<MTLCommandQueue> commandQueue, Adapter& adapter, Device& device)
     : m_commandQueue(commandQueue)
     , m_device(device)
+    , m_instance(adapter.weakInstance())
 {
     m_createdNotCommittedBuffers = [NSMutableOrderedSet orderedSet];
     m_openCommandEncoders = [NSMapTable strongToStrongObjectsMapTable];
 }
 
-Queue::Queue(Device& device)
+Queue::Queue(Adapter& adapter, Device& device)
     : m_device(device)
+    , m_instance(adapter.weakInstance())
 {
 }
 
@@ -77,7 +79,6 @@ id<MTLBlitCommandEncoder> Queue::ensureBlitCommandEncoder()
         return m_blitCommandEncoder;
 
     auto *commandBufferDescriptor = [MTLCommandBufferDescriptor new];
-    commandBufferDescriptor.errorOptions = MTLCommandBufferErrorOptionEncoderExecutionStatus;
     auto blitCommandBuffer = commandBufferWithDescriptor(commandBufferDescriptor);
     m_commandBuffer = blitCommandBuffer;
     m_blitCommandEncoder = [m_commandBuffer blitCommandEncoder];
@@ -98,10 +99,12 @@ void Queue::finalizeBlitCommandEncoder()
 void Queue::endEncoding(id<MTLCommandEncoder> commandEncoder, id<MTLCommandBuffer> commandBuffer) const
 {
     id<MTLCommandEncoder> currentEncoder = encoderForBuffer(commandBuffer);
-    if (currentEncoder != commandEncoder)
+    if (!currentEncoder || currentEncoder != commandEncoder)
         return;
 
     [currentEncoder endEncoding];
+    if (RefPtr device = m_device.get())
+        device->resolveTimestampsForBuffer(commandBuffer);
     [m_openCommandEncoders removeObjectForKey:commandBuffer];
 }
 
@@ -213,12 +216,11 @@ void Queue::onSubmittedWorkScheduled(Function<void()>&& completionHandler)
     callbacks.append(WTFMove(completionHandler));
 }
 
-NSString* Queue::errorValidatingSubmit(const Vector<std::reference_wrapper<CommandBuffer>>& commands) const
+NSString* Queue::errorValidatingSubmit(const Vector<Ref<WebGPU::CommandBuffer>>& commands) const
 {
-    for (auto command : commands) {
-        auto& commandBuffer = command.get();
-        if (!isValidToUseWith(commandBuffer, *this) || commandBuffer.bufferMapCount() || commandBuffer.commandBuffer().status >= MTLCommandBufferStatusCommitted)
-            return commandBuffer.lastError() ?: @"Validation failure.";
+    for (Ref command : commands) {
+        if (!isValidToUseWith(command.get(), *this) || command->bufferMapCount() || command->commandBuffer().status >= MTLCommandBufferStatusCommitted)
+            return command->lastError() ?: @"Validation failure.";
     }
 
     // FIXME: "Every GPUQuerySet referenced in a command in any element of commandBuffers is in the available state."
@@ -254,9 +256,6 @@ void Queue::commitMTLCommandBuffer(id<MTLCommandBuffer> commandBuffer)
 
     ASSERT(commandBuffer.commandQueue == m_commandQueue);
     [commandBuffer addScheduledHandler:[protectedThis = Ref { *this }](id<MTLCommandBuffer>) {
-        auto device = protectedThis->m_device.get();
-        if (!device || !device->device())
-            return;
         protectedThis->scheduleWork([protectedThis = protectedThis.copyRef()]() {
             ++(protectedThis->m_scheduledCommandBufferCount);
             for (auto& callback : protectedThis->m_onSubmittedWorkScheduledCallbacks.take(protectedThis->m_scheduledCommandBufferCount))
@@ -264,13 +263,18 @@ void Queue::commitMTLCommandBuffer(id<MTLCommandBuffer> commandBuffer)
         });
     }];
     [commandBuffer addCompletedHandler:[protectedThis = Ref { *this }](id<MTLCommandBuffer> mtlCommandBuffer) {
-        auto device = protectedThis->m_device.get();
-        if (!device || !device->device())
-            return;
         MTLCommandBufferStatus status = mtlCommandBuffer.status;
         bool loseTheDevice = false;
-        if (NSError *error = mtlCommandBuffer.error; status != MTLCommandBufferStatusCompleted)
+        if (NSError *error = mtlCommandBuffer.error; status != MTLCommandBufferStatusCompleted) {
             loseTheDevice = !error || error.code != MTLCommandBufferErrorNotPermitted;
+            if (loseTheDevice) {
+                NSError* underlyingError = error.userInfo[NSUnderlyingErrorKey];
+                if (underlyingError.code == 0x10a)
+                    loseTheDevice = false;
+                else
+                    WTFLogAlways("Encountered fatal command buffer error %@, underlying error %@", error, underlyingError);
+            }
+        }
 
         protectedThis->scheduleWork([loseTheDevice, protectedThis = protectedThis.copyRef()]() {
             ++(protectedThis->m_completedCommandBufferCount);
@@ -289,13 +293,13 @@ void Queue::commitMTLCommandBuffer(id<MTLCommandBuffer> commandBuffer)
     ++m_submittedCommandBufferCount;
 }
 
-static void invalidateCommandBuffers(Vector<std::reference_wrapper<CommandBuffer>>&& commands, auto&& makeInvalidFunc)
+static void invalidateCommandBuffers(Vector<Ref<WebGPU::CommandBuffer>>&& commands, auto&& makeInvalidFunc)
 {
     for (auto commandBuffer : commands)
         makeInvalidFunc(commandBuffer.get());
 }
 
-void Queue::submit(Vector<std::reference_wrapper<CommandBuffer>>&& commands)
+void Queue::submit(Vector<Ref<WebGPU::CommandBuffer>>&& commands)
 {
     auto device = m_device.get();
     if (!device)
@@ -313,12 +317,11 @@ void Queue::submit(Vector<std::reference_wrapper<CommandBuffer>>&& commands)
 
     NSMutableOrderedSet<id<MTLCommandBuffer>> *commandBuffersToSubmit = [NSMutableOrderedSet orderedSetWithCapacity:commands.size()];
     NSString* validationError = nil;
-    for (auto commandBuffer : commands) {
-        auto& command = commandBuffer.get();
-        if (id<MTLCommandBuffer> mtlBuffer = command.commandBuffer(); mtlBuffer && ![commandBuffersToSubmit containsObject:mtlBuffer])
+    for (Ref command : commands) {
+        if (id<MTLCommandBuffer> mtlBuffer = command->commandBuffer(); mtlBuffer && ![commandBuffersToSubmit containsObject:mtlBuffer])
             [commandBuffersToSubmit addObject:mtlBuffer];
         else {
-            validationError = command.lastError() ?: @"Command buffer appears twice.";
+            validationError = command->lastError() ?: @"Command buffer appears twice.";
             break;
         }
     }
@@ -384,18 +387,17 @@ void Queue::writeBuffer(Buffer& buffer, uint64_t bufferOffset, std::span<uint8_t
         return;
     }
 
-    buffer.indirectBufferInvalidated();
-    auto bufferSpan = std::span { static_cast<uint8_t*>(buffer.buffer().contents), buffer.buffer().length };
     // FIXME(PERFORMANCE): Instead of checking whether or not the whole queue is idle,
     // we could detect whether this specific resource is idle, if we tracked every resource.
+    buffer.indirectBufferInvalidated();
     if (isIdle()) {
         switch (buffer.buffer().storageMode) {
         case MTLStorageModeShared:
-            memcpySpan(bufferSpan.subspan(bufferOffset, data.size()), data);
+            memcpySpan(buffer.getBufferContents().subspan(bufferOffset, data.size()), data);
             return;
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
         case MTLStorageModeManaged:
-            memcpySpan(bufferSpan.subspan(bufferOffset, data.size()), data);
+            memcpySpan(buffer.getBufferContents().subspan(bufferOffset, data.size()), data);
             [buffer.buffer() didModifyRange:NSMakeRange(bufferOffset, data.size())];
             return;
 #endif
@@ -496,8 +498,8 @@ void Queue::clearTextureIfNeeded(const WGPUImageCopyTexture& destination, NSUInt
     if (!device)
         return;
 
-    auto& texture = fromAPI(destination.texture);
-    if (texture.isDestroyed()) {
+    Ref texture = fromAPI(destination.texture);
+    if (texture->isDestroyed()) {
         device->generateAValidationError("GPUQueue.clearTexture: destination texture is destroyed"_s);
         return;
     }
@@ -532,13 +534,13 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
     // https://gpuweb.github.io/gpuweb/#dom-gpuqueue-writetexture
 
     auto dataByteSize = data.size();
-    auto& texture = fromAPI(destination.texture);
-    if (texture.isDestroyed()) {
+    Ref texture = fromAPI(destination.texture);
+    if (texture->isDestroyed()) {
         device->generateAValidationError("GPUQueue.writeTexture: destination texture is destroyed"_s);
         return;
     }
 
-    auto textureFormat = texture.format();
+    auto textureFormat = texture->format();
     if (Texture::isDepthOrStencilFormat(textureFormat)) {
         textureFormat = Texture::aspectSpecificFormat(textureFormat, destination.aspect);
         if (textureFormat == WGPUTextureFormat_Undefined) {
@@ -558,7 +560,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         return;
 
     uint32_t blockSize = Texture::texelBlockSize(textureFormat);
-    auto logicalSize = texture.logicalMiplevelSpecificTextureExtent(destination.mipLevel);
+    auto logicalSize = texture->logicalMiplevelSpecificTextureExtent(destination.mipLevel);
     auto widthForMetal = logicalSize.width < destination.origin.x ? 0 : std::min(size.width, logicalSize.width - destination.origin.x);
     if (!widthForMetal)
         return;
@@ -568,9 +570,9 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
 
     NSUInteger bytesPerRow = dataLayout.bytesPerRow;
     if (bytesPerRow == WGPU_COPY_STRIDE_UNDEFINED)
-        bytesPerRow = std::max<uint32_t>(size.height ? (data.size() / size.height) : data.size(), Texture::bytesPerRow(textureFormat, widthForMetal, texture.sampleCount()));
+        bytesPerRow = std::max<uint32_t>(size.height ? (data.size() / size.height) : data.size(), Texture::bytesPerRow(textureFormat, widthForMetal, texture->sampleCount()));
 
-    switch (texture.dimension()) {
+    switch (texture->dimension()) {
     case WGPUTextureDimension_1D: {
         auto blockSizeTimes1DTextureLimit = checkedProduct<uint32_t>(blockSize, device->limits().maxTextureDimension1D);
         bytesPerRow = blockSizeTimes1DTextureLimit.hasOverflowed() ? bytesPerRow : std::min<uint32_t>(bytesPerRow, blockSizeTimes1DTextureLimit.value());
@@ -606,8 +608,8 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         return;
     }
 
-    id<MTLTexture> mtlTexture = texture.texture();
-    auto textureDimension = texture.dimension();
+    id<MTLTexture> mtlTexture = texture->texture();
+    auto textureDimension = texture->dimension();
     uint32_t sliceCount = textureDimension == WGPUTextureDimension_3D ? 1 : size.depthOrArrayLayers;
     bool clearWasNeeded = false;
     for (uint32_t layer = 0; layer < sliceCount; ++layer) {
@@ -615,9 +617,9 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         if (checkedDestinationSlice.hasOverflowed())
             return;
         NSUInteger destinationSlice = textureDimension == WGPUTextureDimension_3D ? 0 : checkedDestinationSlice.value();
-        if (!texture.previouslyCleared(destination.mipLevel, destinationSlice)) {
+        if (!texture->previouslyCleared(destination.mipLevel, destinationSlice)) {
             if (writeWillCompletelyClear(textureDimension, widthForMetal, logicalSize.width, heightForMetal, logicalSize.height, depthForMetal, logicalSize.depthOrArrayLayers))
-                texture.setPreviouslyCleared(destination.mipLevel, destinationSlice);
+                texture->setPreviouslyCleared(destination.mipLevel, destinationSlice);
             else {
                 clearWasNeeded = true;
                 clearTextureIfNeeded(destination, destinationSlice);
@@ -744,8 +746,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         auto checkedNewBytesPerImageTimesMaxZ = checkedProduct<uint32_t>(newBytesPerImage, maxZ);
         if (checkedNewBytesPerImageTimesMaxZ.hasOverflowed())
             return;
-        newData.resize(checkedNewBytesPerImageTimesMaxZ.value());
-        memset(&newData[0], 0, newData.size());
+        newData = Vector<uint8_t>(checkedNewBytesPerImageTimesMaxZ.value(), 0);
         dataLayoutOffset = 0;
 
         auto verticalOffset = checkedProduct<uint64_t>(maxY ? (maxY - 1) : 0, bytesPerRow);
@@ -864,7 +865,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
                             replaceRegion:region
                             mipmapLevel:destination.mipLevel
                             slice:destinationSlice
-                            withBytes:byteCast<char>(data.data()) + sourceOffset
+                            withBytes:byteCast<char>(data.subspan(sourceOffset).data())
                             bytesPerRow:bytesPerRow
                             bytesPerImage:0];
                     }
@@ -911,7 +912,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
     if (!temporaryBuffer)
         return;
 
-    switch (texture.dimension()) {
+    switch (texture->dimension()) {
     case WGPUTextureDimension_1D: {
         // https://developer.apple.com/documentation/metal/mtlblitcommandencoder/1400771-copyfrombuffer?language=objc
         // "When you copy to a 1D texture, height and depth must be 1."
@@ -959,7 +960,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
         // https://developer.apple.com/documentation/metal/mtlblitcommandencoder/1400771-copyfrombuffer?language=objc
         // "When you copy to a 2D texture, depth must be 1."
         auto sourceSize = MTLSizeMake(widthForMetal, heightForMetal, 1);
-        if (!widthForMetal || !heightForMetal || bytesPerRow < Texture::bytesPerRow(textureFormat, widthForMetal, texture.sampleCount()))
+        if (!widthForMetal || !heightForMetal || (bytesPerRow && bytesPerRow < Texture::bytesPerRow(textureFormat, widthForMetal, texture->sampleCount())))
             return;
 
         auto destinationOrigin = MTLOriginMake(destination.origin.x, destination.origin.y, 0);
@@ -991,7 +992,7 @@ void Queue::writeTexture(const WGPUImageCopyTexture& destination, std::span<uint
     case WGPUTextureDimension_3D: {
         auto sourceSize = MTLSizeMake(widthForMetal, heightForMetal, depthForMetal);
         auto destinationOrigin = MTLOriginMake(destination.origin.x, destination.origin.y, destination.origin.z);
-        if (!widthForMetal || !heightForMetal || !depthForMetal || bytesPerRow < Texture::bytesPerRow(textureFormat, widthForMetal, texture.sampleCount()))
+        if (!widthForMetal || !heightForMetal || !depthForMetal || (bytesPerRow && bytesPerRow < Texture::bytesPerRow(textureFormat, widthForMetal, texture->sampleCount())))
             return;
 
         [m_blitCommandEncoder
@@ -1023,12 +1024,8 @@ void Queue::setLabel(String&& label)
 
 void Queue::scheduleWork(Instance::WorkItem&& workItem)
 {
-    auto device = m_device.get();
-    if (!device)
-        return;
-
-    if (auto inst = device->instance(); inst.get())
-        inst->scheduleWork(WTFMove(workItem));
+    if (auto instance = m_instance.get())
+        instance->scheduleWork(WTFMove(workItem));
 }
 
 void Queue::clearTextureViewIfNeeded(TextureView& textureView)
@@ -1037,7 +1034,7 @@ void Queue::clearTextureViewIfNeeded(TextureView& textureView)
     if (!devicePtr)
         return;
 
-    auto& parentTexture = textureView.apiParentTexture();
+    Ref parentTexture = textureView.apiParentTexture();
     for (uint32_t slice = 0; slice < textureView.arrayLayerCount(); ++slice) {
         for (uint32_t mipLevel = 0; mipLevel < textureView.mipLevelCount(); ++mipLevel) {
             auto checkedParentMipLevel = checkedSum<uint32_t>(textureView.baseMipLevel(), mipLevel);
@@ -1046,10 +1043,10 @@ void Queue::clearTextureViewIfNeeded(TextureView& textureView)
                 return;
             auto parentMipLevel = checkedParentMipLevel.value();
             auto parentSlice = checkedParentSlice.value();
-            if (parentTexture.previouslyCleared(parentMipLevel, parentSlice))
+            if (parentTexture->previouslyCleared(parentMipLevel, parentSlice))
                 continue;
 
-            CommandEncoder::clearTextureIfNeeded(parentTexture, parentMipLevel, parentSlice, *devicePtr, ensureBlitCommandEncoder());
+            CommandEncoder::clearTextureIfNeeded(parentTexture.get(), parentMipLevel, parentSlice, *devicePtr, ensureBlitCommandEncoder());
         }
     }
     finalizeBlitCommandEncoder();
@@ -1071,37 +1068,37 @@ void wgpuQueueRelease(WGPUQueue queue)
 
 void wgpuQueueOnSubmittedWorkDone(WGPUQueue queue, WGPUQueueWorkDoneCallback callback, void* userdata)
 {
-    WebGPU::fromAPI(queue).onSubmittedWorkDone([callback, userdata](WGPUQueueWorkDoneStatus status) {
+    WebGPU::protectedFromAPI(queue)->onSubmittedWorkDone([callback, userdata](WGPUQueueWorkDoneStatus status) {
         callback(status, userdata);
     });
 }
 
 void wgpuQueueOnSubmittedWorkDoneWithBlock(WGPUQueue queue, WGPUQueueWorkDoneBlockCallback callback)
 {
-    WebGPU::fromAPI(queue).onSubmittedWorkDone([callback = WebGPU::fromAPI(WTFMove(callback))](WGPUQueueWorkDoneStatus status) {
+    WebGPU::protectedFromAPI(queue)->onSubmittedWorkDone([callback = WebGPU::fromAPI(WTFMove(callback))](WGPUQueueWorkDoneStatus status) {
         callback(status);
     });
 }
 
 void wgpuQueueSubmit(WGPUQueue queue, size_t commandCount, const WGPUCommandBuffer* commands)
 {
-    Vector<std::reference_wrapper<WebGPU::CommandBuffer>> commandsToForward;
-    for (uint32_t i = 0; i < commandCount; ++i)
-        commandsToForward.append(WebGPU::fromAPI(commands[i]));
-    WebGPU::fromAPI(queue).submit(WTFMove(commandsToForward));
+    Vector<Ref<WebGPU::CommandBuffer>> commandsToForward;
+    for (auto& command : unsafeMakeSpan(commands, commandCount))
+        commandsToForward.append(WebGPU::protectedFromAPI(command));
+    WebGPU::protectedFromAPI(queue)->submit(WTFMove(commandsToForward));
 }
 
 void wgpuQueueWriteBuffer(WGPUQueue queue, WGPUBuffer buffer, uint64_t bufferOffset, std::span<uint8_t> data)
 {
-    WebGPU::fromAPI(queue).writeBuffer(WebGPU::fromAPI(buffer), bufferOffset, data);
+    WebGPU::protectedFromAPI(queue)->writeBuffer(WebGPU::protectedFromAPI(buffer), bufferOffset, data);
 }
 
 void wgpuQueueWriteTexture(WGPUQueue queue, const WGPUImageCopyTexture* destination, std::span<uint8_t> data, const WGPUTextureDataLayout* dataLayout, const WGPUExtent3D* writeSize)
 {
-    WebGPU::fromAPI(queue).writeTexture(*destination, data, *dataLayout, *writeSize);
+    WebGPU::protectedFromAPI(queue)->writeTexture(*destination, data, *dataLayout, *writeSize);
 }
 
 void wgpuQueueSetLabel(WGPUQueue queue, const char* label)
 {
-    WebGPU::fromAPI(queue).setLabel(WebGPU::fromAPI(label));
+    WebGPU::protectedFromAPI(queue)->setLabel(WebGPU::fromAPI(label));
 }

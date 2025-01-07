@@ -63,6 +63,8 @@
 #include <wtf/BooleanLattice.h>
 #include <wtf/CheckedArithmetic.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace DFG {
 
 template<typename AbstractStateType>
@@ -746,7 +748,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         if (child && child.isNumber()) {
             double asDouble = child.asNumber();
             int32_t asInt = JSC::toInt32(asDouble);
-            if (bitwise_cast<int64_t>(static_cast<double>(asInt)) == bitwise_cast<int64_t>(asDouble)) {
+            if (std::bit_cast<int64_t>(static_cast<double>(asInt)) == std::bit_cast<int64_t>(asDouble)) {
                 setConstant(node, JSValue(asInt));
                 break;
             }
@@ -2437,6 +2439,14 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
     case StringCharAt:
         setForNode(node, m_vm.stringStructure.get());
         break;
+
+    case StringAt: {
+        if (node->arrayMode().isOutOfBounds())
+            setTypeForNode(node, SpecString | SpecOther);
+        else
+            setForNode(node, m_vm.stringStructure.get());
+        break;
+    }
 
     case StringLocaleCompare:
         setNonCellTypeForNode(node, SpecInt32Only);
@@ -5686,7 +5696,7 @@ template<typename AbstractStateType>
 void AbstractInterpreter<AbstractStateType>::dump(PrintStream& out)
 {
     CommaPrinter comma(" "_s);
-    HashSet<NodeFlowProjection> seen;
+    UncheckedKeyHashSet<NodeFlowProjection> seen;
     if (m_graph.m_form == SSA) {
         for (NodeFlowProjection node : m_state.block()->ssa->liveAtHead) {
             seen.add(node);
@@ -5789,5 +5799,7 @@ void AbstractInterpreter<AbstractStateType>::executeDoubleUnaryOpEffects(Node* n
 }
 
 } } // namespace JSC::DFG
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(DFG_JIT)

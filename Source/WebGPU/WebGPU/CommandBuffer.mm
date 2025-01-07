@@ -33,11 +33,12 @@ namespace WebGPU {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CommandBuffer);
 
-CommandBuffer::CommandBuffer(id<MTLCommandBuffer> commandBuffer, Device& device, id<MTLSharedEvent> sharedEvent, uint64_t sharedEventSignalValue)
+CommandBuffer::CommandBuffer(id<MTLCommandBuffer> commandBuffer, Device& device, id<MTLSharedEvent> sharedEvent, uint64_t sharedEventSignalValue, CommandEncoder& commandEncoder)
     : m_commandBuffer(commandBuffer)
     , m_device(device)
     , m_sharedEvent(sharedEvent)
     , m_sharedEventSignalValue(sharedEventSignalValue)
+    , m_commandEncoder(&commandEncoder)
 {
 }
 
@@ -48,7 +49,7 @@ CommandBuffer::CommandBuffer(Device& device)
 
 CommandBuffer::~CommandBuffer()
 {
-    m_device->getQueue().removeMTLCommandBuffer(m_commandBuffer);
+    m_device->protectedQueue()->removeMTLCommandBuffer(m_commandBuffer);
 }
 
 void CommandBuffer::setLabel(String&& label)
@@ -62,8 +63,9 @@ void CommandBuffer::makeInvalid(NSString* lastError)
         return;
 
     m_lastErrorString = lastError;
-    m_device->getQueue().removeMTLCommandBuffer(m_commandBuffer);
+    m_device->protectedQueue()->removeMTLCommandBuffer(m_commandBuffer);
     m_commandBuffer = nil;
+    m_commandEncoder = nullptr;
 }
 
 void CommandBuffer::makeInvalidDueToCommit(NSString* lastError)
@@ -75,6 +77,7 @@ void CommandBuffer::makeInvalidDueToCommit(NSString* lastError)
     [m_commandBuffer addCompletedHandler:[protectedThis = Ref { *this }](id<MTLCommandBuffer>) {
         protectedThis->m_commandBufferComplete.signal();
         protectedThis->m_cachedCommandBuffer = nil;
+        protectedThis->m_commandEncoder = nullptr;
     }];
     m_lastErrorString = lastError;
     m_commandBuffer = nil;
@@ -83,16 +86,6 @@ void CommandBuffer::makeInvalidDueToCommit(NSString* lastError)
 NSString* CommandBuffer::lastError() const
 {
     return m_lastErrorString;
-}
-
-void CommandBuffer::setBufferMapCount(int bufferMapCount)
-{
-    m_bufferMapCount = bufferMapCount;
-}
-
-int CommandBuffer::bufferMapCount() const
-{
-    return m_bufferMapCount;
 }
 
 bool CommandBuffer::waitForCompletion()
@@ -121,5 +114,5 @@ void wgpuCommandBufferRelease(WGPUCommandBuffer commandBuffer)
 
 void wgpuCommandBufferSetLabel(WGPUCommandBuffer commandBuffer, const char* label)
 {
-    WebGPU::fromAPI(commandBuffer).setLabel(WebGPU::fromAPI(label));
+    WebGPU::protectedFromAPI(commandBuffer)->setLabel(WebGPU::fromAPI(label));
 }

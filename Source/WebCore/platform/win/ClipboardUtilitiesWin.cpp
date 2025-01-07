@@ -167,7 +167,7 @@ HGLOBAL createGlobalData(const String& str)
     HGLOBAL vm = ::GlobalAlloc(GPTR, (str.length() + 1) * sizeof(UChar));
     if (!vm)
         return 0;
-    UChar* buffer = static_cast<UChar*>(GlobalLock(vm));
+    auto buffer = unsafeMakeSpan(static_cast<UChar*>(GlobalLock(vm)), str.length() + 1);
     StringView(str).getCharacters(buffer);
     buffer[str.length()] = 0;
     GlobalUnlock(vm);
@@ -502,7 +502,8 @@ String getURL(const DragDataMap* data, DragData::FilenameConversionPolicy filena
     if (!getDataMapItem(data, filenameWFormat(), stringData))
         getDataMapItem(data, filenameFormat(), stringData);
 
-    auto wcharData = stringData.wideCharacters().data();
+    auto wideCharacters = stringData.wideCharacters();
+    auto wcharData = wideCharacters.data();
     if (stringData.isEmpty() || (!PathFileExists(wcharData) && !PathIsUNC(wcharData)))
         return url;
 

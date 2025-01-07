@@ -81,7 +81,10 @@ void RemoteScrollingTree::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNode&
     if (auto* scrollingNode = dynamicDowncast<ScrollingTreeFrameScrollingNode>(node))
         layoutViewportOrigin = scrollingNode->layoutViewport().location();
 
-    scrollingCoordinatorProxy->scrollingTreeNodeDidScroll(node.scrollingNodeID(), node.currentScrollPosition(), layoutViewportOrigin, scrollingLayerPositionAction);
+    auto scrollUpdate = ScrollUpdate { node.scrollingNodeID(), node.currentScrollPosition(), layoutViewportOrigin, ScrollUpdateType::PositionUpdate, scrollingLayerPositionAction };
+    addPendingScrollUpdate(WTFMove(scrollUpdate));
+
+    scrollingCoordinatorProxy->scrollingThreadAddedPendingUpdate();
 }
 
 void RemoteScrollingTree::scrollingTreeNodeDidStopAnimatedScroll(ScrollingTreeScrollingNode& node)
@@ -242,7 +245,7 @@ void RemoteScrollingTree::removeWheelEventTestCompletionDeferralForReason(Scroll
     scrollingCoordinatorProxy->removeWheelEventTestCompletionDeferralForReason(nodeID, reason);
 }
 
-void RemoteScrollingTree::propagateSynchronousScrollingReasons(const HashSet<ScrollingNodeID>& synchronousScrollingNodes)
+void RemoteScrollingTree::propagateSynchronousScrollingReasons(const UncheckedKeyHashSet<ScrollingNodeID>& synchronousScrollingNodes)
 {
     m_hasNodesWithSynchronousScrollingReasons = !synchronousScrollingNodes.isEmpty();
 }

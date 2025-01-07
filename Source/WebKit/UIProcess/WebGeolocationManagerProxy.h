@@ -60,6 +60,9 @@ public:
     static Ref<WebGeolocationManagerProxy> create(WebProcessPool*);
     ~WebGeolocationManagerProxy();
 
+    void ref() const final { API::ObjectImpl<API::Object::Type::GeolocationManager>::ref(); }
+    void deref() const final { API::ObjectImpl<API::Object::Type::GeolocationManager>::deref(); }
+
     void setProvider(std::unique_ptr<API::GeolocationProvider>&&);
 
     void providerDidChangePosition(WebGeolocationPosition*);
@@ -119,7 +122,7 @@ private:
     void providerStopUpdating(PerDomainData&);
     void providerSetEnabledHighAccuracy(PerDomainData&, bool enabled);
 
-    UncheckedKeyHashMap<WebCore::RegistrableDomain, std::unique_ptr<PerDomainData>> m_perDomainData;
+    HashMap<WebCore::RegistrableDomain, std::unique_ptr<PerDomainData>> m_perDomainData;
     std::unique_ptr<API::GeolocationProvider> m_clientProvider;
 };
 

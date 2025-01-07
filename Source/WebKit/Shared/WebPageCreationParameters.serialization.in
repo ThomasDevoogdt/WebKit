@@ -63,9 +63,6 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
     String userAgent;
 
-    bool itemStatesWereRestoredByAPIRequest;
-    Vector<Ref<WebKit::FrameState>> itemStates;
-
     WebKit::VisitedLinkTableIdentifier visitedLinkTableID;
     bool canRunBeforeUnloadConfirmPanel;
     bool canRunModal;
@@ -109,7 +106,6 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
 #if PLATFORM(MAC)
     std::optional<WebCore::DestinationColorSpace> colorSpace;
-    bool useSystemAppearance;
     bool useFormSemanticContext;
     int headerBannerHeight;
     int footerBannerHeight;
@@ -173,7 +169,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     String overrideContentSecurityPolicy;
     std::optional<double> cpuLimit;
 
-    UncheckedKeyHashMap<String, WebKit::WebURLSchemeHandlerIdentifier> urlSchemeHandlers;
+    HashMap<String, WebKit::WebURLSchemeHandlerIdentifier> urlSchemeHandlers;
     Vector<String> urlSchemesWithLegacyCustomProtocolHandlers;
 
 #if ENABLE(APPLICATION_MANIFEST)
@@ -270,6 +266,10 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
 #if PLATFORM(VISION) && ENABLE(GAMEPAD)
     WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent;
+#endif
+
+#if HAVE(AUDIT_TOKEN)
+    std::optional<WebKit::CoreIPCAuditToken> presentingApplicationAuditToken;
 #endif
 }
 

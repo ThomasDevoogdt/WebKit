@@ -51,8 +51,8 @@ public:
     const WebCore::ContentExtensionEnablement& contentExtensionEnablement() const { return m_data.contentExtensionEnablement; }
     void setContentExtensionEnablement(WebCore::ContentExtensionEnablement&& enablement) { m_data.contentExtensionEnablement = WTFMove(enablement); }
 
-    void setActiveContentRuleListActionPatterns(UncheckedKeyHashMap<WTF::String, Vector<WTF::String>>&& patterns) { m_data.activeContentRuleListActionPatterns = WTFMove(patterns); }
-    const UncheckedKeyHashMap<WTF::String, Vector<WTF::String>>& activeContentRuleListActionPatterns() const { return m_data.activeContentRuleListActionPatterns; }
+    void setActiveContentRuleListActionPatterns(HashMap<WTF::String, Vector<WTF::String>>&& patterns) { m_data.activeContentRuleListActionPatterns = WTFMove(patterns); }
+    const HashMap<WTF::String, Vector<WTF::String>>& activeContentRuleListActionPatterns() const { return m_data.activeContentRuleListActionPatterns; }
     
     OptionSet<WebKit::WebsiteAutoplayQuirk> allowedAutoplayQuirks() const { return m_data.allowedAutoplayQuirks; }
     void setAllowedAutoplayQuirks(OptionSet<WebKit::WebsiteAutoplayQuirk> quirks) { m_data.allowedAutoplayQuirks = quirks; }
@@ -137,11 +137,15 @@ public:
     bool isUpgradeWithUserMediatedFallbackEnabled() { return advancedPrivacyProtections().contains(WebCore::AdvancedPrivacyProtections::HTTPSOnly) || httpsByDefaultMode() == WebCore::HTTPSByDefaultMode::UpgradeWithUserMediatedFallback; }
     bool isUpgradeWithAutomaticFallbackEnabled() { return advancedPrivacyProtections().contains(WebCore::AdvancedPrivacyProtections::HTTPSFirst) || httpsByDefaultMode() == WebCore::HTTPSByDefaultMode::UpgradeWithAutomaticFallback; }
 
-    const Vector<Vector<HashSet<WTF::String>>>& visibilityAdjustmentSelectors() const { return m_data.visibilityAdjustmentSelectors; }
-    void setVisibilityAdjustmentSelectors(Vector<Vector<HashSet<WTF::String>>>&& selectors) { m_data.visibilityAdjustmentSelectors = WTFMove(selectors); }
+    const Vector<Vector<UncheckedKeyHashSet<WTF::String>>>& visibilityAdjustmentSelectors() const { return m_data.visibilityAdjustmentSelectors; }
+    void setVisibilityAdjustmentSelectors(Vector<Vector<UncheckedKeyHashSet<WTF::String>>>&& selectors) { m_data.visibilityAdjustmentSelectors = WTFMove(selectors); }
 
     WebKit::WebsitePushAndNotificationsEnabledPolicy pushAndNotificationsEnabledPolicy() const { return m_data.pushAndNotificationsEnabledPolicy; }
     void setPushAndNotificationsEnabledPolicy(WebKit::WebsitePushAndNotificationsEnabledPolicy policy) { m_data.pushAndNotificationsEnabledPolicy = policy; }
+
+#if ENABLE(TOUCH_EVENTS)
+    void setOverrideTouchEventDOMAttributesEnabled(bool value) { m_data.overrideTouchEventDOMAttributesEnabled = value; }
+#endif
 
 private:
     WebKit::WebsitePoliciesData m_data;

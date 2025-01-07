@@ -47,9 +47,10 @@
 #include "NetworkRTCUDPSocketCocoa.h"
 #include "NetworkSessionCocoa.h"
 #else // PLATFORM(COCOA)
-ALLOW_COMMA_BEGIN
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/rtc_base/async_packet_socket.h>
-ALLOW_COMMA_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif // PLATFORM(COCOA)
 
 namespace WebKit {
@@ -181,7 +182,7 @@ void NetworkRTCProvider::createResolver(LibWebRTCResolverIdentifier identifier, 
     }
 
     RefPtr connection = m_connection.get();
-    if (connection && connection->mdnsRegister().hasRegisteredName(address)) {
+    if (connection && connection->protectedMDNSRegister()->hasRegisteredName(address)) {
         Vector<WebKit::RTC::Network::IPAddress> ipAddresses;
         Ref rtcMonitor = m_rtcMonitor;
         if (!rtcMonitor->ipv4().isUnspecified())
@@ -237,8 +238,8 @@ const String& NetworkRTCProvider::attributedBundleIdentifierFromPageIdentifier(W
     return m_attributedBundleIdentifiers.ensure(pageIdentifier, [&]() -> String {
         String value;
         callOnMainRunLoopAndWait([&] {
-            auto* session = m_connection ? m_connection->networkSession() : nullptr;
-            if (session)
+            RefPtr connection = m_connection.get();
+            if (auto* session = connection ? connection->networkSession() : nullptr)
                 value = session->attributedBundleIdentifierFromPageIdentifier(pageIdentifier).isolatedCopy();
         });
         return value;

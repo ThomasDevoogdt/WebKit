@@ -38,10 +38,6 @@
 #include "MediaSessionManagerCocoa.h"
 #endif
 
-#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/DeprecatedGlobalSettingsAdditions.cpp>)
-#import <WebKitAdditions/DeprecatedGlobalSettingsAdditions.cpp>
-#endif
-
 namespace WebCore {
 
 DeprecatedGlobalSettings& DeprecatedGlobalSettings::shared()
@@ -63,16 +59,6 @@ void DeprecatedGlobalSettings::setOpusDecoderEnabled(bool isEnabled)
 {
     shared().m_opusDecoderEnabled = isEnabled;
     PlatformMediaSessionManager::setOpusDecoderEnabled(isEnabled);
-}
-#endif
-
-#if ENABLE(MEDIA_SOURCE) && (HAVE(AVSAMPLEBUFFERVIDEOOUTPUT) || USE(GSTREAMER))
-void DeprecatedGlobalSettings::setMediaSourceInlinePaintingEnabled(bool isEnabled)
-{
-    shared().m_mediaSourceInlinePaintingEnabled = isEnabled;
-#if HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-    MediaSessionManagerCocoa::setMediaSourceInlinePaintingEnabled(isEnabled);
-#endif
 }
 #endif
 
@@ -170,11 +156,7 @@ bool DeprecatedGlobalSettings::allowsAnySSLCertificate()
 
 bool DeprecatedGlobalSettings::builtInNotificationsEnabled()
 {
-#if defined(DEPRECATED_GLOBAL_SETTINGS_BUILT_IN_NOTIFICATIONS_ENABLED_ADDITIONS)
-    DEPRECATED_GLOBAL_SETTINGS_BUILT_IN_NOTIFICATIONS_ENABLED_ADDITIONS;
-#else
     return shared().m_builtInNotificationsEnabled;
-#endif
 }
 
 #endif

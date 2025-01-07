@@ -54,26 +54,22 @@ int64_t HistoryItem::generateSequenceNumber()
     return ++next;
 }
 
-HistoryItem::HistoryItem(Client& client, const String& urlString, const String& title, const String& alternateTitle, std::optional<BackForwardItemIdentifier> identifier)
+HistoryItem::HistoryItem(Client& client, const String& urlString, const String& title, const String& alternateTitle, std::optional<BackForwardItemIdentifier> itemID, std::optional<BackForwardFrameItemIdentifier> frameItemID)
     : m_urlString(urlString)
     , m_originalURLString(urlString)
     , m_title(title)
     , m_displayTitle(alternateTitle)
-    , m_identifier(identifier ? *identifier : BackForwardItemIdentifier::generate())
+    , m_itemID(itemID ? *itemID : BackForwardItemIdentifier::generate())
+    , m_frameItemID(frameItemID ? *frameItemID : BackForwardFrameItemIdentifier::generate())
     , m_uuidIdentifier(WTF::UUID::createVersion4Weak())
     , m_client(client)
 {
 }
 
-HistoryItem::~HistoryItem()
-{
-    ASSERT(!BackForwardCache::singleton().isInBackForwardCache(m_identifier));
-}
+HistoryItem::~HistoryItem() = default;
 
 HistoryItem::HistoryItem(const HistoryItem& item)
-    : RefCounted<HistoryItem>()
-    , CanMakeWeakPtr<HistoryItem>()
-    , m_urlString(item.m_urlString)
+    : m_urlString(item.m_urlString)
     , m_originalURLString(item.m_originalURLString)
     , m_referrer(item.m_referrer)
     , m_target(item.m_target)
@@ -93,7 +89,8 @@ HistoryItem::HistoryItem(const HistoryItem& item)
     , m_scale(item.m_scale)
     , m_scaleIsInitial(item.m_scaleIsInitial)
 #endif
-    , m_identifier(item.m_identifier)
+    , m_itemID(item.m_itemID)
+    , m_frameItemID(item.m_frameItemID)
     , m_uuidIdentifier(WTF::UUID::createVersion4Weak())
     , m_client(item.m_client)
 {
@@ -154,12 +151,12 @@ const String& HistoryItem::alternateTitle() const
 
 bool HistoryItem::isInBackForwardCache() const
 {
-    return BackForwardCache::singleton().isInBackForwardCache(m_identifier);
+    return BackForwardCache::singleton().isInBackForwardCache(m_itemID);
 }
 
 bool HistoryItem::hasCachedPageExpired() const
 {
-    return BackForwardCache::singleton().hasCachedPageExpired(m_identifier);
+    return BackForwardCache::singleton().hasCachedPageExpired(m_itemID);
 }
 
 URL HistoryItem::url() const
@@ -264,6 +261,7 @@ void HistoryItem::setPageScaleFactor(float scaleFactor)
 void HistoryItem::setDocumentState(const Vector<AtomString>& state)
 {
     m_documentState = state;
+    notifyChanged();
 }
 
 const Vector<AtomString>& HistoryItem::documentState() const
@@ -353,6 +351,7 @@ const Vector<Ref<HistoryItem>>& HistoryItem::children() const
 void HistoryItem::clearChildren()
 {
     m_children.clear();
+    notifyChanged();
 }
 
 // We do same-document navigation if going to a different item and if either of the following is true:
@@ -361,7 +360,7 @@ void HistoryItem::clearChildren()
 bool HistoryItem::shouldDoSameDocumentNavigationTo(HistoryItem& otherItem) const
 {
     // The following logic must be kept in sync with WebKit::WebBackForwardListItem::itemIsInSameDocument().
-    if (this == &otherItem)
+    if (m_itemID == otherItem.itemID())
         return false;
 
     if (stateObject() || otherItem.stateObject())
@@ -466,7 +465,7 @@ int HistoryItem::showTreeWithIndent(unsigned indentLevel) const
 #if !LOG_DISABLED
 String HistoryItem::logString() const
 {
-    return makeString("HistoryItem current URL "_s, urlString(), ", identifier "_s, m_identifier.toString());
+    return makeString("HistoryItem current URL "_s, urlString(), ", identifier "_s, m_itemID.toString());
 }
 #endif
 

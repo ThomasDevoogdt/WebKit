@@ -107,6 +107,10 @@ template<typename> class StringParsingBuffer;
 template<typename, typename = void> class StringTypeAdapter;
 template<typename> class UniqueRef;
 template<typename T, class... Args> UniqueRef<T> makeUniqueRef(Args&&...);
+template<typename, size_t = 0> class VariantList;
+template<typename, size_t = 0> struct VariantListConstIterator;
+template<typename> struct VariantListProxy;
+template<typename> struct VariantListSizer;
 template<typename, size_t = 0, typename = CrashOnOverflow, size_t = 16, typename = VectorBufferMalloc> class Vector;
 template<typename, typename WeakPtrImpl = DefaultWeakPtrImpl, typename = RawPtrTraits<WeakPtrImpl>> class WeakPtr;
 template<typename, typename = DefaultWeakPtrImpl> class WeakRef;
@@ -136,7 +140,9 @@ template<typename Value, typename = DefaultHash<Value>, typename = HashTraits<Va
 template<typename KeyArg, typename MappedArg, typename = DefaultHash<KeyArg>, typename = HashTraits<KeyArg>, typename = HashTraits<MappedArg>, typename = HashTableTraits, ShouldValidateKey = ShouldValidateKey::Yes> class HashMap;
 template<typename KeyArg, typename MappedArg, typename KeyHash = DefaultHash<KeyArg>, typename KeyTraits = HashTraits<KeyArg>, typename MappedTraits = HashTraits<MappedArg>, typename HashTraits = HashTableTraits>
 using UncheckedKeyHashMap = HashMap<KeyArg, MappedArg, KeyHash, KeyTraits, MappedTraits, HashTraits, ShouldValidateKey::No>;
-template<typename ValueArg, typename = DefaultHash<ValueArg>, typename = HashTraits<ValueArg>, typename = HashTableTraits> class HashSet;
+template<typename ValueArg, typename = DefaultHash<ValueArg>, typename = HashTraits<ValueArg>, typename = HashTableTraits, ShouldValidateKey = ShouldValidateKey::Yes> class HashSet;
+template<typename ValueArg, typename HashArg = DefaultHash<ValueArg>, typename TraitsArg = HashTraits<ValueArg>, typename TableTraitsArg = HashTableTraits>
+using UncheckedKeyHashSet = HashSet<ValueArg, HashArg, TraitsArg, TableTraitsArg, ShouldValidateKey::No>;
 template<typename ResolveValueT, typename RejectValueT, unsigned options = 0> class NativePromise;
 using GenericPromise = NativePromise<void, void>;
 using GenericNonExclusivePromise = NativePromise<void, void, 1>;
@@ -209,6 +215,7 @@ using WTF::TextPosition;
 using WTF::TextStream;
 using WTF::URL;
 using WTF::UncheckedKeyHashMap;
+using WTF::UncheckedKeyHashSet;
 using WTF::UniqueRef;
 using WTF::Vector;
 using WTF::WeakPtr;

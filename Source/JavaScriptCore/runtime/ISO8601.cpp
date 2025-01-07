@@ -37,6 +37,8 @@
 #include <wtf/text/StringParsingBuffer.h>
 #include <wtf/unicode/CharacterNames.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 namespace ISO8601 {
 
@@ -1454,28 +1456,49 @@ static CheckedInt128 checkedCastDoubleToInt128(double n)
     return { result };
 }
 
+template<TemporalUnit unit>
 std::optional<Int128> Duration::totalNanoseconds() const
 {
+    ASSERT(unit >= TemporalUnit::Day);
+
     CheckedInt128 resultNs { 0 };
 
-    CheckedInt128 days = checkedCastDoubleToInt128(this->days());
-    resultNs += days * ExactTime::nsPerDay;
-    CheckedInt128 hours = checkedCastDoubleToInt128(this->hours());
-    resultNs += hours * ExactTime::nsPerHour;
-    CheckedInt128 minutes = checkedCastDoubleToInt128(this->minutes());
-    resultNs += minutes * ExactTime::nsPerMinute;
-    CheckedInt128 seconds = checkedCastDoubleToInt128(this->seconds());
-    resultNs += seconds * ExactTime::nsPerSecond;
-    CheckedInt128 milliseconds = checkedCastDoubleToInt128(this->milliseconds());
-    resultNs += milliseconds * ExactTime::nsPerMillisecond;
-    CheckedInt128 microseconds = checkedCastDoubleToInt128(this->microseconds());
-    resultNs += microseconds * ExactTime::nsPerMicrosecond;
-    resultNs += checkedCastDoubleToInt128(this->nanoseconds());
+    if constexpr (unit <= TemporalUnit::Day) {
+        CheckedInt128 days = checkedCastDoubleToInt128(this->days());
+        resultNs += days * ExactTime::nsPerDay;
+    }
+    if constexpr (unit <= TemporalUnit::Hour) {
+        CheckedInt128 hours = checkedCastDoubleToInt128(this->hours());
+        resultNs += hours * ExactTime::nsPerHour;
+    }
+    if constexpr (unit <= TemporalUnit::Minute) {
+        CheckedInt128 minutes = checkedCastDoubleToInt128(this->minutes());
+        resultNs += minutes * ExactTime::nsPerMinute;
+    }
+    if constexpr (unit <= TemporalUnit::Second) {
+        CheckedInt128 seconds = checkedCastDoubleToInt128(this->seconds());
+        resultNs += seconds * ExactTime::nsPerSecond;
+    }
+    if constexpr (unit <= TemporalUnit::Millisecond) {
+        CheckedInt128 milliseconds = checkedCastDoubleToInt128(this->milliseconds());
+        resultNs += milliseconds * ExactTime::nsPerMillisecond;
+    }
+    if constexpr (unit <= TemporalUnit::Microsecond) {
+        CheckedInt128 microseconds = checkedCastDoubleToInt128(this->microseconds());
+        resultNs += microseconds * ExactTime::nsPerMicrosecond;
+    }
+    if constexpr (unit <= TemporalUnit::Nanosecond)
+        resultNs += checkedCastDoubleToInt128(this->nanoseconds());
+
     if (resultNs.hasOverflowed())
         return std::nullopt;
 
     return resultNs;
 }
+template std::optional<Int128> Duration::totalNanoseconds<TemporalUnit::Day>() const;
+template std::optional<Int128> Duration::totalNanoseconds<TemporalUnit::Second>() const;
+template std::optional<Int128> Duration::totalNanoseconds<TemporalUnit::Millisecond>() const;
+template std::optional<Int128> Duration::totalNanoseconds<TemporalUnit::Microsecond>() const;
 
 static constexpr Int128 absInt128(const Int128& value)
 {
@@ -1505,7 +1528,7 @@ bool isValidDuration(const Duration& duration)
         return false;
 
     // 6. Let normalizedSeconds be days × 86,400 + hours × 3600 + minutes × 60 + seconds + ℝ(𝔽(milliseconds)) × 10^-3 + ℝ(𝔽(microseconds)) × 10^-6 + ℝ(𝔽(nanoseconds)) × 10^-9.
-    auto normalizedNanoseconds = duration.totalNanoseconds();
+    auto normalizedNanoseconds = duration.totalNanoseconds<TemporalUnit::Day>();
     // 8. If abs(normalizedSeconds) ≥ 2^53, return false.
     constexpr Int128 nanosecondsLimit = (Int128(1) << 53) * 1000000000;
     if (!normalizedNanoseconds || absInt128(normalizedNanoseconds.value()) >= nanosecondsLimit)
@@ -1601,3 +1624,5 @@ bool isYearWithinLimits(double year)
 
 } // namespace ISO8601
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

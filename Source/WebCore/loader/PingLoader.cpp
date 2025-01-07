@@ -134,6 +134,8 @@ void PingLoader::sendPing(LocalFrame& frame, const URL& pingURL, const URL& dest
 #endif
 
     Ref document = *frame.document();
+    if (!document->checkedContentSecurityPolicy()->allowConnectToSource(pingURL))
+        return;
     document->checkedContentSecurityPolicy()->upgradeInsecureRequestIfNeeded(request, ContentSecurityPolicy::InsecureRequestType::Load);
 
     request.setHTTPMethod("POST"_s);
@@ -183,6 +185,7 @@ void PingLoader::sendViolationReport(LocalFrame& frame, const URL& reportURL, Re
         break;
     case ViolationReportType::COEPInheritenceViolation:
     case ViolationReportType::CORPViolation:
+    case ViolationReportType::CSPHashReport:
     case ViolationReportType::CrossOriginOpenerPolicy:
     case ViolationReportType::Deprecation:
     case ViolationReportType::StandardReportingAPIViolation:

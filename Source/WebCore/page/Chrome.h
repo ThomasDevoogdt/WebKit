@@ -115,7 +115,7 @@ public:
     void setCursor(const Cursor&) override;
     void setCursorHiddenUntilMouseMoves(bool) override;
 
-    RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingPurpose, float resolutionScale, const DestinationColorSpace&, ImageBufferPixelFormat, OptionSet<ImageBufferOptions>) const override;
+    RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingMode, RenderingPurpose, float resolutionScale, const DestinationColorSpace&, ImageBufferPixelFormat) const override;
     RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer(std::unique_ptr<WebCore::SerializedImageBuffer>) override;
 
 #if ENABLE(WEBGL)
@@ -193,7 +193,7 @@ public:
     WEBCORE_EXPORT void disableSuddenTermination();
 
 #if ENABLE(INPUT_TYPE_COLOR)
-    std::unique_ptr<ColorChooser> createColorChooser(ColorChooserClient&, const Color& initialColor);
+    RefPtr<ColorChooser> createColorChooser(ColorChooserClient&, const Color& initialColor);
 #endif
 
 #if ENABLE(DATALIST_ELEMENT)

@@ -52,6 +52,10 @@ class Image;
 class NativeImage;
 class TransformState;
 
+#if ENABLE(MODEL_PROCESS)
+class ModelContext;
+#endif
+
 class GraphicsLayerCA : public GraphicsLayer, public PlatformCALayerClient {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(GraphicsLayerCA, WEBCORE_EXPORT);
 public:
@@ -101,9 +105,14 @@ public:
     WEBCORE_EXPORT void setUserInteractionEnabled(bool) override;
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     WEBCORE_EXPORT void setIsSeparated(bool) override;
+    WEBCORE_EXPORT void setIsSeparatedImage(bool) override;
 #if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
     WEBCORE_EXPORT void setIsSeparatedPortal(bool) override;
 #endif
+#endif
+
+#if HAVE(CORE_MATERIAL)
+    WEBCORE_EXPORT void setAppleVisualEffect(AppleVisualEffect) override;
 #endif
 
     WEBCORE_EXPORT void setBackgroundColor(const Color&) override;
@@ -150,12 +159,15 @@ public:
     WEBCORE_EXPORT void removeAnimation(const String& animationName, std::optional<AnimatedProperty>) override;
     WEBCORE_EXPORT void transformRelatedPropertyDidChange() override;
     WEBCORE_EXPORT void setContentsToImage(Image*) override;
+    WEBCORE_EXPORT void setContentsToImageBuffer(ImageBuffer*) override;
 #if PLATFORM(IOS_FAMILY)
     WEBCORE_EXPORT PlatformLayer* contentsLayerForMedia() const override;
 #endif
     WEBCORE_EXPORT void setContentsToPlatformLayer(PlatformLayer*, ContentsLayerPurpose) override;
     WEBCORE_EXPORT void setContentsToPlatformLayerHost(LayerHostingContextIdentifier) override;
-    WEBCORE_EXPORT void setContentsToRemotePlatformContext(LayerHostingContextIdentifier, ContentsLayerPurpose) override;
+#if ENABLE(MODEL_PROCESS)
+    WEBCORE_EXPORT void setContentsToModelContext(Ref<ModelContext>, ContentsLayerPurpose) override;
+#endif
     WEBCORE_EXPORT void setContentsToVideoElement(HTMLVideoElement&, ContentsLayerPurpose) override;
     WEBCORE_EXPORT void setContentsDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>&&, ContentsLayerPurpose) override;
     WEBCORE_EXPORT PlatformLayerIdentifier setContentsToAsyncDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>, ContentsLayerPurpose);
@@ -281,13 +293,17 @@ private:
 
     virtual Ref<PlatformCALayer> createPlatformCALayer(PlatformCALayer::LayerType, PlatformCALayerClient* owner);
     virtual Ref<PlatformCALayer> createPlatformCALayer(PlatformLayer*, PlatformCALayerClient* owner);
-    virtual Ref<PlatformCALayer> createPlatformCALayer(LayerHostingContextIdentifier, PlatformCALayerClient*);
+#if ENABLE(MODEL_PROCESS)
+    virtual Ref<PlatformCALayer> createPlatformCALayer(Ref<ModelContext>, PlatformCALayerClient*);
+#endif
 #if ENABLE(MODEL_ELEMENT)
     virtual Ref<PlatformCALayer> createPlatformCALayer(Ref<WebCore::Model>, PlatformCALayerClient* owner);
 #endif
     virtual Ref<PlatformCALayer> createPlatformCALayerHost(LayerHostingContextIdentifier, PlatformCALayerClient*);
     WEBCORE_EXPORT virtual Ref<PlatformCALayer> createPlatformVideoLayer(HTMLVideoElement&, PlatformCALayerClient* owner);
     virtual Ref<PlatformCAAnimation> createPlatformCAAnimation(PlatformCAAnimation::AnimationType, const String& keyPath);
+
+    virtual void setLayerContentsToImageBuffer(PlatformCALayer*, ImageBuffer*) { }
 
     PlatformCALayer* primaryLayer() const { return m_structuralLayer.get() ? m_structuralLayer.get() : m_layer.get(); }
     PlatformCALayer* hostLayerForSublayers() const;
@@ -511,6 +527,10 @@ private:
 #endif
     void updateContentsScalingFilters();
 
+#if HAVE(CORE_MATERIAL)
+    void updateAppleVisualEffect();
+#endif
+
     enum StructuralLayerPurpose {
         NoStructuralLayer = 0,
         StructuralLayerForPreserves3D,
@@ -624,6 +644,9 @@ private:
         ContentsScalingFiltersChanged           = 1LLU << 43,
         VideoGravityChanged                     = 1LLU << 44,
         BackdropRootChanged                     = 1LLU << 45,
+#if HAVE(CORE_MATERIAL)
+        AppleVisualEffectChanged                = 1LLU << 46,
+#endif
     };
     typedef uint64_t LayerChangeFlags;
     static ASCIILiteral layerChangeAsString(LayerChange);
@@ -682,8 +705,8 @@ private:
 
     TileCoverage m_tileCoverage;
 
-    RefPtr<NativeImage> m_uncorrectedContentsImage;
     RefPtr<NativeImage> m_pendingContentsImage;
+    RefPtr<ImageBuffer> m_pendingContentsImageBuffer;
 
 #if ENABLE(MODEL_ELEMENT)
     RefPtr<Model> m_contentsModel;

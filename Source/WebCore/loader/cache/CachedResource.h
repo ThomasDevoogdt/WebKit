@@ -46,6 +46,7 @@
 
 namespace WebCore {
 class CachedResource;
+class CachedResourceCallback;
 }
 
 namespace WTF {
@@ -128,7 +129,7 @@ public:
     virtual void load(CachedResourceLoader&);
 
     virtual void setEncoding(const String&) { }
-    virtual String encoding() const { return String(); }
+    virtual ASCIILiteral encoding() const { return ASCIILiteral(); }
     virtual const TextResourceDecoder* textResourceDecoder() const { return nullptr; }
     virtual void updateBuffer(const FragmentedSharedBuffer&);
     virtual void updateData(const SharedBuffer&);
@@ -196,7 +197,7 @@ public:
     void setLoading(bool b) { m_loading = b; }
     virtual bool stillNeedsLoad() const { return false; }
 
-    SubresourceLoader* loader() { return m_loader.get(); }
+    SubresourceLoader* loader() const { return m_loader.get(); }
 
     bool isImage() const { return type() == Type::ImageResource; }
     // FIXME: CachedRawResource could be a main resource, an audio/video resource, or a raw XHR/icon resource.
@@ -321,6 +322,9 @@ public:
 
     ResourceCryptographicDigest cryptographicDigest(ResourceCryptographicDigest::Algorithm) const;
 
+    void setIsHashReportingNeeded() { m_isHashReportingNeeded = true; }
+    bool isHashReportingNeeded() const { return m_isHashReportingNeeded; }
+
 protected:
     // CachedResource constructor that may be used when the CachedResource can already be filled with response data.
     CachedResource(const URL&, Type, PAL::SessionID, const CookieJar*);
@@ -336,7 +340,7 @@ protected:
     void clearCachedCryptographicDigests();
 
 private:
-    class Callback;
+    using Callback = CachedResourceCallback;
     template<typename T> friend class CachedResourceClientWalker;
 
     void deleteThis();
@@ -397,7 +401,7 @@ private:
 
     // These handles will need to be updated to point to the m_resourceToRevalidate in case we get 304 response.
     // FIXME: This should use a smart pointer.
-    HashSet<CachedResourceHandleBase*> m_handlesToRevalidate;
+    UncheckedKeyHashSet<CachedResourceHandleBase*> m_handlesToRevalidate;
 
     Vector<std::pair<String, String>> m_varyingHeaderValues;
 
@@ -435,6 +439,7 @@ private:
     bool m_hasUnknownEncoding : 1;
     bool m_switchingClientsToRevalidatedResource : 1 { false };
     bool m_ignoreForRequestCount : 1;
+    bool m_isHashReportingNeeded : 1 { false };
 
 #if ASSERT_ENABLED
     bool m_deleted { false };
@@ -444,18 +449,13 @@ private:
     mutable std::array<std::optional<ResourceCryptographicDigest>, ResourceCryptographicDigest::algorithmCount> m_cryptographicDigests;
 };
 
-class CachedResource::Callback {
+class CachedResourceCallback {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
 public:
-    Callback(CachedResource&, CachedResourceClient&);
-
+    CachedResourceCallback(CachedResource&, CachedResourceClient&);
     void cancel();
 
 private:
-    void timerFired();
-
-    WeakRef<CachedResource> m_resource;
-    SingleThreadWeakRef<CachedResourceClient> m_client;
     Timer m_timer;
 };
 

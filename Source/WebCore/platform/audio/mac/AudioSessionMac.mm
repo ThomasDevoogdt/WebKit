@@ -31,6 +31,7 @@
 #import "FloatConversion.h"
 #import "Logging.h"
 #import "NotImplemented.h"
+#import "SpanCoreAudio.h"
 #import <CoreAudio/AudioHardware.h>
 #import <wtf/LoggerHelper.h>
 #import <wtf/MainThread.h>
@@ -81,6 +82,11 @@ static float defaultDeviceTransportIsBluetooth()
     return transportType == kAudioDeviceTransportTypeBluetooth || transportType == kAudioDeviceTransportTypeBluetoothLE;
 }
 #endif
+
+Ref<AudioSessionMac> AudioSessionMac::create()
+{
+    return adoptRef(*new AudioSessionMac);
+}
 
 void AudioSessionMac::removePropertyListenersForDefaultDevice() const
 {
@@ -401,8 +407,8 @@ size_t AudioSessionMac::maximumNumberOfOutputChannels() const
         return 0;
 
     size_t channels = 0;
-    for (UInt32 i = 0; i < audioBufferList->mNumberBuffers; ++i)
-        channels += audioBufferList->mBuffers[i].mNumberChannels;
+    for (auto& buffer : span(*audioBufferList))
+        channels += buffer.mNumberChannels;
     return channels;
 }
 

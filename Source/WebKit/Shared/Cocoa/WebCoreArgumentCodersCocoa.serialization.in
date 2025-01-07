@@ -82,13 +82,6 @@ header: <WebCore/FontPlatformData.h>
     RetainPtr<CFStringRef> postScriptName;
     std::optional<WebCore::FontPlatformSerializedAttributes> attributes;
 };
-
-header: <WebCore/FontCustomPlatformData.h>
-[CustomHeader] struct WebCore::FontCustomPlatformSerializedData {
-    Vector<uint8_t> fontFaceData;
-    String itemInCollection;
-    WebCore::RenderingResourceIdentifier renderingResourceIdentifier;
-};
 #endif // USE(CORE_TEXT)
 
 #if ENABLE(CONTENT_FILTERING)
@@ -257,18 +250,9 @@ header: <WebCore/AttributedString.h>
 
 struct WebCore::AttributedString {
     String string;
-    [Validator='WebCore::AttributedString::rangesAreSafe(*string, *attributes)'] Vector<std::pair<WebCore::AttributedString::Range, UncheckedKeyHashMap<String, WebCore::AttributedString::AttributeValue>>> attributes;
-    std::optional<UncheckedKeyHashMap<String, WebCore::AttributedString::AttributeValue>> documentAttributes;
+    [Validator='WebCore::AttributedString::rangesAreSafe(*string, *attributes)'] Vector<std::pair<WebCore::AttributedString::Range, HashMap<String, WebCore::AttributedString::AttributeValue>>> attributes;
+    std::optional<HashMap<String, WebCore::AttributedString::AttributeValue>> documentAttributes;
 };
-
-#if ENABLE(MEDIA_RECORDER)
-struct WebCore::MediaRecorderPrivateOptions {
-    String mimeType;
-    std::optional<unsigned> audioBitsPerSecond;
-    std::optional<unsigned> videoBitsPerSecond;
-    std::optional<unsigned> bitsPerSecond;
-};
-#endif // ENABLE(MEDIA_RECORDER)
 
 [Nested] class WebCore::ProtectionSpace::PlatformData {
     RetainPtr<NSURLProtectionSpace> nsSpace;
@@ -453,10 +437,16 @@ enum class WebCore::PlatformCALayerLayerType : uint8_t {
     LayerTypeAVPlayerLayer,
     LayerTypeContentsProvidedLayer,
     LayerTypeBackdropLayer,
+#if HAVE(CORE_MATERIAL)
+    LayerTypeMaterialLayer,
+#endif
     LayerTypeShapeLayer,
     LayerTypeScrollContainerLayer,
 #if ENABLE(MODEL_ELEMENT)
     LayerTypeModelLayer,
+#endif
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    LayerTypeSeparatedImageLayer,
 #endif
     LayerTypeCustom,
     LayerTypeHost,
@@ -480,6 +470,7 @@ AVOutputContext wrapped by CoreIPCAVOutputContext
 PKPaymentMethod wrapped by CoreIPCPKPaymentMethod
 PKPaymentMerchantSession wrapped by CoreIPCPKPaymentMerchantSession
 PKContact wrapped by CoreIPCPKContact
+PKSecureElementPass wrapped by CoreIPCPKSecureElementPass
 PKPayment wrapped by CoreIPCPKPayment
 PKPaymentToken wrapped by CoreIPCPKPaymentToken
 PKShippingMethod wrapped by CoreIPCPKShippingMethod
@@ -527,4 +518,8 @@ using WebCore::WritingTools::Session::ID = WTF::UUID
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
 using WebCore::MediaControlsContextMenuItem::ID = uint64_t;
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+[Nested] enum class WebCore::MediaSessionHelper::ShouldOverride : bool
 #endif

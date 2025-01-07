@@ -46,6 +46,8 @@ public:
     static LayoutUnit mainAxisGapValue(const ElementBox& flexContainer, LayoutUnit flexContainerContentBoxWidth);
     static LayoutUnit crossAxisGapValue(const ElementBox& flexContainer, LayoutUnit flexContainerContentBoxHeight);
 
+    static ContentPosition logicalJustifyContentPosition(const ElementBox& flexContainer, ContentPosition);
+
     LayoutUnit usedMinimumSizeInMainAxis(const LogicalFlexItem&) const;
     std::optional<LayoutUnit> usedMaximumSizeInMainAxis(const LogicalFlexItem&) const;
     LayoutUnit usedMaxContentSizeInMainAxis(const LogicalFlexItem&) const;

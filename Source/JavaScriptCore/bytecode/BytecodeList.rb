@@ -1496,6 +1496,8 @@ op :wasm_to_wasm_wrapper_entry
 op :wasm_to_js_wrapper_entry
 op :ipint_trampoline
 op :ipint_entry
+op :ipint_function_prologue_simd_trampoline
+op :ipint_function_prologue_simd
 
 op :js_trampoline_op_call
 op :js_trampoline_op_call_ignore_result
@@ -1518,6 +1520,7 @@ op :wasm_trampoline_wasm_tail_call
 op :wasm_trampoline_wasm_tail_call_indirect
 op :wasm_trampoline_wasm_tail_call_ref
 op :wasm_trampoline_wasm_ipint_call
+op :wasm_trampoline_wasm_ipint_tail_call
 
 end_section :NativeHelpers
 

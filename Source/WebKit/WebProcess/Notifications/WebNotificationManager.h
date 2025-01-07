@@ -37,6 +37,7 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UUID.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -57,6 +58,9 @@ class WebNotificationManager : public WebProcessSupplement, public IPC::MessageR
 public:
     explicit WebNotificationManager(WebProcess&);
     ~WebNotificationManager();
+
+    void ref() const final;
+    void deref() const final;
 
     static ASCIILiteral supplementName();
     
@@ -88,9 +92,10 @@ private:
     void didCloseNotifications(const Vector<WTF::UUID>& notificationIDs);
     void didRemoveNotificationDecisions(const Vector<String>& originStrings);
 
+    WeakRef<WebProcess> m_process;
 #if ENABLE(NOTIFICATIONS)
-    UncheckedKeyHashMap<WTF::UUID, WebCore::ScriptExecutionContextIdentifier> m_nonPersistentNotificationsContexts;
-    UncheckedKeyHashMap<String, bool> m_permissionsMap;
+    HashMap<WTF::UUID, WebCore::ScriptExecutionContextIdentifier> m_nonPersistentNotificationsContexts;
+    HashMap<String, bool> m_permissionsMap;
 #endif
 };
 

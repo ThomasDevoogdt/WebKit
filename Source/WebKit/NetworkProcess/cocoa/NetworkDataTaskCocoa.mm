@@ -35,7 +35,6 @@
 #import "NetworkIssueReporter.h"
 #import "NetworkProcess.h"
 #import "NetworkSessionCocoa.h"
-#import "WebCoreArgumentCoders.h"
 #import "WebPrivacyHelpers.h"
 #import <WebCore/AdvancedPrivacyProtections.h>
 #import <WebCore/AuthenticationChallenge.h>
@@ -214,15 +213,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         applyBasicAuthorizationHeader(request, m_initialCredential);
     }
 
-    const auto shouldBlockCookies = [](WebCore::ThirdPartyCookieBlockingDecision thirdPartyCookieBlockingDecision) {
-        return thirdPartyCookieBlockingDecision == WebCore::ThirdPartyCookieBlockingDecision::All;
-    };
-
-    auto thirdPartyCookieBlockingDecision = m_storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless ? WebCore::ThirdPartyCookieBlockingDecision::All : WebCore::ThirdPartyCookieBlockingDecision::None;
-    if (auto* networkStorageSession = session.networkStorageSession()) {
-        if (!shouldBlockCookies(thirdPartyCookieBlockingDecision))
-            thirdPartyCookieBlockingDecision = networkStorageSession->thirdPartyCookieBlockingDecisionForRequest(request, frameID(), pageID(), shouldRelaxThirdPartyCookieBlocking());
-    }
+    auto thirdPartyCookieBlockingDecision = requestThirdPartyCookieBlockingDecision(request);
     restrictRequestReferrerToOriginIfNeeded(request);
 
     RetainPtr<NSURLRequest> nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody);
@@ -262,6 +253,13 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         [mutableRequest _setAllowPrivateAccessTokensForThirdParty:YES];
 #endif
 
+#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+    if (isOptInCookiePartitioningEnabled() && [mutableRequest respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
+        auto shouldAllowOnlyPartitioned = thirdPartyCookieBlockingDecision == WebCore::ThirdPartyCookieBlockingDecision::AllExceptPartitioned ? YES : NO;
+        [mutableRequest _setAllowOnlyPartitionedCookies:shouldAllowOnlyPartitioned];
+    }
+#endif
+
 #if ENABLE(APP_PRIVACY_REPORT)
     mutableRequest.get().attribution = request.isAppInitiated() ? NSURLRequestAttributionDeveloper : NSURLRequestAttributionUser;
 #endif
@@ -288,6 +286,10 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #if HAVE(CFNETWORK_HOSTOVERRIDE)
     if (session.networkProcess().localhostAliasesForTesting().contains<StringViewHashTranslator>(url.host()))
         m_task.get()._hostOverride = adoptNS(nw_endpoint_create_host_with_numeric_port("localhost", url.port().value_or(0))).get();
+#endif
+
+#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+    updateTaskWithStoragePartitionIdentifier(request);
 #endif
 
     WTFBeginSignpost(m_task.get(), DataTask, "%" PUBLIC_LOG_STRING " %" PRIVATE_LOG_STRING " pri: %.2f preconnect: %d", request.httpMethod().utf8().data(), url.string().utf8().data(), toNSURLSessionTaskPriority(request.priority()), parameters.shouldPreconnectOnly == PreconnectOnly::Yes);
@@ -318,8 +320,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #endif
     }
 
-    if (!isTopLevelNavigation())
-        applyCookiePolicyForThirdPartyCloaking(request);
+    setCookieTransform(request, IsRedirect::No);
     if (shouldBlockCookies(thirdPartyCookieBlockingDecision)) {
 #if !RELEASE_LOG_DISABLED
         if (m_session->shouldLogCookieInformation())

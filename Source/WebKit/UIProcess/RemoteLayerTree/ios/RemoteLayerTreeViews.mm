@@ -39,8 +39,10 @@
 #import <WebCore/TouchAction.h>
 #import <WebCore/TransformationMatrix.h>
 #import <WebCore/WebCoreCALayerExtras.h>
+#import <pal/cocoa/CoreMaterialSoftLink.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/SoftLinking.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 namespace WTF {
@@ -376,6 +378,19 @@ static Class scrollViewScrollIndicatorClass()
 }
 
 @end
+
+#if HAVE(CORE_MATERIAL)
+
+@implementation WKMaterialView
+
++ (Class)layerClass
+{
+    return PAL::getMTMaterialLayerClass();
+}
+
+@end
+
+#endif
 
 @implementation WKUIRemoteView
 

@@ -80,6 +80,7 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/accessibility"
     "${WEBCORE_DIR}/accessibility/isolatedtree"
     "${WEBCORE_DIR}/animation"
+    "${WEBCORE_DIR}/automation"
     "${WEBCORE_DIR}/bindings"
     "${WEBCORE_DIR}/bindings/js"
     "${WEBCORE_DIR}/bridge"
@@ -92,7 +93,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/crypto/parameters"
     "${WEBCORE_DIR}/css"
     "${WEBCORE_DIR}/css/calc"
-    "${WEBCORE_DIR}/css/color"
     "${WEBCORE_DIR}/css/parser"
     "${WEBCORE_DIR}/css/query"
     "${WEBCORE_DIR}/css/typedom"
@@ -100,6 +100,16 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/css/typedom/numeric"
     "${WEBCORE_DIR}/css/typedom/transform"
     "${WEBCORE_DIR}/css/values"
+    "${WEBCORE_DIR}/css/values/backgrounds"
+    "${WEBCORE_DIR}/css/values/color"
+    "${WEBCORE_DIR}/css/values/color-adjust"
+    "${WEBCORE_DIR}/css/values/easing"
+    "${WEBCORE_DIR}/css/values/filter-effects"
+    "${WEBCORE_DIR}/css/values/images"
+    "${WEBCORE_DIR}/css/values/motion"
+    "${WEBCORE_DIR}/css/values/primitives"
+    "${WEBCORE_DIR}/css/values/shapes"
+    "${WEBCORE_DIR}/css/values/text-decoration"
     "${WEBCORE_DIR}/cssjit"
     "${WEBCORE_DIR}/dom"
     "${WEBCORE_DIR}/dom/messageports"
@@ -183,6 +193,16 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/storage"
     "${WEBCORE_DIR}/style"
     "${WEBCORE_DIR}/style/values"
+    "${WEBCORE_DIR}/style/values/backgrounds"
+    "${WEBCORE_DIR}/style/values/color"
+    "${WEBCORE_DIR}/style/values/color-adjust"
+    "${WEBCORE_DIR}/style/values/easing"
+    "${WEBCORE_DIR}/style/values/filter-effects"
+    "${WEBCORE_DIR}/style/values/images"
+    "${WEBCORE_DIR}/style/values/motion"
+    "${WEBCORE_DIR}/style/values/primitives"
+    "${WEBCORE_DIR}/style/values/shapes"
+    "${WEBCORE_DIR}/style/values/text-decoration"
     "${WEBCORE_DIR}/svg"
     "${WEBCORE_DIR}/svg/animation"
     "${WEBCORE_DIR}/svg/graphics"
@@ -361,6 +381,7 @@ set(WebCore_NON_SVG_IDL_FILES
     Modules/filesystemaccess/FileSystemFileHandle.idl
     Modules/filesystemaccess/FileSystemHandle.idl
     Modules/filesystemaccess/FileSystemSyncAccessHandle.idl
+    Modules/filesystemaccess/FileSystemWritableFileStream.idl
     Modules/filesystemaccess/StorageManager+FileSystemAccess.idl
 
     Modules/geolocation/Geolocation.idl
@@ -594,14 +615,11 @@ set(WebCore_NON_SVG_IDL_FILES
     Modules/pictureinpicture/PictureInPictureEvent.idl
     Modules/pictureinpicture/PictureInPictureWindow.idl
 
-    Modules/push-api/NavigatorPush.idl
     Modules/push-api/PushEncryptionKeyName.idl
     Modules/push-api/PushEvent.idl
     Modules/push-api/PushEventInit.idl
     Modules/push-api/PushManager.idl
     Modules/push-api/PushMessageData.idl
-    Modules/push-api/PushNotificationEvent.idl
-    Modules/push-api/PushNotificationEventInit.idl
     Modules/push-api/PushPermissionState.idl
     Modules/push-api/PushSubscription.idl
     Modules/push-api/PushSubscriptionChangeEvent.idl
@@ -611,6 +629,7 @@ set(WebCore_NON_SVG_IDL_FILES
     Modules/push-api/PushSubscriptionOptionsInit.idl
     Modules/push-api/ServiceWorkerGlobalScope+PushAPI.idl
     Modules/push-api/ServiceWorkerRegistration+PushAPI.idl
+    Modules/push-api/WindowPush.idl
 
     Modules/remoteplayback/RemotePlayback.idl
     Modules/remoteplayback/RemotePlaybackAvailabilityCallback.idl
@@ -958,6 +977,7 @@ set(WebCore_NON_SVG_IDL_FILES
     css/CSSPaintCallback.idl
     css/CSSPaintSize.idl
     css/CSSPageRule.idl
+    css/CSSPositionTryRule.idl
     css/CSSPropertyRule.idl
     css/CSSRule.idl
     css/CSSRuleList.idl
@@ -967,7 +987,6 @@ set(WebCore_NON_SVG_IDL_FILES
     css/CSSStyleRule.idl
     css/CSSStyleSheet.idl
     css/CSSSupportsRule.idl
-    css/CSSUnknownRule.idl
     css/CSSViewTransitionRule.idl
     css/DocumentOrShadowRoot+CSSOM.idl
     css/DOMCSSCustomPropertyDescriptor.idl
@@ -1007,14 +1026,14 @@ set(WebCore_NON_SVG_IDL_FILES
     css/typedom/StylePropertyMap.idl
     css/typedom/StylePropertyMapReadOnly.idl
 
-    css/typedom/color/CSSColor.idl
-    css/typedom/color/CSSColorValue.idl
     css/typedom/color/CSSHSL.idl
     css/typedom/color/CSSHWB.idl
     css/typedom/color/CSSLCH.idl
     css/typedom/color/CSSLab.idl
     css/typedom/color/CSSOKLCH.idl
     css/typedom/color/CSSOKLab.idl
+    css/typedom/color/CSSOMColor.idl
+    css/typedom/color/CSSOMColorValue.idl
     css/typedom/color/CSSRGB.idl
 
     css/typedom/numeric/CSSMathClamp.idl
@@ -1051,6 +1070,8 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/BeforeUnloadEvent.idl
     dom/BroadcastChannel.idl
     dom/CDATASection.idl
+    dom/CaretPosition.idl
+    dom/CaretPositionFromPointOptions.idl
     dom/CharacterData.idl
     dom/CheckVisibilityOptions.idl
     dom/ChildNode.idl
@@ -1085,6 +1106,7 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/DeviceOrientationEvent.idl
     dom/DeviceOrientationOrMotionPermissionState.idl
     dom/Document+CSSOMView.idl
+    dom/Document+CaretPositionFromPoint.idl
     dom/Document+Fullscreen.idl
     dom/Document+HTML.idl
     dom/Document+HTMLObsolete.idl
@@ -1152,6 +1174,8 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/NonDocumentTypeChildNode.idl
     dom/NonElementParentNode.idl
     dom/Observable.idl
+    dom/ObservableInspector.idl
+    dom/ObservableInspectorAbortCallback.idl
     dom/PageRevealEvent.idl
     dom/PageSwapEvent.idl
     dom/PageTransitionEvent.idl
@@ -1166,6 +1190,7 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/Range+CSSOMView.idl
     dom/Range+DOMParsing.idl
     dom/Range.idl
+    dom/ReducerCallback.idl
     dom/RequestAnimationFrameCallback.idl
     dom/SecurityPolicyViolationEvent.idl
     dom/SecurityPolicyViolationEventDisposition.idl
@@ -1209,6 +1234,7 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/ViewTransitionTypeSet.idl
     dom/ViewTransitionUpdateCallback.idl
     dom/VisibilityState.idl
+    dom/VisitorCallback.idl
     dom/WheelEvent.idl
     dom/WindowOrWorkerGlobalScope+TrustedTypes.idl
     dom/XMLDocument.idl
@@ -1313,6 +1339,7 @@ set(WebCore_NON_SVG_IDL_FILES
     html/ImageBitmapOptions.idl
     html/ImageData.idl
     html/ImageDataSettings.idl
+    html/ImageDataStorageFormat.idl
     html/InvokerElement.idl
     html/MediaController.idl
     html/MediaEncryptedEvent.idl
@@ -1975,6 +2002,7 @@ set(WebCore_USER_AGENT_STYLE_SHEETS
     ${WEBCORE_DIR}/css/svg.css
     ${WEBCORE_DIR}/css/viewTransitions.css
     ${WEBCORE_DIR}/html/shadow/attachmentElementShadow.css
+    ${WEBCORE_DIR}/html/shadow/detailsElementShadow.css
     ${WEBCORE_DIR}/html/shadow/imageOverlay.css
     ${WEBCORE_DIR}/html/shadow/meterElementShadow.css
 )
@@ -2327,11 +2355,6 @@ if (USE_LIBWEBRTC)
     )
 endif ()
 
-# FIXME: This needs a more scalable solution. See webkit.org/b/267080 for some related discussion.
-if (HAVE_OS_DARK_MODE_SUPPORT)
-    set(FEATURE_DEFINES_WITH_SPACE_SEPARATOR "${FEATURE_DEFINES_WITH_SPACE_SEPARATOR} HAVE_OS_DARK_MODE_SUPPORT")
-endif ()
-
 set(WebCoreTestSupport_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/mock"
     "${WEBCORE_DIR}/testing"
@@ -2515,6 +2538,19 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E cat ${MODERN_MEDIA_CONTROLS_SCRIPTS} > ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js
     VERBATIM)
 
+# Generate process sync data files
+add_custom_command(
+    OUTPUT ${WebCore_DERIVED_SOURCES_DIR}/DocumentSyncData.cpp ${WebCore_DERIVED_SOURCES_DIR}/DocumentSyncData.h ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncClient.cpp ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncClient.h ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncData.h ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncData.serialization.in
+    MAIN_DEPENDENCY ${WEBCORE_DIR}/page/ProcessSyncData.in
+    DEPENDS ${WEBCORE_DIR}/Scripts/generate-process-sync-data.py
+    COMMAND ${PYTHON_EXECUTABLE} ${WEBCORE_DIR}/Scripts/generate-process-sync-data.py ${WEBCORE_DIR}/page/ProcessSyncData.in ${WebCore_DERIVED_SOURCES_DIR}
+    VERBATIM)
+list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/DocumentSyncData.cpp)
+list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/DocumentSyncData.h)
+list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncClient.cpp)
+list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncClient.h)
+list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncData.h)
+
 # Modules that the bindings generator scripts may use
 set(SCRIPTS_RESOLVE_SUPPLEMENTAL
     ${WEBCORE_DIR}/bindings/scripts/IDLParser.pm
@@ -2556,6 +2592,13 @@ set(WebCoreTestSupport_INTERFACE_INCLUDE_DIRECTORIES
 WEBKIT_FRAMEWORK_DECLARE(WebCore)
 WEBKIT_LIBRARY_DECLARE(WebCoreTestSupport)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
+
+if (PORT STREQUAL GTK OR PORT STREQUAL WPE)
+    WEBKIT_ADD_TARGET_CXX_FLAGS(WebCore
+        -Wunsafe-buffer-usage
+        -fsafe-buffer-usage-suggestions
+    )
+endif ()
 
 list(APPEND WebCoreTestSupport_LIBRARIES ${WebCore_LIBRARIES})
 list(APPEND WebCoreTestSupport_PRIVATE_LIBRARIES ${WebCore_PRIVATE_LIBRARIES})
@@ -2611,6 +2654,16 @@ add_custom_command(
     COMMAND ${PYTHON_EXECUTABLE} ${WEBCORE_DIR}/platform/network/create-http-header-name-table ${WEBCORE_DIR}/platform/network/HTTPHeaderNames.in "${GPERF_EXECUTABLE}"
     VERBATIM)
 list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/HTTPHeaderNames.cpp)
+
+# Log messages
+add_custom_command(
+    OUTPUT ${WebCore_DERIVED_SOURCES_DIR}/WebCoreLogDefinitions.h
+    MAIN_DEPENDENCY ${WEBCORE_DIR}/platform/LogMessages.in
+    DEPENDS ${WEBCORE_DIR}/Scripts/generate-log-declarations.py
+    WORKING_DIRECTORY ${WebCore_DERIVED_SOURCES_DIR}
+    COMMAND ${PYTHON_EXECUTABLE} ${WEBCORE_DIR}/Scripts/generate-log-declarations.py ${WEBCORE_DIR}/platform/LogMessages.in ${WebCore_DERIVED_SOURCES_DIR}/WebCoreLogDefinitions.h
+    VERBATIM)
+list(APPEND WebCore_SOURCES ${WebCore_DERIVED_SOURCES_DIR}/WebCoreLogDefinitions.h)
 
 # Generate CSS property names
 add_custom_command(
@@ -2883,8 +2936,9 @@ WEBKIT_COMPUTE_SOURCES(WebCore)
 target_precompile_headers(WebCore PRIVATE WebCorePrefix.h)
 
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-    Modules/WebGPU/InternalAPI/WebGPU.serialization.in
+    ${WebCore_DERIVED_SOURCES_DIR}/ProcessSyncData.serialization.in
 
+    Modules/WebGPU/InternalAPI/WebGPU.serialization.in
     Modules/indexeddb/IndexedDB.serialization.in
 
     page/ActivityState.serialization.in
@@ -2898,11 +2952,8 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ScrollTypes.serialization.in
 
     platform/audio/PlatformMediaSession.serialization.in
-
     platform/graphics/InbandTextTrackPrivate.serialization.in
-
     platform/mediastream/MDNSRegisterError.serialization.in
-
     platform/network/ProtectionSpaceBase.serialization.in
 )
 

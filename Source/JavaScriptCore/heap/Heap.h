@@ -56,6 +56,8 @@
 #include <wtf/ParallelHelperPool.h>
 #include <wtf/Threading.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 class CodeBlock;
@@ -247,6 +249,7 @@ class Heap;
     v(nativeStdFunctionSpace, nativeStdFunctionHeapCellType, JSNativeStdFunction) \
     v(proxyObjectSpace, cellHeapCellType, ProxyObject) \
     v(proxyRevokeSpace, cellHeapCellType, ProxyRevoke) \
+    v(rawJSONObjectSpace, cellHeapCellType, JSRawJSONObject) \
     v(remoteFunctionSpace, cellHeapCellType, JSRemoteFunction) \
     v(scopedArgumentsTableSpace, destructibleCellHeapCellType, ScopedArgumentsTable) \
     v(scriptFetchParametersSpace, destructibleCellHeapCellType, JSScriptFetchParameters) \
@@ -433,7 +436,7 @@ public:
     JS_EXPORT_PRIVATE std::unique_ptr<TypeCountSet> protectedObjectTypeCounts();
     JS_EXPORT_PRIVATE std::unique_ptr<TypeCountSet> objectTypeCounts();
 
-    HashSet<MarkedVectorBase*>& markListSet();
+    UncheckedKeyHashSet<MarkedVectorBase*>& markListSet();
     void addMarkedJSValueRefArray(MarkedJSValueRefArray*);
     
     template<typename Functor> void forEachProtectedCell(const Functor&);
@@ -580,6 +583,9 @@ public:
 
     bool isMarkingForGCVerifier() const { return m_isMarkingForGCVerifier; }
 
+    void setKeepVerifierSlotVisitor();
+    void clearVerifierSlotVisitor();
+
     void appendPossiblyAccessedStringFromConcurrentThreads(String&& string)
     {
         m_possiblyAccessedStringsFromConcurrentThreads.append(WTFMove(string));
@@ -592,6 +598,9 @@ public:
     void reportWasmCalleePendingDestruction(Ref<Wasm::Callee>&&);
     bool isWasmCalleePendingDestruction(Wasm::Callee&);
 #endif
+
+    // This is a debug function for checking who marked the target cell.
+    void dumpVerifierMarkerData(HeapCell*);
 
 private:
     friend class AllocatingScope;
@@ -703,7 +712,7 @@ private:
     Ticket requestCollection(GCRequest);
     void waitForCollection(Ticket);
     
-    void suspendCompilerThreads();
+    bool suspendCompilerThreads();
     void willStartCollection();
     void prepareForMarking();
     
@@ -716,6 +725,7 @@ private:
     void updateObjectCounts();
     void endMarking();
 
+    void cancelDeferredWorkIfNeeded();
     void reapWeakHandles();
     void pruneStaleEntriesFromWeakGCHashTables();
     void sweepArrayBuffers();
@@ -780,8 +790,9 @@ private:
 
     static bool useGenerationalGC();
     static bool shouldSweepSynchronously();
-    
+
     void verifyGC();
+    void verifierMark();
 
     Lock m_lock;
     const HeapType m_heapType;
@@ -821,7 +832,7 @@ private:
     size_t m_deprecatedExtraMemorySize { 0 };
 
     ProtectCountSet m_protectedValues;
-    HashSet<MarkedVectorBase*> m_markListSet;
+    UncheckedKeyHashSet<MarkedVectorBase*> m_markListSet;
     SentinelLinkedList<MarkedJSValueRefArray, BasicRawSentinelNode<MarkedJSValueRefArray>> m_markedJSValueRefArrays;
 
     std::unique_ptr<MachineThreads> m_machineThreads;
@@ -851,6 +862,7 @@ private:
     bool m_isShuttingDown { false };
     bool m_mutatorShouldBeFenced { Options::forceFencedBarrier() };
     bool m_isMarkingForGCVerifier { false };
+    bool m_keepVerifierSlotVisitor { false };
     Lock m_wasmCalleesPendingDestructionLock;
 
     unsigned m_barrierThreshold { Options::forceFencedBarrier() ? tautologicalThreshold : blackThreshold };
@@ -884,10 +896,10 @@ private:
 #endif
     unsigned m_deferralDepth { 0 };
 
-    HashSet<WeakGCHashTable*> m_weakGCHashTables;
+    UncheckedKeyHashSet<WeakGCHashTable*> m_weakGCHashTables;
     
 #if ENABLE(WEBASSEMBLY)
-    HashSet<Ref<Wasm::Callee>> m_wasmCalleesPendingDestruction WTF_GUARDED_BY_LOCK(m_wasmCalleesPendingDestructionLock);
+    UncheckedKeyHashSet<Ref<Wasm::Callee>> m_wasmCalleesPendingDestruction WTF_GUARDED_BY_LOCK(m_wasmCalleesPendingDestructionLock);
 #endif
 
     std::unique_ptr<MarkStackArray> m_sharedCollectorMarkStack;
@@ -935,6 +947,7 @@ private:
     bool m_mutatorDidRun { true };
     bool m_didDeferGCWork { false };
     bool m_shouldStopCollectingContinuously { false };
+    bool m_isCompilerThreadsSuspended { false };
 
     uint64_t m_mutatorExecutionVersion { 0 };
     uint64_t m_phaseVersion { 0 };
@@ -1107,8 +1120,8 @@ public:
         
         static IsoCellSet& setFor(Subspace& space)
         {
-            return *bitwise_cast<IsoCellSet*>(
-                bitwise_cast<char*>(&space) -
+            return *std::bit_cast<IsoCellSet*>(
+                std::bit_cast<char*>(&space) -
                 OBJECT_OFFSETOF(SpaceAndSet, space) +
                 OBJECT_OFFSETOF(SpaceAndSet, set));
         }
@@ -1142,8 +1155,8 @@ public:
 
         static ScriptExecutableSpaceAndSets& setAndSpaceFor(Subspace& space)
         {
-            return *bitwise_cast<ScriptExecutableSpaceAndSets*>(
-                bitwise_cast<char*>(&space) -
+            return *std::bit_cast<ScriptExecutableSpaceAndSets*>(
+                std::bit_cast<char*>(&space) -
                 OBJECT_OFFSETOF(ScriptExecutableSpaceAndSets, space));
         }
 
@@ -1235,3 +1248,5 @@ private:
 } // namespace GCClient
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -82,6 +82,9 @@ public:
     WebUserContentControllerProxy();
     ~WebUserContentControllerProxy();
 
+    void ref() const final { API::ObjectImpl<API::Object::Type::UserContentController>::ref(); }
+    void deref() const final { API::ObjectImpl<API::Object::Type::UserContentController>::deref(); }
+
     static WebUserContentControllerProxy* get(UserContentControllerIdentifier);
 
     UserContentControllerParameters parameters() const;
@@ -128,7 +131,7 @@ public:
     void removeAllContentRuleLists();
 #endif
 
-    const UncheckedKeyHashMap<String, std::pair<Ref<API::ContentRuleList>, URL>>& contentExtensionRules() { return m_contentRuleLists; }
+    const HashMap<String, std::pair<Ref<API::ContentRuleList>, URL>>& contentExtensionRules() { return m_contentRuleLists; }
     Vector<std::pair<WebCompiledContentRuleListData, URL>> contentRuleListData() const;
 #endif
 
@@ -150,12 +153,12 @@ private:
     WeakHashSet<WebProcessProxy> m_processes;
     Ref<API::Array> m_userScripts;
     Ref<API::Array> m_userStyleSheets;
-    UncheckedKeyHashMap<ScriptMessageHandlerIdentifier, RefPtr<WebScriptMessageHandler>> m_scriptMessageHandlers;
+    HashMap<ScriptMessageHandlerIdentifier, RefPtr<WebScriptMessageHandler>> m_scriptMessageHandlers;
     HashSet<ContentWorldIdentifier> m_associatedContentWorlds;
 
 #if ENABLE(CONTENT_EXTENSIONS)
     WeakHashSet<NetworkProcessProxy> m_networkProcesses;
-    UncheckedKeyHashMap<String, std::pair<Ref<API::ContentRuleList>, URL>> m_contentRuleLists;
+    HashMap<String, std::pair<Ref<API::ContentRuleList>, URL>> m_contentRuleLists;
 #endif
 };
 

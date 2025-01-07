@@ -2567,8 +2567,9 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
+    case StringAt:
     case StringCharAt: {
-        // Relies on StringCharAt node having same basic layout as GetByVal
+        // Relies on StringCharAt and StringAt node having same basic layout as GetByVal
         JSValueRegsTemporary result;
         compileGetByValOnString(node, scopedLambda<std::tuple<JSValueRegs, DataFormat>(DataFormat preferredFormat, bool needsFlush)>([&](DataFormat preferredFormat, bool needsFlush) {
             result = JSValueRegsTemporary(this);
@@ -4224,11 +4225,11 @@ void SpeculativeJIT::compile(Node* node)
         break;
 
     case SuperSamplerBegin:
-        add32(TrustedImm32(1), AbsoluteAddress(bitwise_cast<void*>(&g_superSamplerCount)));
+        add32(TrustedImm32(1), AbsoluteAddress(std::bit_cast<void*>(&g_superSamplerCount)));
         break;
 
     case SuperSamplerEnd:
-        sub32(TrustedImm32(1), AbsoluteAddress(bitwise_cast<void*>(&g_superSamplerCount)));
+        sub32(TrustedImm32(1), AbsoluteAddress(std::bit_cast<void*>(&g_superSamplerCount)));
         break;
 
     case Phantom:

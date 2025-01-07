@@ -26,7 +26,9 @@
 #include "config.h"
 #include "StyleTreeResolver.h"
 
+#include "AXObjectCache.h"
 #include "AnchorPositionEvaluator.h"
+#include "AnimationTimelinesController.h"
 #include "CSSFontSelector.h"
 #include "ComposedTreeAncestorIterator.h"
 #include "ComposedTreeIterator.h"
@@ -249,7 +251,7 @@ static bool styleChangeAffectsRelativeUnits(const RenderStyle& style, const Rend
 {
     if (!existingStyle)
         return true;
-    return existingStyle->fontCascade() != style.fontCascade()
+    return !existingStyle->fontCascadeEqual(style)
         || existingStyle->computedLineHeight() != style.computedLineHeight();
 }
 
@@ -676,6 +678,11 @@ ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolved
             styleable.updateCSSViewTimelines(oldStyle, *resolvedStyle.style);
         }
 
+        if ((oldStyle && oldStyle->timelineScope().type != TimelineScope::Type::None) || resolvedStyle.style->timelineScope().type != TimelineScope::Type::None) {
+            CheckedRef timelinesController = element.protectedDocument()->ensureTimelinesController();
+            timelinesController->updateNamedTimelineMapForTimelineScope(resolvedStyle.style->timelineScope(), element);
+        }
+
         // The order in which CSS Transitions and CSS Animations are updated matters since CSS Transitions define the after-change style
         // to use CSS Animations as defined in the previous style change event. As such, we update CSS Animations after CSS Transitions
         // such that when CSS Transitions are updated the CSS Animations data is the same as during the previous style change event.
@@ -696,7 +703,7 @@ ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolved
         styleable.setLastStyleChangeEventStyle(RenderStyle::clonePtr(*resolvedStyle.style));
 
         // Apply all keyframe effects to the new style.
-        HashSet<AnimatableCSSProperty> animatedProperties;
+        UncheckedKeyHashSet<AnimatableCSSProperty> animatedProperties;
         auto animatedStyle = RenderStyle::clonePtr(*resolvedStyle.style);
 
         auto animationImpact = styleable.applyKeyframeEffects(*animatedStyle, animatedProperties, previousLastStyleChangeEventStyle.get(), resolutionContext);
@@ -863,7 +870,7 @@ const RenderStyle& TreeResolver::parentAfterChangeStyle(const Styleable& styleab
     return *resolutionContext.parentStyle;
 }
 
-HashSet<AnimatableCSSProperty> TreeResolver::applyCascadeAfterAnimation(RenderStyle& animatedStyle, const HashSet<AnimatableCSSProperty>& animatedProperties, bool isTransition, const MatchResult& matchResult, const Element& element, const ResolutionContext& resolutionContext)
+UncheckedKeyHashSet<AnimatableCSSProperty> TreeResolver::applyCascadeAfterAnimation(RenderStyle& animatedStyle, const UncheckedKeyHashSet<AnimatableCSSProperty>& animatedProperties, bool isTransition, const MatchResult& matchResult, const Element& element, const ResolutionContext& resolutionContext)
 {
     auto builderContext = BuilderContext {
         m_document.get(),
@@ -978,7 +985,7 @@ auto TreeResolver::determineResolutionType(const Element& element, const RenderS
     case DescendantsToResolve::All:
         return ResolutionType::Full;
     case DescendantsToResolve::ChildrenWithExplicitInherit:
-        if (existingStyle && existingStyle->hasExplicitlyInheritedProperties())
+        if (!existingStyle || existingStyle->hasExplicitlyInheritedProperties())
             return ResolutionType::Full;
         return { };
     };
@@ -1110,6 +1117,8 @@ void TreeResolver::resolveComposedTree()
 
             if (element.hasCustomStyleResolveCallbacks())
                 element.didRecalcStyle(elementUpdate.change);
+            if (CheckedPtr cache = m_document->existingAXObjectCache())
+                cache->onStyleChange(element, elementUpdate.change, style, elementUpdate.style.get());
 
             style = elementUpdate.style.get();
             change = elementUpdate.change;
@@ -1304,7 +1313,7 @@ static void suspendMemoryCacheClientCalls(Document& document)
 
     page->setMemoryCacheClientCallsEnabled(false);
 
-    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(page->mainFrame()))
+    if (RefPtr localMainFrame = page->localMainFrame())
         memoryCacheClientCallsResumeQueue().append(localMainFrame);
 }
 

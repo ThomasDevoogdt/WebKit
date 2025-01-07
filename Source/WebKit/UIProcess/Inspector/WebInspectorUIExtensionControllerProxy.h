@@ -53,6 +53,9 @@ public:
     static Ref<WebInspectorUIExtensionControllerProxy> create(WebPageProxy& inspectorPage);
     virtual ~WebInspectorUIExtensionControllerProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     // Implemented in generated WebInspectorUIExtensionControllerProxyMessageReceiver.cpp
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
@@ -86,7 +89,7 @@ private:
     void whenFrontendHasLoaded(Function<void()>&&);
 
     WeakPtr<WebPageProxy> m_inspectorPage;
-    UncheckedKeyHashMap<Inspector::ExtensionID, RefPtr<API::InspectorExtension>> m_extensionAPIObjectMap;
+    HashMap<Inspector::ExtensionID, RefPtr<API::InspectorExtension>> m_extensionAPIObjectMap;
 
     // Used to queue actions such as registering extensions that happen early on.
     // There's no point sending these before the frontend is fully loaded.

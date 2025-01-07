@@ -39,15 +39,11 @@
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-
 #if USE(LIBWEBRTC)
 
-ALLOW_COMMA_BEGIN
-
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/webkit_sdk/WebKit/WebKitUtilities.h>
-
-ALLOW_COMMA_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #endif
 
@@ -148,7 +144,7 @@ std::optional<SharedVideoFrame::Buffer> SharedVideoFrameWriter::writeBuffer(CVPi
     if (!prepareWriting(info, newSemaphoreCallback, newMemoryCallback))
         return { };
 
-    if (!info.writePixelBuffer(pixelBuffer, m_storage->mutableSpan().data()))
+    if (!info.writePixelBuffer(pixelBuffer, m_storage->mutableSpan()))
         return { };
 
     scope.release();
@@ -175,7 +171,7 @@ std::optional<SharedVideoFrame::Buffer> SharedVideoFrameWriter::writeBuffer(webr
     if (!prepareWriting(info, newSemaphoreCallback, newMemoryCallback))
         return { };
 
-    if (!info.writeVideoFrameBuffer(frameBuffer, m_storage->mutableSpan().data()))
+    if (!info.writeVideoFrameBuffer(frameBuffer, m_storage->mutableSpan()))
         return { };
 
     scope.release();
@@ -239,7 +235,7 @@ RetainPtr<CVPixelBufferRef> SharedVideoFrameReader::readBufferFromSharedMemory()
         return { };
     }
 
-    auto result = info->createPixelBufferFromMemory(data.data() + SharedVideoFrameInfoEncodingLength, pixelBufferPool(*info));
+    auto result = info->createPixelBufferFromMemory(data.subspan(SharedVideoFrameInfoEncodingLength), pixelBufferPool(*info));
     if (result && m_resourceOwner && m_useIOSurfaceBufferPool == UseIOSurfaceBufferPool::Yes)
         setOwnershipIdentityForCVPixelBuffer(result.get(), m_resourceOwner);
     return result;
@@ -314,7 +310,5 @@ bool SharedVideoFrameReader::setSharedMemory(SharedMemory::Handle&& handle)
 }
 
 }
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

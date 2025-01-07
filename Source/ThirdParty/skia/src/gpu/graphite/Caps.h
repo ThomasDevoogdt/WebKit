@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkRefCnt.h"
@@ -321,6 +322,8 @@ public:
 
     bool setBackendLabels() const { return fSetBackendLabels; }
 
+    GpuStatsFlags supportedGpuStats() const { return fSupportedGpuStats; }
+
 protected:
     Caps();
 
@@ -329,8 +332,8 @@ protected:
     void finishInitialization(const ContextOptions&);
 
 #if defined(GPU_TEST_UTILS)
-    void setDeviceName(const char* n) {
-        fDeviceName = n;
+    void setDeviceName(std::string n) {
+        fDeviceName = std::move(n);
     }
 #endif
 
@@ -407,6 +410,8 @@ protected:
 
     ResourceBindingRequirements fResourceBindingReqs;
 
+    GpuStatsFlags fSupportedGpuStats = GpuStatsFlags::kNone;
+
     //////////////////////////////////////////////////////////////////////////////////////////
     // Client-provided Caps
 
@@ -431,7 +436,6 @@ protected:
     bool fAllowMultipleAtlasTextures = true;
     bool fSupportBilerpFromGlyphAtlas = false;
 
-    // Set based on client options
     bool fRequireOrderedRecordings = false;
 
     bool fSetBackendLabels = false;

@@ -64,9 +64,11 @@ public:
     void getVideoFrameBuffer(const RemoteVideoFrameProxy&, bool canUseIOSurfce, Callback&&);
     RefPtr<WebCore::NativeImage> getNativeImage(const WebCore::VideoFrame&);
 
-    void ref() const final { return IPC::WorkQueueMessageReceiver::ref(); }
-    void deref() const final { return IPC::WorkQueueMessageReceiver::deref(); }
     ThreadSafeWeakPtrControlBlock& controlBlock() const final { return IPC::WorkQueueMessageReceiver::controlBlock(); }
+    size_t weakRefCount() const final { return IPC::WorkQueueMessageReceiver::weakRefCount(); }
+
+    void ref() const final { IPC::WorkQueueMessageReceiver::ref(); }
+    void deref() const final { IPC::WorkQueueMessageReceiver::deref(); }
 
 private:
     explicit RemoteVideoFrameObjectHeapProxyProcessor(GPUProcessConnection&);
@@ -91,7 +93,7 @@ private:
     Lock m_connectionLock;
     RefPtr<IPC::Connection> m_connection WTF_GUARDED_BY_LOCK(m_connectionLock);
     Lock m_callbacksLock;
-    UncheckedKeyHashMap<RemoteVideoFrameIdentifier, Callback> m_callbacks WTF_GUARDED_BY_LOCK(m_callbacksLock);
+    HashMap<RemoteVideoFrameIdentifier, Callback> m_callbacks WTF_GUARDED_BY_LOCK(m_callbacksLock);
     Ref<WorkQueue> m_queue;
     SharedVideoFrameReader m_sharedVideoFrameReader;
 

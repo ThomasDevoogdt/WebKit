@@ -39,6 +39,7 @@
 
 namespace WebCore {
 
+class Page;
 class PlatformMediaSession;
 struct MediaConfiguration;
 struct NowPlayingInfo;
@@ -51,8 +52,12 @@ class PlatformMediaSessionManager
 {
     WTF_MAKE_TZONE_ALLOCATED(PlatformMediaSessionManager);
 public:
-    WEBCORE_EXPORT static PlatformMediaSessionManager* sharedManagerIfExists();
-    WEBCORE_EXPORT static PlatformMediaSessionManager& sharedManager();
+    WEBCORE_EXPORT static PlatformMediaSessionManager* singletonIfExists();
+    WEBCORE_EXPORT static PlatformMediaSessionManager& singleton();
+
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
 
     static void updateNowPlayingInfoIfNecessary();
     static void updateAudioSessionCategoryIfNecessary();
@@ -72,8 +77,6 @@ public:
 #if ENABLE(VP9)
     WEBCORE_EXPORT static void setShouldEnableVP9Decoder(bool);
     WEBCORE_EXPORT static bool shouldEnableVP9Decoder();
-    WEBCORE_EXPORT static void setShouldEnableVP8Decoder(bool);
-    WEBCORE_EXPORT static bool shouldEnableVP8Decoder();
     WEBCORE_EXPORT static void setSWVPDecodersAlwaysEnabled(bool);
     WEBCORE_EXPORT static bool swVPDecodersAlwaysEnabled();
 #endif
@@ -101,7 +104,7 @@ public:
     virtual std::optional<MediaUniqueIdentifier> lastUpdatedNowPlayingInfoUniqueIdentifier() const { return std::nullopt; }
     virtual bool registeredAsNowPlayingApplication() const { return false; }
     virtual bool haveEverRegisteredAsNowPlayingApplication() const { return false; }
-    virtual void prepareToSendUserMediaPermissionRequest() { }
+    virtual void prepareToSendUserMediaPermissionRequestForPage(Page&) { }
 
     bool willIgnoreSystemInterruptions() const { return m_willIgnoreSystemInterruptions; }
     void setWillIgnoreSystemInterruptions(bool ignore) { m_willIgnoreSystemInterruptions = ignore; }
@@ -199,6 +202,8 @@ public:
 
     bool hasActiveNowPlayingSessionInGroup(std::optional<MediaSessionGroupIdentifier>);
 
+    virtual void updatePresentingApplicationPIDIfNecessary(ProcessID) { }
+
 protected:
     friend class PlatformMediaSession;
     static std::unique_ptr<PlatformMediaSessionManager> create();
@@ -243,7 +248,7 @@ private:
     void dumpSessionStates();
 #endif
 
-    SessionRestrictions m_restrictions[static_cast<unsigned>(PlatformMediaSession::MediaType::WebAudio) + 1];
+    std::array<SessionRestrictions, static_cast<unsigned>(PlatformMediaSession::MediaType::WebAudio) + 1> m_restrictions;
     mutable Vector<WeakPtr<PlatformMediaSession>> m_sessions;
 
     std::optional<PlatformMediaSession::InterruptionType> m_currentInterruption;
@@ -279,7 +284,6 @@ private:
 
 #if ENABLE(VP9)
     static bool m_vp9DecoderEnabled;
-    static bool m_vp8DecoderEnabled;
     static bool m_swVPDecodersAlwaysEnabled;
 #endif
 

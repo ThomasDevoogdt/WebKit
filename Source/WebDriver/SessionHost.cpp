@@ -43,6 +43,7 @@ static WeakHashSet<SessionHost::BrowserTerminatedObserver>& browserTerminatedObs
 
 void SessionHost::inspectorDisconnected()
 {
+    Ref<SessionHost> protectedThis(*this);
     // Browser closed or crashed, finish all pending commands with error.
     for (auto messageID : copyToVector(m_commandRequests.keys())) {
         auto responseHandler = m_commandRequests.take(messageID);
@@ -86,8 +87,12 @@ void SessionHost::dispatchMessage(const String& message)
         return;
 
     auto sequenceID = messageObject->getInteger("id"_s);
-    if (!sequenceID)
+    if (!sequenceID) {
+#if ENABLE(WEBDRIVER_BIDI)
+        dispatchEvent(WTFMove(messageObject));
+#endif
         return;
+    }
 
     auto responseHandler = m_commandRequests.take(*sequenceID);
     ASSERT(responseHandler);
@@ -104,18 +109,27 @@ void SessionHost::dispatchMessage(const String& message)
     responseHandler(WTFMove(response));
 }
 
-#if !USE(GLIB)
 bool SessionHost::isRemoteBrowser() const
 {
-    return false;
+    return m_isRemoteBrowser;
 }
-#endif
 
 #if ENABLE(WEBDRIVER_BIDI)
 void SessionHost::addBrowserTerminatedObserver(const BrowserTerminatedObserver& observer)
 {
     ASSERT(!browserTerminatedObservers().contains(observer));
     browserTerminatedObservers().add(observer);
+}
+
+void SessionHost::removeBrowserTerminatedObserver(const BrowserTerminatedObserver& observer)
+{
+    browserTerminatedObservers().remove(observer);
+}
+
+void SessionHost::dispatchEvent(RefPtr<JSON::Object>&& event)
+{
+    if (m_eventHandler)
+        m_eventHandler->dispatchEvent(WTFMove(event));
 }
 #endif
 

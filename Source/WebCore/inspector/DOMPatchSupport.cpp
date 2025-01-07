@@ -49,6 +49,7 @@
 #include <wtf/HashTraits.h>
 #include <wtf/RefPtr.h>
 #include <wtf/SHA1.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/CString.h>
 
@@ -85,8 +86,8 @@ void DOMPatchSupport::patchDocument(const String& markup)
 
     ASSERT(newDocument);
     RefPtr<DocumentParser> parser;
-    if (newDocument->isHTMLDocument())
-        parser = HTMLDocumentParser::create(static_cast<HTMLDocument&>(*newDocument));
+    if (auto* htmlDocument = dynamicDowncast<HTMLDocument>(newDocument.get()))
+        parser = HTMLDocumentParser::create(*htmlDocument);
     else
         parser = XMLDocumentParser::create(*newDocument, XMLDocumentParser::IsInFrameView::No);
     parser->insert(markup); // Use insert() so that the parser will not yield.
@@ -234,7 +235,7 @@ DOMPatchSupport::diff(const Vector<std::unique_ptr<Digest>>& oldList, const Vect
         newMap[newIndex].second = oldIndex;
     }
 
-    typedef UncheckedKeyHashMap<String, Vector<size_t>> DiffTable;
+    using DiffTable = HashMap<String, Vector<size_t>>;
     DiffTable newTable;
     DiffTable oldTable;
 
@@ -296,7 +297,7 @@ ExceptionOr<void> DOMPatchSupport::innerPatchChildren(ContainerNode& parentNode,
     Digest* oldBody = nullptr;
 
     // 1. First strip everything except for the nodes that retain. Collect pending merges.
-    UncheckedKeyHashMap<Digest*, Digest*> merges;
+    HashMap<Digest*, Digest*> merges;
     HashSet<size_t, IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> usedNewOrdinals;
     for (size_t i = 0; i < oldList.size(); ++i) {
         if (oldMap[i].first) {
@@ -407,8 +408,7 @@ std::unique_ptr<DOMPatchSupport::Digest> DOMPatchSupport::createDigest(Node& nod
     digest->node = &node;
     SHA1 sha1;
 
-    auto nodeType = node.nodeType();
-    sha1.addBytes(std::span { reinterpret_cast<const uint8_t*>(&nodeType), sizeof(nodeType) });
+    sha1.addBytes(asByteSpan(node.nodeType()));
     addStringToSHA1(sha1, node.nodeName());
     addStringToSHA1(sha1, node.nodeValue());
 

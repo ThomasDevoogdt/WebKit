@@ -41,7 +41,7 @@
 #include "pas_probabilistic_guard_malloc_allocator.h"
 #include <stdio.h>
 
-void pas_large_heap_construct(pas_large_heap* heap)
+void pas_large_heap_construct(pas_large_heap* heap, bool is_megapage_heap)
 {
     /* Warning: anything you do here must be duplicated in
        pas_try_allocate_intrinsic.h. */
@@ -49,6 +49,7 @@ void pas_large_heap_construct(pas_large_heap* heap)
     pas_fast_large_free_heap_construct(&heap->free_heap);
     heap->table_state = pas_heap_table_state_uninitialized;
     heap->index = 0;
+    heap->is_megapage_heap = is_megapage_heap;
 }
 
 typedef struct {
@@ -148,7 +149,7 @@ static pas_allocation_result allocate_impl(pas_large_heap* heap,
     }
 
     PAS_ASSERT(pas_is_aligned(result.begin, *alignment));
-    PAS_PROFILE(LARGE_HEAP_ALLOCATION, result.begin, *size, allocation_mode);
+    PAS_PROFILE(LARGE_HEAP_ALLOCATION, heap_config, result.begin, *size, allocation_mode);
     
     return result;
 }
@@ -226,7 +227,7 @@ bool pas_large_heap_try_deallocate(uintptr_t begin,
         return false;
     }
 
-    PAS_PROFILE(LARGE_MAP_TOOK_ENTRY, map_entry.begin, map_entry.end);
+    PAS_PROFILE(LARGE_MAP_TOOK_ENTRY, heap_config, map_entry.begin, map_entry.end);
     PAS_ASSERT(pas_heap_config_kind_get_config(
                    pas_heap_for_large_heap(map_entry.heap)->config_kind)
                == heap_config);
@@ -269,7 +270,7 @@ bool pas_large_heap_try_shrink(uintptr_t begin,
     if (pas_large_map_entry_is_empty(map_entry))
         return false;
 
-    PAS_PROFILE(LARGE_MAP_TOOK_ENTRY, map_entry.begin, map_entry.end);
+    PAS_PROFILE(LARGE_MAP_TOOK_ENTRY, heap_config, map_entry.begin, map_entry.end);
     heap = map_entry.heap;
     type = pas_heap_for_large_heap(heap)->type;
 

@@ -77,6 +77,7 @@
 #import <JavaScriptCore/JSContextInternal.h>
 #import <WebCore/AuthenticationMac.h>
 #import <WebCore/BackForwardController.h>
+#import <WebCore/BackForwardItemIdentifier.h>
 #import <WebCore/BitmapImage.h>
 #import <WebCore/CachedFrame.h>
 #import <WebCore/Chrome.h>
@@ -96,7 +97,6 @@
 #import <WebCore/HTMLFrameOwnerElement.h>
 #import <WebCore/HTMLNames.h>
 #import <WebCore/HTMLPlugInElement.h>
-#import <WebCore/HTTPStatusCodes.h>
 #import <WebCore/HistoryController.h>
 #import <WebCore/HistoryItem.h>
 #import <WebCore/HitTestResult.h>
@@ -847,9 +847,6 @@ void WebFrameLoaderClient::dispatchShow()
 
 void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, const String&, WebCore::FramePolicyFunction&& function)
 {
-    if (response.httpStatusCode() == httpStatus205ResetContent || response.httpStatusCode() == httpStatus204NoContent)
-        return function(WebCore::PolicyAction::Ignore);
-
     WebView *webView = getWebView(m_webFrame.get());
 
     [[webView _policyDelegateForwarder] webView:webView
@@ -1245,7 +1242,7 @@ void WebFrameLoaderClient::saveViewStateToItem(WebCore::HistoryItem& item)
 
 void WebFrameLoaderClient::restoreViewState()
 {
-    WebCore::HistoryItem* currentItem = core(m_webFrame.get())->history().currentItem();
+    WebCore::HistoryItem* currentItem = core(m_webFrame.get())->loader().history().currentItem();
     ASSERT(currentItem);
 
     // FIXME: As the ASSERT attests, it seems we should always have a currentItem here.
@@ -1822,7 +1819,7 @@ RefPtr<WebCore::Widget> WebFrameLoaderClient::createPlugin(WebCore::HTMLPlugInEl
         if (shouldBlockPlugin(pluginPackage)) {
             errorCode = WebKitErrorBlockedPlugInVersion;
             if (is<WebCore::RenderEmbeddedObject>(element.renderer()))
-                downcast<WebCore::RenderEmbeddedObject>(*element.renderer()).setPluginUnavailabilityReason(WebCore::RenderEmbeddedObject::InsecurePluginVersion);
+                downcast<WebCore::RenderEmbeddedObject>(*element.renderer()).setPluginUnavailabilityReason(WebCore::PluginUnavailabilityReason::InsecurePluginVersion);
         } else {
             if ([pluginPackage isKindOfClass:[WebPluginPackage class]])
                 view = pluginView(m_webFrame.get(), (WebPluginPackage *)pluginPackage, attributeKeys.get(), createNSArray(paramValues).get(), baseURL, kit(&element), loadManually);
@@ -1929,6 +1926,12 @@ void WebFrameLoaderClient::dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapp
 Ref< WebCore::FrameNetworkingContext> WebFrameLoaderClient::createNetworkingContext()
 {
     return WebFrameNetworkingContext::create(core(m_webFrame.get()));
+}
+
+RefPtr<WebCore::HistoryItem> WebFrameLoaderClient::createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier itemID) const
+{
+    Ref coreMainFrame = core(m_webFrame.get())->rootFrame();
+    return coreMainFrame->loader().history().createItemTree(*core(m_webFrame.get()), clipAtTarget, itemID);
 }
 
 #if PLATFORM(IOS_FAMILY)

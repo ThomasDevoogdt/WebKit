@@ -55,6 +55,9 @@ public:
     }
     virtual ~RemoteCDMFactoryProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void clear();
 
     void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
@@ -69,11 +72,11 @@ public:
     void addProxy(const RemoteCDMIdentifier&, RefPtr<RemoteCDMProxy>&&);
     void removeProxy(const RemoteCDMIdentifier&);
 
-    void addInstance(const RemoteCDMInstanceIdentifier&, std::unique_ptr<RemoteCDMInstanceProxy>&&);
+    void addInstance(const RemoteCDMInstanceIdentifier&, Ref<RemoteCDMInstanceProxy>&&);
     void removeInstance(const RemoteCDMInstanceIdentifier&);
     RemoteCDMInstanceProxy* getInstance(const RemoteCDMInstanceIdentifier&);
 
-    void addSession(const RemoteCDMInstanceSessionIdentifier&, std::unique_ptr<RemoteCDMInstanceSessionProxy>&&);
+    void addSession(const RemoteCDMInstanceSessionIdentifier&, Ref<RemoteCDMInstanceSessionProxy>&&);
     void removeSession(const RemoteCDMInstanceSessionIdentifier&);
 
     RefPtr<GPUConnectionToWebProcess> gpuConnectionToWebProcess() { return m_gpuConnectionToWebProcess.get(); }
@@ -100,9 +103,9 @@ private:
     void supportsKeySystem(const String& keySystem, CompletionHandler<void(bool)>&&);
 
     ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
-    UncheckedKeyHashMap<RemoteCDMIdentifier, RefPtr<RemoteCDMProxy>> m_proxies;
-    UncheckedKeyHashMap<RemoteCDMInstanceIdentifier, std::unique_ptr<RemoteCDMInstanceProxy>> m_instances;
-    UncheckedKeyHashMap<RemoteCDMInstanceSessionIdentifier, std::unique_ptr<RemoteCDMInstanceSessionProxy>> m_sessions;
+    HashMap<RemoteCDMIdentifier, RefPtr<RemoteCDMProxy>> m_proxies;
+    HashMap<RemoteCDMInstanceIdentifier, Ref<RemoteCDMInstanceProxy>> m_instances;
+    HashMap<RemoteCDMInstanceSessionIdentifier, Ref<RemoteCDMInstanceSessionProxy>> m_sessions;
 
 #if !RELEASE_LOG_DISABLED
     mutable RefPtr<Logger> m_logger;

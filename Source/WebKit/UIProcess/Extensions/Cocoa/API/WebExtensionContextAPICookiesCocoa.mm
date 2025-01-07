@@ -35,6 +35,7 @@
 #import "APIHTTPCookieStore.h"
 #import "CocoaHelpers.h"
 #import "WKWebViewConfiguration.h"
+#import "WKWebViewPrivate.h"
 #import "WKWebsiteDataStoreInternal.h"
 #import "WebExtensionContextProxyMessages.h"
 #import "WebExtensionCookieParameters.h"
@@ -219,9 +220,9 @@ void WebExtensionContext::cookiesRemove(std::optional<PAL::SessionID> sessionID,
     });
 }
 
-void WebExtensionContext::cookiesGetAllCookieStores(CompletionHandler<void(Expected<UncheckedKeyHashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>, WebExtensionError>&&)>&& completionHandler)
+void WebExtensionContext::cookiesGetAllCookieStores(CompletionHandler<void(Expected<HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>>, WebExtensionError>&&)>&& completionHandler)
 {
-    UncheckedKeyHashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>> stores;
+    HashMap<PAL::SessionID, Vector<WebExtensionTabIdentifier>> stores;
 
     auto defaultSessionID = extensionController()->protectedConfiguration()->defaultWebsiteDataStore().sessionID();
     stores.set(defaultSessionID, Vector<WebExtensionTabIdentifier> { });

@@ -66,6 +66,10 @@ public:
     void addWebProcessProxy(WebProcessProxy&);
     void removeWebProcessProxy(WebProcessProxy&);
 
+    // Do nothing since this is a singleton.
+    void ref() const final { }
+    void deref() const final { }
+
 #if PLATFORM(COCOA)
     void revokeAccess(WebProcessProxy&);
     std::optional<IPC::AsyncReplyID> grantAccessToCurrentData(WebProcessProxy&, const String& pasteboardName, CompletionHandler<void()>&&);
@@ -172,7 +176,7 @@ private:
         void revokeAccess(WebProcessProxy&);
         std::optional<PasteboardAccessType> accessType(WebProcessProxy&) const;
     };
-    UncheckedKeyHashMap<String, PasteboardAccessInformation> m_pasteboardNameToAccessInformationMap;
+    HashMap<String, PasteboardAccessInformation> m_pasteboardNameToAccessInformationMap;
 #endif
 };
 

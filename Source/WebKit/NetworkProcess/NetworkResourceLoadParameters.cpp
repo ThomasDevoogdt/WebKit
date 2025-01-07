@@ -26,7 +26,6 @@
 #include "config.h"
 #include "NetworkResourceLoadParameters.h"
 
-#include "WebCoreArgumentCoders.h"
 
 namespace WebKit {
 using namespace WebCore;
@@ -55,6 +54,7 @@ NetworkResourceLoadParameters::NetworkResourceLoadParameters(
     , URL&& documentURL
     , bool isCrossOriginOpenerPolicyEnabled
     , bool isClearSiteDataHeaderEnabled
+    , bool isClearSiteDataExecutionContextEnabled
     , bool isDisplayingInitialEmptyDocument
     , WebCore::SandboxFlags effectiveSandboxFlags
     , URL&& openerURL
@@ -94,6 +94,7 @@ NetworkResourceLoadParameters::NetworkResourceLoadParameters(
         , documentURL(WTFMove(documentURL))
         , isCrossOriginOpenerPolicyEnabled(isCrossOriginOpenerPolicyEnabled)
         , isClearSiteDataHeaderEnabled(isClearSiteDataHeaderEnabled)
+        , isClearSiteDataExecutionContextEnabled(isClearSiteDataExecutionContextEnabled)
         , isDisplayingInitialEmptyDocument(isDisplayingInitialEmptyDocument)
         , effectiveSandboxFlags(effectiveSandboxFlags)
         , openerURL(WTFMove(openerURL))

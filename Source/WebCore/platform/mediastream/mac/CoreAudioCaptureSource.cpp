@@ -79,20 +79,20 @@ static CaptureSourceOrError initializeCoreAudioCaptureSource(Ref<CoreAudioCaptur
     return CaptureSourceOrError(WTFMove(source));
 }
 
-CaptureSourceOrError CoreAudioCaptureSource::create(String&& deviceID, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
+CaptureSourceOrError CoreAudioCaptureSource::create(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if PLATFORM(MAC)
-    auto device = CoreAudioCaptureDeviceManager::singleton().coreAudioDeviceWithUID(deviceID);
-    if (!device)
+    auto coreAudioDevice = CoreAudioCaptureDeviceManager::singleton().coreAudioDeviceWithUID(device.persistentId());
+    if (!coreAudioDevice)
         return CaptureSourceOrError({ "No CoreAudioCaptureSource device"_s, MediaAccessDenialReason::PermissionDenied });
 
-    auto source = adoptRef(*new CoreAudioCaptureSource(device.value(), device->deviceID(), WTFMove(hashSalts), pageIdentifier));
+    auto source = adoptRef(*new CoreAudioCaptureSource(device, coreAudioDevice->deviceID(), WTFMove(hashSalts), pageIdentifier));
 #elif PLATFORM(IOS_FAMILY)
-    auto device = AVAudioSessionCaptureDeviceManager::singleton().audioSessionDeviceWithUID(WTFMove(deviceID));
-    if (!device)
+    auto coreAudioDevice = AVAudioSessionCaptureDeviceManager::singleton().audioSessionDeviceWithUID(device.persistentId());
+    if (!coreAudioDevice)
         return CaptureSourceOrError({ "No AVAudioSessionCaptureDevice device"_s, MediaAccessDenialReason::PermissionDenied });
 
-    auto source = adoptRef(*new CoreAudioCaptureSource(device.value(), 0, WTFMove(hashSalts), pageIdentifier));
+    auto source = adoptRef(*new CoreAudioCaptureSource(device, 0, WTFMove(hashSalts), pageIdentifier));
 #endif
     return initializeCoreAudioCaptureSource(WTFMove(source), constraints);
 }
@@ -105,12 +105,12 @@ CaptureSourceOrError CoreAudioCaptureSource::createForTesting(String&& deviceID,
 
 CoreAudioCaptureSourceFactory::CoreAudioCaptureSourceFactory()
 {
-    AudioSession::sharedSession().addInterruptionObserver(*this);
+    AudioSession::protectedSharedSession()->addInterruptionObserver(*this);
 }
 
 CoreAudioCaptureSourceFactory::~CoreAudioCaptureSourceFactory()
 {
-    AudioSession::sharedSession().removeInterruptionObserver(*this);
+    AudioSession::protectedSharedSession()->removeInterruptionObserver(*this);
 }
 
 void CoreAudioCaptureSourceFactory::beginInterruption()
@@ -182,11 +182,6 @@ bool CoreAudioCaptureSourceFactory::isAudioCaptureUnitRunning()
     return CoreAudioSharedUnit::singleton().isRunning();
 }
 
-void CoreAudioCaptureSourceFactory::whenAudioCaptureUnitIsNotRunning(Function<void()>&& callback)
-{
-    return CoreAudioSharedUnit::singleton().whenAudioCaptureUnitIsNotRunning(WTFMove(callback));
-}
-
 bool CoreAudioCaptureSourceFactory::shouldAudioCaptureUnitRenderAudio()
 {
 #if PLATFORM(IOS_FAMILY)
@@ -215,10 +210,10 @@ void CoreAudioCaptureSource::initializeToStartProducingData()
     if (m_isReadyToStart)
         return;
 
-    ALWAYS_LOG_IF(loggerPtr(), LOGIDENTIFIER);
+    ALWAYS_LOG_IF(loggerPtr(), LOGIDENTIFIER, "is Default ", captureDevice().isDefault());
     m_isReadyToStart = true;
 
-    CoreAudioSharedUnit::singleton().setCaptureDevice(String { persistentID() }, m_captureDeviceID);
+    CoreAudioSharedUnit::singleton().setCaptureDevice(String { persistentID() }, m_captureDeviceID, captureDevice().isDefault());
 
     bool shouldReconfigure = echoCancellation() != CoreAudioSharedUnit::singleton().enableEchoCancellation() || sampleRate() != CoreAudioSharedUnit::singleton().sampleRate() || volume() != CoreAudioSharedUnit::singleton().volume();
     CoreAudioSharedUnit::singleton().setEnableEchoCancellation(echoCancellation());
@@ -250,6 +245,14 @@ void CoreAudioCaptureSource::stopProducingData()
 {
     ALWAYS_LOG_IF(loggerPtr(), LOGIDENTIFIER);
     CoreAudioSharedUnit::singleton().stopProducingData();
+}
+
+void CoreAudioCaptureSource::endProducingData()
+{
+    ALWAYS_LOG_IF(loggerPtr(), LOGIDENTIFIER);
+    CoreAudioSharedUnit::singleton().removeClient(*this);
+    if (isProducingData())
+        CoreAudioSharedUnit::singleton().stopProducingData();
 }
 
 const RealtimeMediaSourceCapabilities& CoreAudioCaptureSource::capabilities()

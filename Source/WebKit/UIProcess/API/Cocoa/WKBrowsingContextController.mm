@@ -61,6 +61,7 @@
 #import <wtf/BlockPtr.h>
 #import <wtf/CheckedPtr.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/StdLibExtras.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cf/CFURLExtras.h>
 #import <wtf/cocoa/SpanCocoa.h>
@@ -88,9 +89,9 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 }
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-static UncheckedKeyHashMap<WeakRef<WebKit::WebPageProxy>, __unsafe_unretained WKBrowsingContextController *>& browsingContextControllerMap()
+static HashMap<WeakRef<WebKit::WebPageProxy>, __unsafe_unretained WKBrowsingContextController *>& browsingContextControllerMap()
 {
-    static NeverDestroyed<UncheckedKeyHashMap<WeakRef<WebKit::WebPageProxy>, __unsafe_unretained WKBrowsingContextController *>> browsingContextControllerMap;
+    static NeverDestroyed<HashMap<WeakRef<WebKit::WebPageProxy>, __unsafe_unretained WKBrowsingContextController *>> browsingContextControllerMap;
     return browsingContextControllerMap;
 }
 ALLOW_DEPRECATED_DECLARATIONS_END
@@ -438,7 +439,7 @@ static void setUpPageLoaderClient(WKBrowsingContextController *browsingContext, 
 ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0, sizeof(loaderClient));
+    zeroBytes(loaderClient);
 
     loaderClient.base.version = 0;
     loaderClient.base.clientInfo = (__bridge void*)browsingContext;
@@ -477,7 +478,7 @@ static void setUpPagePolicyClient(WKBrowsingContextController *browsingContext, 
 ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKPagePolicyClientInternal policyClient;
-    memset(&policyClient, 0, sizeof(policyClient));
+    zeroBytes(policyClient);
 
     policyClient.base.version = 2;
     policyClient.base.clientInfo = (__bridge void*)browsingContext;

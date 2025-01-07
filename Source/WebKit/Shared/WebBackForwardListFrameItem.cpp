@@ -27,41 +27,44 @@
 #include "WebBackForwardListFrameItem.h"
 
 #include "SessionState.h"
+#include "WebBackForwardListItem.h"
 
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebBackForwardListFrameItem> WebBackForwardListFrameItem::create(WebBackForwardListItem* item, WebBackForwardListFrameItem* parentItem, Ref<FrameState>&& frameState)
+Ref<WebBackForwardListFrameItem> WebBackForwardListFrameItem::create(WebBackForwardListItem& item, WebBackForwardListFrameItem* parentItem, Ref<FrameState>&& frameState)
 {
     return adoptRef(*new WebBackForwardListFrameItem(item, parentItem, WTFMove(frameState)));
 }
 
-WebBackForwardListFrameItem::WebBackForwardListFrameItem(WebBackForwardListItem* item, WebBackForwardListFrameItem* parentItem, Ref<FrameState>&& frameState)
+WebBackForwardListFrameItem::WebBackForwardListFrameItem(WebBackForwardListItem& item, WebBackForwardListFrameItem* parentItem, Ref<FrameState>&& frameState)
     : m_backForwardListItem(item)
+    , m_identifier(*frameState->frameItemID)
     , m_frameState(WTFMove(frameState))
     , m_parent(parentItem)
 {
-    auto result = allItems().add(*m_frameState->identifier, *this);
+    m_frameState->itemID = item.identifier();
+    auto result = allItems().add({ *m_frameState->frameItemID, *m_frameState->itemID }, *this);
     ASSERT_UNUSED(result, result.isNewEntry);
-    for (auto& child : m_frameState->children)
-        m_children.append(WebBackForwardListFrameItem::create(item, this, child.copyRef()));
+    for (auto& child : std::exchange(m_frameState->children, { }))
+        m_children.append(WebBackForwardListFrameItem::create(item, this, WTFMove(child)));
 }
 
 WebBackForwardListFrameItem::~WebBackForwardListFrameItem()
 {
-    ASSERT(allItems().get(*m_frameState->identifier) == this);
-    allItems().remove(*m_frameState->identifier);
+    ASSERT(allItems().get({ *m_frameState->frameItemID, *m_frameState->itemID }) == this);
+    allItems().remove({ *m_frameState->frameItemID, *m_frameState->itemID });
 }
 
-UncheckedKeyHashMap<BackForwardItemIdentifier, WeakRef<WebBackForwardListFrameItem>>& WebBackForwardListFrameItem::allItems()
+HashMap<std::pair<BackForwardFrameItemIdentifier, BackForwardItemIdentifier>, WeakRef<WebBackForwardListFrameItem>>& WebBackForwardListFrameItem::allItems()
 {
-    static MainThreadNeverDestroyed<UncheckedKeyHashMap<BackForwardItemIdentifier, WeakRef<WebBackForwardListFrameItem>>> items;
+    static MainThreadNeverDestroyed<HashMap<std::pair<BackForwardFrameItemIdentifier, BackForwardItemIdentifier>, WeakRef<WebBackForwardListFrameItem>>> items;
     return items;
 }
 
-WebBackForwardListFrameItem* WebBackForwardListFrameItem::itemForID(BackForwardItemIdentifier identifier)
+WebBackForwardListFrameItem* WebBackForwardListFrameItem::itemForID(BackForwardItemIdentifier itemID, BackForwardFrameItemIdentifier frameItemID)
 {
-    return allItems().get(identifier);
+    return allItems().get({ frameItemID, itemID });
 }
 
 std::optional<FrameIdentifier> WebBackForwardListFrameItem::frameID() const
@@ -69,9 +72,9 @@ std::optional<FrameIdentifier> WebBackForwardListFrameItem::frameID() const
     return m_frameState->frameID;
 }
 
-BackForwardItemIdentifier WebBackForwardListFrameItem::identifier() const
+const String& WebBackForwardListFrameItem::url() const
 {
-    return *m_frameState->identifier;
+    return m_frameState->urlString;
 }
 
 WebBackForwardListFrameItem* WebBackForwardListFrameItem::childItemForFrameID(FrameIdentifier frameID)
@@ -95,10 +98,17 @@ RefPtr<WebBackForwardListItem> WebBackForwardListFrameItem::protectedBackForward
     return m_backForwardListItem.get();
 }
 
-void WebBackForwardListFrameItem::addChild(Ref<FrameState>&& frameState)
+void WebBackForwardListFrameItem::setChild(Ref<FrameState>&& frameState)
 {
-    m_frameState->children.append(frameState.copyRef());
-    m_children.append(WebBackForwardListFrameItem::create(protectedBackForwardListItem().get(), this, WTFMove(frameState)));
+    ASSERT(m_backForwardListItem);
+    Ref childItem = WebBackForwardListFrameItem::create(*protectedBackForwardListItem(), this, WTFMove(frameState));
+    for (size_t i = 0; i < m_children.size(); i++) {
+        if (m_children[i]->frameID() == childItem->m_frameState->frameID) {
+            m_children[i] = WTFMove(childItem);
+            return;
+        }
+    }
+    m_children.append(WTFMove(childItem));
 }
 
 WebBackForwardListFrameItem& WebBackForwardListFrameItem::rootFrame()
@@ -107,6 +117,54 @@ WebBackForwardListFrameItem& WebBackForwardListFrameItem::rootFrame()
     while (rootFrame->m_parent && rootFrame->m_parent->identifier().processIdentifier() == identifier().processIdentifier())
         rootFrame = *rootFrame->m_parent;
     return rootFrame.get();
+}
+
+WebBackForwardListFrameItem& WebBackForwardListFrameItem::mainFrame()
+{
+    Ref mainFrame = *this;
+    while (mainFrame->m_parent)
+        mainFrame = *mainFrame->m_parent;
+    return mainFrame.get();
+}
+
+Ref<WebBackForwardListFrameItem> WebBackForwardListFrameItem::protectedMainFrame()
+{
+    return mainFrame();
+}
+
+void WebBackForwardListFrameItem::setWasRestoredFromSession()
+{
+    m_frameState->wasRestoredFromSession = true;
+    for (auto& child : m_children)
+        child->setWasRestoredFromSession();
+}
+
+void WebBackForwardListFrameItem::setFrameState(Ref<FrameState>&& frameState)
+{
+    m_children.clear();
+    m_frameState = WTFMove(frameState);
+
+    ASSERT(m_backForwardListItem);
+    for (auto& childFrameState : std::exchange(m_frameState->children, { }))
+        m_children.append(WebBackForwardListFrameItem::create(*protectedBackForwardListItem(), this, WTFMove(childFrameState)));
+}
+
+Ref<FrameState> WebBackForwardListFrameItem::copyFrameStateWithChildren()
+{
+    Ref frameState = protectedFrameState()->copy();
+    ASSERT(frameState->children.isEmpty());
+    for (auto& child : m_children)
+        frameState->children.append(child->copyFrameStateWithChildren());
+    return frameState;
+}
+
+bool WebBackForwardListFrameItem::hasAncestorFrame(FrameIdentifier frameID)
+{
+    for (RefPtr ancestor = m_parent.get(); ancestor; ancestor = ancestor->m_parent.get()) {
+        if (ancestor->frameID() == frameID)
+            return true;
+    }
+    return false;
 }
 
 } // namespace WebKit

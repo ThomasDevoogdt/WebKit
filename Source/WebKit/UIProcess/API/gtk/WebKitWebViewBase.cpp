@@ -101,8 +101,24 @@
 #include <gtk/a11y/gtkatspi.h>
 #endif
 
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+IGNORE_CLANG_WARNINGS_BEGIN("cast-align")
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkPixmap.h>
+IGNORE_CLANG_WARNINGS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
+
 using namespace WebKit;
 using namespace WebCore;
+
+struct _WebKitWebViewBasePrivate;
+
+namespace WTF {
+template<typename T> struct IsDeprecatedTimerSmartPointerException;
+template<> struct IsDeprecatedTimerSmartPointerException<_WebKitWebViewBasePrivate> : std::true_type { };
+}
 
 #if !USE(GTK4)
 struct ClickCounter {
@@ -243,10 +259,10 @@ struct MotionEvent {
 };
 
 #if !USE(GTK4)
-typedef UncheckedKeyHashMap<GtkWidget*, IntRect> WebKitWebViewChildrenMap;
-typedef UncheckedKeyHashMap<uint32_t, GUniquePtr<GdkEvent>> TouchEventsMap;
+typedef HashMap<GtkWidget*, IntRect> WebKitWebViewChildrenMap;
+typedef HashMap<uint32_t, GUniquePtr<GdkEvent>> TouchEventsMap;
 #else
-typedef UncheckedKeyHashMap<uint32_t, GRefPtr<GdkEvent>> TouchEventsMap;
+typedef HashMap<uint32_t, GRefPtr<GdkEvent>> TouchEventsMap;
 #endif
 
 struct _WebKitWebViewBasePrivate {
@@ -255,12 +271,10 @@ struct _WebKitWebViewBasePrivate {
 #if GTK_CHECK_VERSION(3, 24, 0)
         , releaseEmojiChooserTimer(RunLoop::main(), this, &_WebKitWebViewBasePrivate::releaseEmojiChooserTimerFired)
 #endif
-        , nextPresentationUpdateTimer(RunLoop::main(), this, &_WebKitWebViewBasePrivate::nextPresentationUpdateTimerFired)
     {
 #if GTK_CHECK_VERSION(3, 24, 0)
         releaseEmojiChooserTimer.setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
 #endif
-        nextPresentationUpdateTimer.setPriority(GDK_PRIORITY_REDRAW - 10);
     }
 
 #if GTK_CHECK_VERSION(3, 24, 0)
@@ -276,14 +290,6 @@ struct _WebKitWebViewBasePrivate {
 #endif
     }
 #endif
-
-    void nextPresentationUpdateTimerFired()
-    {
-        while (!nextPresentationUpdateCallbacks.isEmpty()) {
-            auto callback = nextPresentationUpdateCallbacks.takeLast();
-            callback();
-        }
-    }
 
 #if !USE(GTK4)
     WebKitWebViewChildrenMap children;
@@ -344,7 +350,7 @@ struct _WebKitWebViewBasePrivate {
     std::unique_ptr<PAL::SleepDisabler> sleepDisabler;
 #endif
 
-    std::unique_ptr<AcceleratedBackingStore> acceleratedBackingStore;
+    RefPtr<AcceleratedBackingStore> acceleratedBackingStore;
 
 #if ENABLE(DRAG_SUPPORT)
     std::unique_ptr<DragSource> dragSource;
@@ -352,7 +358,7 @@ struct _WebKitWebViewBasePrivate {
 #endif
 
     GtkGesture* touchGestureGroup;
-    std::unique_ptr<ViewGestureController> viewGestureController;
+    RefPtr<ViewGestureController> viewGestureController;
     bool isBackForwardNavigationGestureEnabled { false };
 
 #if GTK_CHECK_VERSION(3, 24, 0)
@@ -370,8 +376,6 @@ struct _WebKitWebViewBasePrivate {
     std::unique_ptr<PointerLockManager> pointerLockManager;
 
     Vector<CompletionHandler<void()>> nextPresentationUpdateCallbacks;
-    RunLoop::Timer nextPresentationUpdateTimer;
-    MonotonicTime nextPresentationUpdateStartTime;
 };
 
 /**
@@ -808,40 +812,19 @@ static void webkitWebViewBaseCompleteEmojiChooserRequest(WebKitWebViewBase* webV
 }
 #endif
 
-static void webkitWebViewBaseNextPresentationUpdateMonitorStart(WebKitWebViewBase* webViewBase, CompletionHandler<void()>&& callback)
-{
-    auto* priv = webViewBase->priv;
-    priv->nextPresentationUpdateCallbacks.insert(0, WTFMove(callback));
-    priv->nextPresentationUpdateStartTime = MonotonicTime::now();
-    priv->nextPresentationUpdateTimer.startOneShot(100_ms);
-}
-
-static void webkitWebViewBaseNextPresentationUpdateMonitorStop(WebKitWebViewBase* webViewBase)
-{
-    auto* priv = webViewBase->priv;
-    priv->nextPresentationUpdateTimer.stop();
-    priv->nextPresentationUpdateTimerFired();
-}
-
 static void webkitWebViewBaseNextPresentationUpdateFrame(WebKitWebViewBase* webViewBase)
 {
     auto* priv = webViewBase->priv;
-    if (priv->nextPresentationUpdateCallbacks.isEmpty())
-        return;
-
-    // We wait up to 100 milliseconds for new frames. If there are several frames queued quickly,
-    // we want to wait until all of them have been processed, so after receiving a frame, we wait
-    // for the next frame (1 frame time and a half to make sure) or stop.
-    if (MonotonicTime::now() - priv->nextPresentationUpdateStartTime > 100_ms)
-        webkitWebViewBaseNextPresentationUpdateMonitorStop(webViewBase);
-    else
-        priv->nextPresentationUpdateTimer.startOneShot(24_ms);
+    while (!priv->nextPresentationUpdateCallbacks.isEmpty()) {
+        auto callback = priv->nextPresentationUpdateCallbacks.takeLast();
+        callback();
+    }
 }
 
 static void webkitWebViewBaseDispose(GObject* gobject)
 {
     WebKitWebViewBase* webView = WEBKIT_WEB_VIEW_BASE(gobject);
-    webkitWebViewBaseNextPresentationUpdateMonitorStop(webView);
+    webkitWebViewBaseNextPresentationUpdateFrame(webView);
 #if USE(GTK4)
     g_clear_pointer(&webView->priv->dialog, gtk_widget_unparent);
     webkitWebViewBaseRemoveWebInspector(webView, webView->priv->inspectorView);
@@ -885,15 +868,17 @@ static void webkitWebViewBaseSnapshot(GtkWidget* widget, GtkSnapshot* snapshot)
     if (!drawingArea)
         return;
 
+    bool notifyNextPresentationUpdate = false;
     auto* pageSnapshot = gtk_snapshot_new();
     if (!webViewBase->priv->isBlank) {
         if (drawingArea->isInAcceleratedCompositingMode())
-            webViewBase->priv->acceleratedBackingStore->snapshot(pageSnapshot);
+            notifyNextPresentationUpdate = webViewBase->priv->acceleratedBackingStore->snapshot(pageSnapshot);
         else {
             graphene_rect_t bounds = GRAPHENE_RECT_INIT(0, 0, widgetSize.width(), widgetSize.height());
             RefPtr<cairo_t> cr = adoptRef(gtk_snapshot_append_cairo(pageSnapshot, &bounds));
             WebCore::Region unpaintedRegion; // This is simply unused.
             drawingArea->paint(cr.get(), IntRect { { 0, 0 }, drawingArea->size() }, unpaintedRegion);
+            notifyNextPresentationUpdate = true;
         }
     }
 
@@ -914,7 +899,8 @@ static void webkitWebViewBaseSnapshot(GtkWidget* widget, GtkSnapshot* snapshot)
     if (webViewBase->priv->dialog)
         gtk_widget_snapshot_child(widget, webViewBase->priv->dialog, snapshot);
 
-    webkitWebViewBaseNextPresentationUpdateFrame(webViewBase);
+    if (notifyNextPresentationUpdate)
+        webkitWebViewBaseNextPresentationUpdateFrame(webViewBase);
 }
 #else
 static gboolean webkitWebViewBaseDraw(GtkWidget* widget, cairo_t* cr)
@@ -928,6 +914,7 @@ static gboolean webkitWebViewBaseDraw(GtkWidget* widget, cairo_t* cr)
     if (!gdk_cairo_get_clip_rectangle(cr, &clipRect))
         return FALSE;
 
+    bool notifyNextPresentationUpdate = false;
     if (!webViewBase->priv->isBlank) {
         bool showingNavigationSnapshot = webViewBase->priv->pageProxy->isShowingNavigationGestureSnapshot();
         if (showingNavigationSnapshot)
@@ -935,10 +922,11 @@ static gboolean webkitWebViewBaseDraw(GtkWidget* widget, cairo_t* cr)
 
         if (drawingArea->isInAcceleratedCompositingMode()) {
             ASSERT(webViewBase->priv->acceleratedBackingStore);
-            webViewBase->priv->acceleratedBackingStore->paint(cr, clipRect);
+            notifyNextPresentationUpdate = webViewBase->priv->acceleratedBackingStore->paint(cr, clipRect);
         } else {
             WebCore::Region unpaintedRegion; // This is simply unused.
             drawingArea->paint(cr, clipRect, unpaintedRegion);
+            notifyNextPresentationUpdate = true;
         }
 
         if (showingNavigationSnapshot) {
@@ -950,7 +938,8 @@ static gboolean webkitWebViewBaseDraw(GtkWidget* widget, cairo_t* cr)
 
     GTK_WIDGET_CLASS(webkit_web_view_base_parent_class)->draw(widget, cr);
 
-    webkitWebViewBaseNextPresentationUpdateFrame(webViewBase);
+    if (notifyNextPresentationUpdate)
+        webkitWebViewBaseNextPresentationUpdateFrame(webViewBase);
 
     return FALSE;
 }
@@ -1132,7 +1121,7 @@ static bool shouldForwardWheelEvent(WebKitWebViewBase* webViewBase, GdkEvent* ev
             if (length > 0)
                 length--;
             for (unsigned i = 0; i < length; i++) {
-                WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+                WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
                 auto oldTime = history.get()[i].time;
                 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
                 webViewBase->priv->wheelEventsToPropagate.removeAllMatching([&oldTime] (GRefPtr<GdkEvent>& current) {
@@ -2938,7 +2927,7 @@ void webkitWebViewBaseDidRelaunchWebProcess(WebKitWebViewBase* webkitWebViewBase
     if (priv->viewGestureController)
         priv->viewGestureController->connectToProcess();
     else {
-        priv->viewGestureController = makeUnique<WebKit::ViewGestureController>(*priv->pageProxy);
+        priv->viewGestureController = WebKit::ViewGestureController::create(*priv->pageProxy);
         priv->viewGestureController->setSwipeGestureEnabled(priv->isBackForwardNavigationGestureEnabled);
     }
     if (priv->displayID)
@@ -3447,7 +3436,7 @@ void webkitWebViewBaseSetShouldNotifyFocusEvents(WebKitWebViewBase* webViewBase,
 
 void webkitWebViewBaseCallAfterNextPresentationUpdate(WebKitWebViewBase* webViewBase, CompletionHandler<void()>&& callback)
 {
-    webkitWebViewBaseNextPresentationUpdateMonitorStart(webViewBase, WTFMove(callback));
+    webViewBase->priv->nextPresentationUpdateCallbacks.insert(0, WTFMove(callback));
 }
 
 #if USE(GTK4)
@@ -3495,3 +3484,84 @@ RendererBufferFormat webkitWebViewBaseGetRendererBufferFormat(WebKitWebViewBase*
 
     return webViewBase->priv->acceleratedBackingStore->bufferFormat();
 }
+
+#if USE(CAIRO)
+static cairo_surface_t* webkitWebViewBaseSnapshotFromWidget(GtkWidget* view)
+#elif USE(SKIA)
+static SkImage* webkitWebViewBaseSnapshotFromWidget(GtkWidget* view)
+#endif
+{
+#if USE(GTK4)
+    int width = gtk_widget_get_width(view);
+    int height = gtk_widget_get_height(view);
+#else
+    int width = gtk_widget_get_allocated_width(view);
+    int height = gtk_widget_get_allocated_height(view);
+#endif
+
+    while (g_main_context_pending(nullptr))
+        g_main_context_iteration(nullptr, TRUE);
+
+    RefPtr<cairo_surface_t> surface = adoptRef(cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height));
+    RefPtr<cairo_t> cr = adoptRef(cairo_create(surface.get()));
+
+#if USE(GTK4)
+    GRefPtr<GdkPaintable> paintable = adoptGRef(gtk_widget_paintable_new(view));
+    auto* snapshot = gtk_snapshot_new();
+    gdk_paintable_snapshot(paintable.get(), snapshot, width, height);
+    if (auto* node = gtk_snapshot_free_to_node(snapshot)) {
+        gsk_render_node_draw(node, cr.get());
+        gsk_render_node_unref(node);
+    }
+#else
+    gtk_widget_draw(view, cr.get());
+#endif
+
+#if USE(CAIRO)
+    return surface.leakRef();
+#elif USE(SKIA)
+    cairo_surface_flush(surface.get());
+    auto imageInfo = SkImageInfo::MakeN32Premul(cairo_image_surface_get_width(surface.get()), cairo_image_surface_get_height(surface.get()), SkColorSpace::MakeSRGB());
+    SkPixmap pixmap(imageInfo, cairo_image_surface_get_data(surface.get()), cairo_image_surface_get_stride(surface.get()));
+    return SkImages::RasterFromPixmap(pixmap, [](const void*, void* context) {
+        cairo_surface_destroy(static_cast<cairo_surface_t*>(context));
+    }, surface.leakRef()).release();
+#endif
+}
+
+#if USE(CAIRO)
+cairo_surface_t* webkitWebViewBaseSnapshotForTesting(WebKitWebViewBase* webViewBase)
+{
+    auto* drawingArea = static_cast<DrawingAreaProxyCoordinatedGraphics*>(webViewBase->priv->pageProxy->drawingArea());
+    if (!drawingArea || !drawingArea->isInAcceleratedCompositingMode())
+        return webkitWebViewBaseSnapshotFromWidget(GTK_WIDGET(webViewBase));
+
+    if (auto image = webViewBase->priv->acceleratedBackingStore->bufferAsNativeImageForTesting()) {
+        if (RefPtr<cairo_surface_t> surface = image->platformImage())
+            return surface.leakRef();
+    }
+
+    return webkitWebViewBaseSnapshotFromWidget(GTK_WIDGET(webViewBase));
+}
+#elif USE(SKIA)
+SkImage* webkitWebViewBaseSnapshotForTesting(WebKitWebViewBase* webViewBase)
+{
+    auto* drawingArea = static_cast<DrawingAreaProxyCoordinatedGraphics*>(webViewBase->priv->pageProxy->drawingArea());
+    if (!drawingArea || !drawingArea->isInAcceleratedCompositingMode())
+        return webkitWebViewBaseSnapshotFromWidget(GTK_WIDGET(webViewBase));
+
+    if (auto image = webViewBase->priv->acceleratedBackingStore->bufferAsNativeImageForTesting()) {
+        if (sk_sp<SkImage> skImage = image->platformImage()) {
+            auto scaleFactor = webViewBase->priv->pageProxy->deviceScaleFactor();
+            if (scaleFactor == 1)
+                return skImage.release();
+
+            auto imageInfo = SkImageInfo::MakeN32Premul(skImage->width() / scaleFactor, skImage->height() / scaleFactor, skImage->refColorSpace());
+            if (auto scaledImage = skImage->makeScaled(imageInfo, SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNearest)))
+                return scaledImage.release();
+        }
+    }
+
+    return webkitWebViewBaseSnapshotFromWidget(GTK_WIDGET(webViewBase));
+}
+#endif

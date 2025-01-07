@@ -145,11 +145,10 @@ bool nw_resolver_set_update_handler(nw_resolver_t, dispatch_queue_t, nw_resolver
 bool nw_resolver_cancel(nw_resolver_t);
 void nw_context_set_privacy_level(nw_context_t, nw_context_privacy_level_t);
 void nw_parameters_set_context(nw_parameters_t, nw_context_t);
+
 nw_context_t nw_context_create(const char *);
 size_t nw_array_get_count(nw_array_t);
 nw_object_t nw_array_get_object_at_index(nw_array_t, size_t);
-nw_parameters_t nw_parameters_create_quic_stream(nw_parameters_configure_protocol_block_t, nw_parameters_configure_protocol_block_t);
-sec_protocol_options_t nw_quic_connection_copy_sec_protocol_options(nw_protocol_options_t);
 #ifdef __cplusplus
 }
 #endif
@@ -237,6 +236,14 @@ typedef enum {
 @property (nonatomic, readwrite) BOOL _overrideSessionCookieAcceptPolicy;
 @end
 
+typedef CF_ENUM(int, CFURLCredentialPersistence)
+{
+    kCFURLCredentialPersistenceNone = 1,
+    kCFURLCredentialPersistenceForSession = 2,
+    kCFURLCredentialPersistencePermanent = 3,
+    kCFURLCredentialPersistenceSynchronizable = 4
+};
+
 @interface NSURLCredentialStorage ()
 - (id)_initWithIdentifier:(NSString *)identifier private:(bool)isPrivate;
 @end
@@ -265,6 +272,9 @@ typedef enum {
 #endif
 #if HAVE(ALLOW_PRIVATE_ACCESS_TOKENS_FOR_THIRD_PARTY)
 @property (setter=_setAllowPrivateAccessTokensForThirdParty:) BOOL _allowPrivateAccessTokensForThirdParty;
+#endif
+#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+@property (setter=_setAllowOnlyPartitionedCookies:) BOOL _allowOnlyPartitionedCookies;
 #endif
 @end
 
@@ -445,6 +455,17 @@ enum : NSUInteger {
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
+enum URLCredentialType {
+    kURLCredentialInternetPassword = 0,
+    kURLCredentialServerTrust,
+    kURLCredentialKerberosTicket,
+    kURLCredentialClientCertificate,
+    kURLCredentialXMobileMeAuthToken,
+    kURLCredentialUnknown,
+    kURLCredentialOAuth2,
+    kURLCredentialOAuth1
+};
+
 WTF_EXTERN_C_BEGIN
 
 #ifdef __BLOCKS__
@@ -584,6 +605,7 @@ WTF_EXTERN_C_END
 
 @interface NSMutableURLRequest (Staging_103362732)
 @property (setter=_setWebSearchContent:) BOOL _isWebSearchContent;
+@property (setter=_setAllowOnlyPartitionedCookies:) BOOL _allowOnlyPartitionedCookies;
 @end
 
 #if HAVE(ALTERNATIVE_SERVICE)
@@ -591,5 +613,9 @@ WTF_EXTERN_C_END
 @property BOOL canSuspendLocked;
 @end
 #endif
+
+@interface NSURLProtectionSpace (SPI)
+- (void)_setServerTrust:(SecTrustRef)serverTrust;
+@end
 
 #endif // defined(__OBJC__)

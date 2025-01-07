@@ -675,7 +675,9 @@ static Vector<uint8_t> shiftJISEncode(StringView string, Function<void(char32_t,
             continue;
         }
 
-        ASSERT(range.first + 3 >= range.second);
+        ASSERT(range.second >= range.first);
+        ASSERT(range.second - range.first <= 3);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         for (auto pair = range.first; pair < range.second; pair++) {
             uint16_t pointer = pair->second;
             if (pointer >= 8272 && pointer <= 8835)
@@ -688,6 +690,7 @@ static Vector<uint8_t> shiftJISEncode(StringView string, Function<void(char32_t,
             result.append(trail + offset);
             break;
         }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
     return result;
 }
@@ -780,6 +783,8 @@ static const Big5EncodeIndex& big5EncodeIndex()
     return *table;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 // https://encoding.spec.whatwg.org/#big5-encoder
 static Vector<uint8_t> big5Encode(StringView string, Function<void(char32_t, Vector<uint8_t>&)>&& unencodableHandler)
 {
@@ -820,6 +825,8 @@ static Vector<uint8_t> big5Encode(StringView string, Function<void(char32_t, Vec
     return result;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
 // https://encoding.spec.whatwg.org/index-gb18030-ranges.txt
 static const std::array<std::pair<uint32_t, char32_t>, 207>& gb18030Ranges()
 {
@@ -854,6 +861,8 @@ static const std::array<std::pair<uint32_t, char32_t>, 207>& gb18030Ranges()
     return ranges;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 // https://encoding.spec.whatwg.org/#index-gb18030-ranges-code-point
 static std::optional<char32_t> gb18030RangesCodePoint(uint32_t pointer)
 {
@@ -879,6 +888,8 @@ static uint32_t gb18030RangesPointer(char32_t codePoint)
     char32_t offset = (upperBound - 1)->second;
     return pointerOffset + codePoint - offset;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 using GB18030EncodeIndex = std::array<std::pair<UChar, uint16_t>, 23940>;
 static const GB18030EncodeIndex& gb18030EncodeIndex()
@@ -1089,9 +1100,9 @@ constexpr size_t maxUChar32Digits = 10;
 
 static void appendDecimal(char32_t c, Vector<uint8_t>& result)
 {
-    uint8_t buffer[lengthOfIntegerAsString(std::numeric_limits<decltype(c)>::max())];
-    writeIntegerToBuffer(c, buffer);
-    result.append(std::span { buffer, lengthOfIntegerAsString(c) });
+    std::array<uint8_t, lengthOfIntegerAsString(std::numeric_limits<decltype(c)>::max())> buffer;
+    writeIntegerToBuffer(c, std::span<uint8_t> { buffer });
+    result.append(std::span { buffer }.first(lengthOfIntegerAsString(c)));
 }
 
 static void urlEncodedEntityUnencodableHandler(char32_t c, Vector<uint8_t>& result)

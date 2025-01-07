@@ -69,6 +69,10 @@
 #include <WebCore/SoupNetworkProxySettings.h>
 #endif
 
+#if ENABLE(CONTENT_EXTENSIONS)
+#include <WebCore/ResourceMonitorThrottler.h>
+#endif
+
 namespace API {
 class Data;
 class DownloadClient;
@@ -185,7 +189,7 @@ public:
 
     bool isBlobRegistryPartitioningEnabled() const;
     bool isOptInCookiePartitioningEnabled() const;
-    void propagateSettingUpdatesToNetworkProcess();
+    void propagateSettingUpdates();
 
 #if PLATFORM(IOS_FAMILY)
     String resolvedCookieStorageDirectory();
@@ -207,6 +211,7 @@ public:
     void setServiceWorkerTimeoutForTesting(Seconds);
     void resetServiceWorkerTimeoutForTesting();
     bool hasServiceWorkerBackgroundActivityForTesting() const;
+    void runningOrTerminatingServiceWorkerCountForTesting(CompletionHandler<void(unsigned)>&&);
 
     void fetchDataForRegistrableDomains(OptionSet<WebsiteDataType>, OptionSet<WebsiteDataFetchOption>, Vector<WebCore::RegistrableDomain>&&, CompletionHandler<void(Vector<WebsiteDataRecord>&&, HashSet<WebCore::RegistrableDomain>&&)>&&);
     void clearPrevalentResource(const URL&, CompletionHandler<void()>&&);
@@ -263,7 +268,7 @@ public:
     void hasLocalStorageForTesting(const URL&, CompletionHandler<void(bool)>&&) const;
     void hasIsolatedSessionForTesting(const URL&, CompletionHandler<void(bool)>&&) const;
     void setResourceLoadStatisticsShouldDowngradeReferrerForTesting(bool, CompletionHandler<void()>&&);
-    void setResourceLoadStatisticsShouldBlockThirdPartyCookiesForTesting(bool enabled, bool onlyOnSitesWithoutUserInteraction, CompletionHandler<void()>&&);
+    void setResourceLoadStatisticsShouldBlockThirdPartyCookiesForTesting(bool enabled, WebCore::ThirdPartyCookieBlockingMode, CompletionHandler<void()>&&);
     void setThirdPartyCookieBlockingMode(WebCore::ThirdPartyCookieBlockingMode, CompletionHandler<void()>&&);
     void setResourceLoadStatisticsShouldEnbleSameSiteStrictEnforcementForTesting(bool enabled, CompletionHandler<void()>&&);
     void setResourceLoadStatisticsFirstPartyWebsiteDataRemovalModeForTesting(bool enabled, CompletionHandler<void()>&&);
@@ -482,6 +487,17 @@ public:
 
     void getAppBadgeForTesting(CompletionHandler<void(std::optional<uint64_t>)>&&);
 
+    void fetchLocalStorage(CompletionHandler<void(HashMap<WebCore::ClientOrigin, HashMap<String, String>>&&)>&&);
+    void restoreLocalStorage(HashMap<WebCore::ClientOrigin, HashMap<String, String>>&&, CompletionHandler<void(bool)>&&);
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+    bool builtInNotificationsEnabled() const;
+#endif
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    WebCore::ResourceMonitorThrottler& resourceMonitorThrottler() { return m_resourceMonitorThrottler; }
+#endif
+
 private:
     enum class ForceReinitialization : bool { No, Yes };
 #if ENABLE(APP_BOUND_DOMAINS)
@@ -615,13 +631,17 @@ private:
     bool m_isBlobRegistryPartitioningEnabled { false };
     bool m_isOptInCookiePartitioningEnabled { false };
 
-    UncheckedKeyHashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypesForTesting;
+    HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypesForTesting;
 
 #if HAVE(NW_PROXY_CONFIG)
     std::optional<Vector<std::pair<Vector<uint8_t>, WTF::UUID>>> m_proxyConfigData;
 #endif
     bool m_storageSiteValidationEnabled { false };
     HashSet<URL> m_persistedSiteURLs;
+
+#if ENABLE(CONTENT_EXTENSIONS)
+    WebCore::ResourceMonitorThrottler m_resourceMonitorThrottler;
+#endif
 };
 
 }

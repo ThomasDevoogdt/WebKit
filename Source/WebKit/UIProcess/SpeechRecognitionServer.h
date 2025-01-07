@@ -63,6 +63,9 @@ public:
 #endif
         );
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
     void start(WebCore::SpeechRecognitionConnectionClientIdentifier, String&& lang, bool continuous, bool interimResults, uint64_t maxAlternatives, WebCore::ClientOrigin&&, WebCore::FrameIdentifier);
@@ -92,7 +95,7 @@ private:
 
     WeakPtr<WebProcessProxy> m_process;
     SpeechRecognitionServerIdentifier m_identifier;
-    UncheckedKeyHashMap<WebCore::SpeechRecognitionConnectionClientIdentifier, std::unique_ptr<WebCore::SpeechRecognitionRequest>> m_requests;
+    HashMap<WebCore::SpeechRecognitionConnectionClientIdentifier, std::unique_ptr<WebCore::SpeechRecognitionRequest>> m_requests;
     SpeechRecognitionPermissionChecker m_permissionChecker;
     std::unique_ptr<WebCore::SpeechRecognizer> m_recognizer;
     SpeechRecognitionCheckIfMockSpeechRecognitionEnabled m_checkIfMockSpeechRecognitionEnabled;

@@ -26,8 +26,8 @@
 #pragma once
 
 #include "CSSNumericValue.h"
+#include "Length.h"
 #include "ScrollTimeline.h"
-#include "TimelineRange.h"
 #include "ViewTimelineOptions.h"
 #include <wtf/Ref.h>
 #include <wtf/WeakPtr.h>
@@ -38,8 +38,9 @@ namespace Style {
 class BuilderState;
 }
 
-class CSSViewValue;
 class Element;
+
+struct TimelineRange;
 
 struct ViewTimelineInsets {
     std::optional<Length> start;
@@ -51,10 +52,9 @@ class ViewTimeline final : public ScrollTimeline {
 public:
     static Ref<ViewTimeline> create(ViewTimelineOptions&& = { });
     static Ref<ViewTimeline> create(const AtomString&, ScrollAxis, ViewTimelineInsets&&);
-    static Ref<ViewTimeline> createFromCSSValue(const Style::BuilderState&, const CSSViewValue&);
 
     Element* subject() const { return m_subject.get(); }
-    void setSubject(Element*);
+    void setSubject(const Element*);
 
     const ViewTimelineInsets& insets() const { return m_insets; }
     void setInsets(ViewTimelineInsets&& insets) { m_insets = WTFMove(insets); }
@@ -67,19 +67,31 @@ public:
 
     RenderBox* sourceScrollerRenderer() const;
     Element* source() const override;
+    TimelineRange defaultRange() const final;
 
 private:
-    ScrollTimeline::Data computeTimelineData(const TimelineRange& = { }) const override;
+    ScrollTimeline::Data computeTimelineData() const final;
+    std::pair<WebAnimationTime, WebAnimationTime> intervalForAttachmentRange(const TimelineRange&) const final;
 
     explicit ViewTimeline(ViewTimelineOptions&& = { });
     explicit ViewTimeline(const AtomString&, ScrollAxis, ViewTimelineInsets&&);
 
-    void dump(TextStream&) const final;
-    Ref<CSSValue> toCSSValue(const RenderStyle&) const final;
     bool isViewTimeline() const final { return true; }
+
+    struct CurrentTimeData {
+        float scrollOffset { 0 };
+        float scrollContainerSize { 0 };
+        float subjectOffset { 0 };
+        float subjectSize { 0 };
+        float insetStart { 0 };
+        float insetEnd { 0 };
+    };
+
+    void cacheCurrentTime();
 
     WeakPtr<Element, WeakPtrImplWithEventTargetData> m_subject;
     ViewTimelineInsets m_insets;
+    CurrentTimeData m_cachedCurrentTimeData { };
 };
 
 } // namespace WebCore

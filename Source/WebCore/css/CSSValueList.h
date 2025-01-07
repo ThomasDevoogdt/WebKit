@@ -146,7 +146,9 @@ inline const CSSValue& CSSValueContainingVector::operator[](unsigned index) cons
         return *m_inlineStorage[index];
     }
     RELEASE_ASSERT(index < m_size);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     return *m_additionalStorage[index - maxInlineSize];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 void add(Hasher&, const CSSValueContainingVector&);

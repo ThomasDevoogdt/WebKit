@@ -33,6 +33,9 @@
 #if PLATFORM(GTK)
 typedef struct _GtkSettings GtkSettings;
 using PlatformSettings = GtkSettings;
+#elif PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+typedef struct _WPESettings WPESettings;
+using PlatformSettings = WPESettings;
 #else
 using PlatformSettings = void;
 #endif
@@ -59,6 +62,7 @@ private:
     String xftHintStyle() const;
     String xftRGBA() const;
     int xftDPI() const;
+    bool followFontSystemSettings() const;
     bool cursorBlink() const;
     int cursorBlinkTime() const;
     bool primaryButtonWarpsSlider() const;

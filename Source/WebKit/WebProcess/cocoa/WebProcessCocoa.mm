@@ -27,6 +27,7 @@
 #import "WebProcess.h"
 
 #import "AccessibilitySupportSPI.h"
+#import "AdditionalFonts.h"
 #import "ArgumentCodersCocoa.h"
 #import "CoreIPCAuditToken.h"
 #import "DefaultWebBrowserChecks.h"
@@ -44,7 +45,7 @@
 #import "WKFullKeyboardAccessWatcher.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
 #import "WebFrame.h"
-#import "WebInspector.h"
+#import "WebInspectorInternal.h"
 #import "WebPage.h"
 #import "WebPageGroupProxy.h"
 #import "WebProcessCreationParameters.h"
@@ -190,8 +191,6 @@
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <pal/cocoa/DataDetectorsCoreSoftLink.h>
 #import <pal/cocoa/MediaToolboxSoftLink.h>
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #define RELEASE_LOG_SESSION_ID (m_sessionID ? m_sessionID->toUInt64() : 0)
 #define WEBPROCESS_RELEASE_LOG(channel, fmt, ...) RELEASE_LOG(channel, "%p - [sessionID=%" PRIu64 "] WebProcess::" fmt, this, RELEASE_LOG_SESSION_ID, ##__VA_ARGS__)
@@ -339,11 +338,11 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
-    WEBPROCESS_RELEASE_LOG(Process, "WebProcess::platformInitializeWebProcess");
-
 #if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
     setupLogStream();
 #endif
+
+    RELEASE_LOG_FORWARDABLE(Process, PLATFORM_INITIALIZE_WEBPROCESS);
 
 #if USE(EXTENSIONKIT)
     // Workaround for crash seen when running tests. See rdar://118186487.
@@ -838,14 +837,14 @@ void WebProcess::registerLogHook()
             return;
 #endif
 
-        std::span logChannel(byteCast<uint8_t>(msg->subsystem), msg->subsystem ? strlen(msg->subsystem) + 1 : 0);
-        std::span logCategory(byteCast<uint8_t>(msg->category), msg->category ? strlen(msg->category) + 1 : 0);
+        auto logChannel = span8IncludingNullTerminator(msg->subsystem);
+        auto logCategory = span8IncludingNullTerminator(msg->category);
 
         if (type == OS_LOG_TYPE_FAULT)
             type = OS_LOG_TYPE_ERROR;
 
         if (char* messageString = os_log_copy_message_string(msg)) {
-            std::span logString(byteCast<uint8_t>(messageString), strlen(messageString) + 1);
+            auto logString = span8IncludingNullTerminator(messageString);
             WebProcess::singleton().sendLogOnStream(logChannel, logCategory, logString, type);
             free(messageString);
         }
@@ -864,24 +863,31 @@ void WebProcess::setupLogStream()
     if (!connectionPair)
         CRASH();
     auto [streamConnection, serverHandle] = WTFMove(*connectionPair);
-    m_logStreamConnection = WTFMove(streamConnection);
-    if (RefPtr logStreamConnection = m_logStreamConnection)
-        logStreamConnection->open(*this);
 
-    parentProcessConnection()->sendWithAsyncReply(Messages::WebProcessProxy::SetupLogStream(getpid(), WTFMove(serverHandle), WebProcess::singleton().m_logStreamIdentifier), [] (IPC::Semaphore&& wakeUpSemaphore, IPC::Semaphore&& clientWaitSemaphore) {
-        if (RefPtr logStreamConnection = WebProcess::singleton().m_logStreamConnection)
-            logStreamConnection->setSemaphores(WTFMove(wakeUpSemaphore), WTFMove(clientWaitSemaphore));
+    LogStreamIdentifier logStreamIdentifier { LogStreamIdentifier::generate() };
+
+    RefPtr logStreamConnection = WTFMove(streamConnection);
+    if (!logStreamConnection)
+        return;
+
+    logStreamConnection->open(*this, RunLoop::protectedCurrent());
+
+    parentProcessConnection()->sendWithAsyncReply(Messages::WebProcessProxy::SetupLogStream(getpid(), WTFMove(serverHandle), logStreamIdentifier), [logStreamConnection, logStreamIdentifier] (IPC::Semaphore&& wakeUpSemaphore, IPC::Semaphore&& clientWaitSemaphore) {
+        logStreamConnection->setSemaphores(WTFMove(wakeUpSemaphore), WTFMove(clientWaitSemaphore));
 #if PLATFORM(IOS_FAMILY)
         prewarmLogs();
 #endif
+        RELEASE_ASSERT(!logClient());
+        logClient() = makeUnique<LogClient>(*logStreamConnection, logStreamIdentifier);
+
         WebProcess::singleton().registerLogHook();
     });
 }
 
-void WebProcess::sendLogOnStream(std::span<const uint8_t> logChannel, std::span<const uint8_t> logCategory, std::span<uint8_t> logString, os_log_type_t type)
+void WebProcess::sendLogOnStream(std::span<const uint8_t> logChannel, std::span<const uint8_t> logCategory, std::span<const uint8_t> logString, os_log_type_t type)
 {
-    if (RefPtr logStreamConnection = m_logStreamConnection)
-        logStreamConnection->send(Messages::LogStream::LogOnBehalfOfWebContent(logChannel, logCategory, logString, type), m_logStreamIdentifier);
+    if (auto& client = logClient())
+        client->log(logChannel, logCategory, logString, type);
 }
 #endif
 
@@ -979,7 +985,7 @@ static NSURL *origin(WebPage& page)
     return [NSURL URLWithString:rootFrameOriginString];
 }
 
-static Vector<String> activePagesOrigins(const UncheckedKeyHashMap<PageIdentifier, RefPtr<WebPage>>& pageMap)
+static Vector<String> activePagesOrigins(const HashMap<PageIdentifier, RefPtr<WebPage>>& pageMap)
 {
     Vector<String> origins;
     for (auto& page : pageMap.values()) {
@@ -1469,14 +1475,14 @@ void WebProcess::systemWillPowerOn()
 
 void WebProcess::systemWillSleep()
 {
-    if (PlatformMediaSessionManager::sharedManagerIfExists())
-        PlatformMediaSessionManager::sharedManager().processSystemWillSleep();
+    if (PlatformMediaSessionManager::singletonIfExists())
+        PlatformMediaSessionManager::singleton().processSystemWillSleep();
 }
 
 void WebProcess::systemDidWake()
 {
-    if (PlatformMediaSessionManager::sharedManagerIfExists())
-        PlatformMediaSessionManager::sharedManager().processSystemDidWake();
+    if (PlatformMediaSessionManager::singletonIfExists())
+        PlatformMediaSessionManager::singleton().processSystemDidWake();
 }
 #endif
 
@@ -1529,10 +1535,26 @@ void WebProcess::postObserverNotification(const String& message)
 
 #endif
 
+void WebProcess::registerAdditionalFonts(AdditionalFonts&& fonts)
+{
+    RetainPtr<NSMutableArray> fontURLs = [NSMutableArray array];
+    for (auto& fontData : fonts.fontDataList) {
+        SandboxExtension::consumePermanently(fontData.sandboxExtensionHandle);
+
+        RetainPtr<CFURLRef> cfURL = fontData.fontURL.createCFURL();
+        [fontURLs addObject:(__bridge NSURL *)cfURL.get()];
+    }
+
+    auto blockPtr = makeBlockPtr([fontURLs](CFArrayRef errors, bool done) {
+        RELEASE_LOG(Process, "Register font URLs %@ errors=%@ done=%d", fontURLs.get(), (__bridge id)errors, done);
+        return true;
+    });
+
+    CTFontManagerRegisterFontURLs((__bridge CFArrayRef)fontURLs.get(), kCTFontManagerScopeProcess, true, blockPtr.get());
+}
+
 } // namespace WebKit
 
 #undef RELEASE_LOG_SESSION_ID
 #undef WEBPROCESS_RELEASE_LOG
 #undef WEBPROCESS_RELEASE_LOG_ERROR
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

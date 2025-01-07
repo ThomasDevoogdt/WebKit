@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010, Google Inc. All rights reserved.
- * Copyright (C) 2021-2023, Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025, Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -70,8 +70,8 @@
 #include <JavaScriptCore/ContentSearchUtilities.h>
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/NotFound.h>
-#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 using JSON::ArrayOf;
@@ -105,7 +105,9 @@ static RuleFlatteningStrategy flatteningStrategyForStyleRuleType(StyleRuleType s
     // https://bugs.webkit.org/show_bug.cgi?id=264496
     case StyleRuleType::Scope:
 
-    case StyleRuleType::Unknown:
+    // FIXME (webkit.org/b/284176): support @position-try in Web Inspector.
+    case StyleRuleType::PositionTry:
+
     case StyleRuleType::Charset:
     case StyleRuleType::Import:
     case StyleRuleType::FontFace:
@@ -218,7 +220,7 @@ static std::optional<Inspector::Protocol::CSS::Grouping::Type> protocolGroupingT
 }
 
 class ParsedStyleSheet {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(ParsedStyleSheet);
+    WTF_MAKE_TZONE_ALLOCATED(ParsedStyleSheet);
 public:
     ParsedStyleSheet();
 
@@ -236,6 +238,8 @@ private:
     bool m_hasText;
     std::unique_ptr<RuleSourceDataList> m_sourceData;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ParsedStyleSheet);
 
 ParsedStyleSheet::ParsedStyleSheet()
     : m_hasText(false)
@@ -828,7 +832,7 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
 
     auto propertiesObject = JSON::ArrayOf<Inspector::Protocol::CSS::CSSProperty>::create();
     auto shorthandEntries = ArrayOf<Inspector::Protocol::CSS::ShorthandEntry>::create();
-    UncheckedKeyHashMap<String, RefPtr<Inspector::Protocol::CSS::CSSProperty>> propertyNameToPreviousActiveProperty;
+    HashMap<String, RefPtr<Inspector::Protocol::CSS::CSSProperty>> propertyNameToPreviousActiveProperty;
     HashSet<String> foundShorthands;
     String previousPriority;
     String previousStatus;
@@ -836,11 +840,11 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
     auto sourceData = extractSourceData();
     unsigned ruleBodyRangeStart = sourceData ? sourceData->ruleBodyRange.start : 0;
 
-    for (Vector<InspectorStyleProperty>::iterator it = properties.begin(), itEnd = properties.end(); it != itEnd; ++it) {
-        const CSSPropertySourceData& propertyEntry = it->sourceData;
+    for (auto& styleProperty : properties) {
+        const CSSPropertySourceData& propertyEntry = styleProperty.sourceData;
         const String& name = propertyEntry.name;
 
-        auto status = it->disabled ? Inspector::Protocol::CSS::CSSPropertyStatus::Disabled : Inspector::Protocol::CSS::CSSPropertyStatus::Active;
+        auto status = styleProperty.disabled ? Inspector::Protocol::CSS::CSSPropertyStatus::Disabled : Inspector::Protocol::CSS::CSSPropertyStatus::Active;
 
         auto property = Inspector::Protocol::CSS::CSSProperty::create()
             .setName(lowercasePropertyName(name))
@@ -857,14 +861,14 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
         // Default "parsedOk" == true.
         if (!propertyEntry.parsedOk || !isExposed(propertyId, m_style->settings()))
             property->setParsedOk(false);
-        if (it->hasRawText())
-            property->setText(it->rawText);
+        if (styleProperty.hasRawText())
+            property->setText(styleProperty.rawText);
 
         // Default "priority" == "".
         if (propertyEntry.important)
             property->setPriority("important"_s);
 
-        if (it->hasSource) {
+        if (styleProperty.hasSource) {
             // The property range is relative to the style body start.
             // Should be converted into an absolute range (relative to the stylesheet start)
             // for the proper conversion into line:column.
@@ -875,8 +879,8 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
                 property->setRange(range.releaseNonNull());
         }
 
-        if (!it->disabled) {
-            if (it->hasSource) {
+        if (!styleProperty.disabled) {
+            if (styleProperty.hasSource) {
                 ASSERT(sourceData);
                 property->setImplicit(false);
 
@@ -886,7 +890,7 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
 
                 // Canonicalize property names to treat non-prefixed and vendor-prefixed property names the same (opacity vs. -webkit-opacity).
                 String canonicalPropertyName = propertyId != CSSPropertyID::CSSPropertyInvalid && propertyId != CSSPropertyID::CSSPropertyCustom ? nameString(propertyId) : name;
-                UncheckedKeyHashMap<String, RefPtr<Inspector::Protocol::CSS::CSSProperty>>::iterator activeIt = propertyNameToPreviousActiveProperty.find(canonicalPropertyName);
+                HashMap<String, RefPtr<Inspector::Protocol::CSS::CSSProperty>>::iterator activeIt = propertyNameToPreviousActiveProperty.find(canonicalPropertyName);
                 if (activeIt != propertyNameToPreviousActiveProperty.end()) {
                     if (propertyEntry.parsedOk) {
                         auto newPriority = activeIt->value->getString("priority"_s);
@@ -1474,7 +1478,7 @@ static inline bool isNotSpaceOrTab(UChar character)
 //
 // Canonicalizing is useful for generating the new style sheet text after some style edit;
 // it'd be hard to compute the replacement text if property declarations were scattered.
-static StringView computeCanonicalRuleText(const String& styleSheetText, const String& ruleStyleDeclarationText, const CSSRuleSourceData& logicalContainingRuleSourceData)
+static String computeCanonicalRuleText(const String& styleSheetText, const String& ruleStyleDeclarationText, const CSSRuleSourceData& logicalContainingRuleSourceData)
 {
     auto indentation = emptyString();
     auto startOfSecondLine = ruleStyleDeclarationText.find('\n');
@@ -1511,7 +1515,7 @@ static StringView computeCanonicalRuleText(const String& styleSheetText, const S
     if (closingIndentationLineStart != notFound)
         canonicalRuleText.appendSubstring(ruleStyleDeclarationText, closingIndentationLineStart);
 
-    return canonicalRuleText;
+    return canonicalRuleText.toString();
 }
 
 // This function updates the style declaration text of the rule given by `id`.
@@ -1552,7 +1556,7 @@ ExceptionOr<void> InspectorStyleSheet::setRuleStyleText(const InspectorCSSId& id
     cssStyleDeclaration->setCssText(newStyleDeclarationText);
 
     // Don't canonicalize the rule text if a `newRuleText` is provided, to allow for faithful undoing.
-    StringView replacementBodyText = newRuleText ? *newRuleText : computeCanonicalRuleText(styleSheetText, newStyleDeclarationText, *logicalContainingRuleSourceData);
+    String replacementBodyText = newRuleText ? *newRuleText : computeCanonicalRuleText(styleSheetText, newStyleDeclarationText, *logicalContainingRuleSourceData);
 
     m_parsedStyleSheet->setText(makeStringByReplacing(styleSheetText, bodyStart, bodyEnd - bodyStart, replacementBodyText));
     m_pageStyleSheet->clearHadRulesMutation();

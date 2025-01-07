@@ -35,6 +35,7 @@
 #include <time.h>
 #include <utility>
 #include <wtf/Forward.h>
+#include <wtf/MallocSpan.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
 #include <wtf/WallTime.h>
@@ -44,7 +45,9 @@
 #include <wtf/RetainPtr.h>
 #endif
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+#if HAVE(MMAP)
+#include <wtf/Mmap.h>
+#endif
 
 #if USE(CF)
 typedef const struct __CFData* CFDataRef;
@@ -131,12 +134,14 @@ WTF_EXPORT_PRIVATE bool makeAllDirectories(const String& path);
 WTF_EXPORT_PRIVATE String pathFileName(const String&);
 WTF_EXPORT_PRIVATE String parentPath(const String&);
 WTF_EXPORT_PRIVATE String lexicallyNormal(const String&);
+WTF_EXPORT_PRIVATE bool isAncestor(const String& first, const String& second);
 WTF_EXPORT_PRIVATE std::optional<uint64_t> volumeFreeSpace(const String&);
 WTF_EXPORT_PRIVATE std::optional<uint64_t> volumeCapacity(const String&);
 WTF_EXPORT_PRIVATE std::optional<uint32_t> volumeFileBlockSize(const String&);
 WTF_EXPORT_PRIVATE std::optional<int32_t> getFileDeviceId(const String&);
 WTF_EXPORT_PRIVATE bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath);
 WTF_EXPORT_PRIVATE String createTemporaryZipArchive(const String& directory);
+WTF_EXPORT_PRIVATE String extractTemporaryZipArchive(const String& filePath);
 
 enum class FileType { Regular, Directory, SymbolicLink };
 WTF_EXPORT_PRIVATE std::optional<FileType> fileType(const String&);
@@ -186,6 +191,7 @@ WTF_EXPORT_PRIVATE bool hardLink(const String& targetPath, const String& linkPat
 // Hard links a file if possible, copies it if not.
 WTF_EXPORT_PRIVATE bool hardLinkOrCopyFile(const String& targetPath, const String& linkPath);
 WTF_EXPORT_PRIVATE std::optional<uint64_t> hardLinkCount(const String& path);
+WTF_EXPORT_PRIVATE bool copyFile(const String& targetPath, const String& sourcePath);
 
 #if USE(FILE_LOCK)
 WTF_EXPORT_PRIVATE bool lockFile(PlatformFileHandle, OptionSet<FileLockMode>);
@@ -212,7 +218,10 @@ WTF_EXPORT_PRIVATE CString currentExecutablePath();
 WTF_EXPORT_PRIVATE CString currentExecutableName();
 WTF_EXPORT_PRIVATE String userCacheDirectory();
 WTF_EXPORT_PRIVATE String userDataDirectory();
+#if ENABLE(DEVELOPER_MODE)
+WTF_EXPORT_PRIVATE CString webkitTopLevelDirectory();
 #endif
+#endif // USE(GLIB)
 
 #if OS(WINDOWS)
 WTF_EXPORT_PRIVATE String localUserSpecificStorageDirectory();
@@ -256,23 +265,27 @@ public:
     WTF_EXPORT_PRIVATE ~MappedFileData();
     MappedFileData& operator=(MappedFileData&&);
 
+#if HAVE(MMAP)
+    std::span<uint8_t> leakHandle() { return m_fileData.leakSpan(); }
+    explicit operator bool() const { return !!m_fileData; }
+    size_t size() const { return m_fileData.span().size(); }
+    std::span<const uint8_t> span() const LIFETIME_BOUND { return m_fileData.span(); }
+    std::span<uint8_t> mutableSpan() LIFETIME_BOUND { return m_fileData.mutableSpan(); }
+#elif OS(WINDOWS)
+    const Win32Handle& fileMapping() const { return m_fileMapping; }
     explicit operator bool() const { return !!m_fileData.data(); }
     size_t size() const { return m_fileData.size(); }
     std::span<const uint8_t> span() const { return m_fileData; }
     std::span<uint8_t> mutableSpan() { return m_fileData; }
-
-#if PLATFORM(COCOA)
-    std::span<uint8_t> leakHandle() { return std::exchange(m_fileData, { }); }
-#endif
-#if OS(WINDOWS)
-    const Win32Handle& fileMapping() const { return m_fileMapping; }
 #endif
 
 private:
     WTF_EXPORT_PRIVATE bool mapFileHandle(PlatformFileHandle, FileOpenMode, MappedFileMode);
 
+#if HAVE(MMAP)
+    MallocSpan<uint8_t, Mmap> m_fileData;
+#elif OS(WINDOWS)
     std::span<uint8_t> m_fileData;
-#if OS(WINDOWS)
     Win32Handle m_fileMapping;
 #endif
 };
@@ -345,5 +358,3 @@ WTF_EXPORT_PRIVATE void finalizeMappedFileData(MappedFileData&, size_t);
 } // namespace WTF
 
 namespace FileSystem = WTF::FileSystemImpl;
-
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

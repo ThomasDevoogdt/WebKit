@@ -486,6 +486,7 @@ $(PROJECT_DIR)/Modules/filesystemaccess/FileSystemDirectoryHandle.idl
 $(PROJECT_DIR)/Modules/filesystemaccess/FileSystemFileHandle.idl
 $(PROJECT_DIR)/Modules/filesystemaccess/FileSystemHandle.idl
 $(PROJECT_DIR)/Modules/filesystemaccess/FileSystemSyncAccessHandle.idl
+$(PROJECT_DIR)/Modules/filesystemaccess/FileSystemWritableFileStream.idl
 $(PROJECT_DIR)/Modules/filesystemaccess/StorageManager+FileSystemAccess.idl
 $(PROJECT_DIR)/Modules/gamepad/Gamepad.idl
 $(PROJECT_DIR)/Modules/gamepad/GamepadButton.idl
@@ -821,14 +822,11 @@ $(PROJECT_DIR)/Modules/pictureinpicture/DocumentOrShadowRoot+PictureInPicture.id
 $(PROJECT_DIR)/Modules/pictureinpicture/HTMLVideoElement+PictureInPicture.idl
 $(PROJECT_DIR)/Modules/pictureinpicture/PictureInPictureEvent.idl
 $(PROJECT_DIR)/Modules/pictureinpicture/PictureInPictureWindow.idl
-$(PROJECT_DIR)/Modules/push-api/NavigatorPush.idl
 $(PROJECT_DIR)/Modules/push-api/PushEncryptionKeyName.idl
 $(PROJECT_DIR)/Modules/push-api/PushEvent.idl
 $(PROJECT_DIR)/Modules/push-api/PushEventInit.idl
 $(PROJECT_DIR)/Modules/push-api/PushManager.idl
 $(PROJECT_DIR)/Modules/push-api/PushMessageData.idl
-$(PROJECT_DIR)/Modules/push-api/PushNotificationEvent.idl
-$(PROJECT_DIR)/Modules/push-api/PushNotificationEventInit.idl
 $(PROJECT_DIR)/Modules/push-api/PushPermissionState.idl
 $(PROJECT_DIR)/Modules/push-api/PushSubscription.idl
 $(PROJECT_DIR)/Modules/push-api/PushSubscriptionChangeEvent.idl
@@ -838,6 +836,7 @@ $(PROJECT_DIR)/Modules/push-api/PushSubscriptionOptions.idl
 $(PROJECT_DIR)/Modules/push-api/PushSubscriptionOptionsInit.idl
 $(PROJECT_DIR)/Modules/push-api/ServiceWorkerGlobalScope+PushAPI.idl
 $(PROJECT_DIR)/Modules/push-api/ServiceWorkerRegistration+PushAPI.idl
+$(PROJECT_DIR)/Modules/push-api/WindowPush.idl
 $(PROJECT_DIR)/Modules/remoteplayback/HTMLMediaElement+RemotePlayback.idl
 $(PROJECT_DIR)/Modules/remoteplayback/RemotePlayback.idl
 $(PROJECT_DIR)/Modules/remoteplayback/RemotePlaybackAvailabilityCallback.idl
@@ -1171,6 +1170,7 @@ $(PROJECT_DIR)/Scripts/SettingsTemplates/InternalSettingsGenerated.h.erb
 $(PROJECT_DIR)/Scripts/SettingsTemplates/InternalSettingsGenerated.idl.erb
 $(PROJECT_DIR)/Scripts/SettingsTemplates/Settings.cpp.erb
 $(PROJECT_DIR)/Scripts/SettingsTemplates/Settings.h.erb
+$(PROJECT_DIR)/Scripts/generate-process-sync-data.py
 $(PROJECT_DIR)/accessibility/AccessibilityRole.idl
 $(PROJECT_DIR)/accessibility/AriaAttributes.idl
 $(PROJECT_DIR)/animation/Animatable.idl
@@ -1271,6 +1271,7 @@ $(PROJECT_DIR)/css/CSSNestedDeclarations.idl
 $(PROJECT_DIR)/css/CSSPageRule.idl
 $(PROJECT_DIR)/css/CSSPaintCallback.idl
 $(PROJECT_DIR)/css/CSSPaintSize.idl
+$(PROJECT_DIR)/css/CSSPositionTryRule.idl
 $(PROJECT_DIR)/css/CSSProperties.json
 $(PROJECT_DIR)/css/CSSPropertyRule.idl
 $(PROJECT_DIR)/css/CSSPseudoSelectors.json
@@ -1282,7 +1283,6 @@ $(PROJECT_DIR)/css/CSSStyleDeclaration.idl
 $(PROJECT_DIR)/css/CSSStyleRule.idl
 $(PROJECT_DIR)/css/CSSStyleSheet.idl
 $(PROJECT_DIR)/css/CSSSupportsRule.idl
-$(PROJECT_DIR)/css/CSSUnknownRule.idl
 $(PROJECT_DIR)/css/CSSValueKeywords.in
 $(PROJECT_DIR)/css/CSSViewTransitionRule.idl
 $(PROJECT_DIR)/css/DOMCSSCustomPropertyDescriptor.idl
@@ -1340,14 +1340,14 @@ $(PROJECT_DIR)/css/typedom/CSSUnitValue.idl
 $(PROJECT_DIR)/css/typedom/CSSUnparsedValue.idl
 $(PROJECT_DIR)/css/typedom/StylePropertyMap.idl
 $(PROJECT_DIR)/css/typedom/StylePropertyMapReadOnly.idl
-$(PROJECT_DIR)/css/typedom/color/CSSColor.idl
-$(PROJECT_DIR)/css/typedom/color/CSSColorValue.idl
 $(PROJECT_DIR)/css/typedom/color/CSSHSL.idl
 $(PROJECT_DIR)/css/typedom/color/CSSHWB.idl
 $(PROJECT_DIR)/css/typedom/color/CSSLCH.idl
 $(PROJECT_DIR)/css/typedom/color/CSSLab.idl
 $(PROJECT_DIR)/css/typedom/color/CSSOKLCH.idl
 $(PROJECT_DIR)/css/typedom/color/CSSOKLab.idl
+$(PROJECT_DIR)/css/typedom/color/CSSOMColor.idl
+$(PROJECT_DIR)/css/typedom/color/CSSOMColorValue.idl
 $(PROJECT_DIR)/css/typedom/color/CSSRGB.idl
 $(PROJECT_DIR)/css/typedom/numeric/CSSMathClamp.idl
 $(PROJECT_DIR)/css/typedom/numeric/CSSMathInvert.idl
@@ -1383,6 +1383,8 @@ $(PROJECT_DIR)/dom/Attr.idl
 $(PROJECT_DIR)/dom/BeforeUnloadEvent.idl
 $(PROJECT_DIR)/dom/BroadcastChannel.idl
 $(PROJECT_DIR)/dom/CDATASection.idl
+$(PROJECT_DIR)/dom/CaretPosition.idl
+$(PROJECT_DIR)/dom/CaretPositionFromPointOptions.idl
 $(PROJECT_DIR)/dom/CharacterData.idl
 $(PROJECT_DIR)/dom/CheckVisibilityOptions.idl
 $(PROJECT_DIR)/dom/ChildNode.idl
@@ -1418,6 +1420,7 @@ $(PROJECT_DIR)/dom/DeviceOrientationEvent.idl
 $(PROJECT_DIR)/dom/DeviceOrientationOrMotionEvent.idl
 $(PROJECT_DIR)/dom/DeviceOrientationOrMotionPermissionState.idl
 $(PROJECT_DIR)/dom/Document+CSSOMView.idl
+$(PROJECT_DIR)/dom/Document+CaretPositionFromPoint.idl
 $(PROJECT_DIR)/dom/Document+Fullscreen.idl
 $(PROJECT_DIR)/dom/Document+HTML.idl
 $(PROJECT_DIR)/dom/Document+HTMLObsolete.idl
@@ -1489,6 +1492,8 @@ $(PROJECT_DIR)/dom/NodeList.idl
 $(PROJECT_DIR)/dom/NonDocumentTypeChildNode.idl
 $(PROJECT_DIR)/dom/NonElementParentNode.idl
 $(PROJECT_DIR)/dom/Observable.idl
+$(PROJECT_DIR)/dom/ObservableInspector.idl
+$(PROJECT_DIR)/dom/ObservableInspectorAbortCallback.idl
 $(PROJECT_DIR)/dom/PageRevealEvent.idl
 $(PROJECT_DIR)/dom/PageSwapEvent.idl
 $(PROJECT_DIR)/dom/PageTransitionEvent.idl
@@ -1503,6 +1508,7 @@ $(PROJECT_DIR)/dom/PromiseRejectionEvent.idl
 $(PROJECT_DIR)/dom/Range+CSSOMView.idl
 $(PROJECT_DIR)/dom/Range+DOMParsing.idl
 $(PROJECT_DIR)/dom/Range.idl
+$(PROJECT_DIR)/dom/ReducerCallback.idl
 $(PROJECT_DIR)/dom/RequestAnimationFrameCallback.idl
 $(PROJECT_DIR)/dom/SecurityPolicyViolationEvent.idl
 $(PROJECT_DIR)/dom/SecurityPolicyViolationEventDisposition.idl
@@ -1549,6 +1555,7 @@ $(PROJECT_DIR)/dom/ViewTransition.idl
 $(PROJECT_DIR)/dom/ViewTransitionTypeSet.idl
 $(PROJECT_DIR)/dom/ViewTransitionUpdateCallback.idl
 $(PROJECT_DIR)/dom/VisibilityState.idl
+$(PROJECT_DIR)/dom/VisitorCallback.idl
 $(PROJECT_DIR)/dom/WheelEvent.idl
 $(PROJECT_DIR)/dom/WindowOrWorkerGlobalScope+TrustedTypes.idl
 $(PROJECT_DIR)/dom/XMLDocument.idl
@@ -1659,6 +1666,7 @@ $(PROJECT_DIR)/html/ImageBitmap.idl
 $(PROJECT_DIR)/html/ImageBitmapOptions.idl
 $(PROJECT_DIR)/html/ImageData.idl
 $(PROJECT_DIR)/html/ImageDataSettings.idl
+$(PROJECT_DIR)/html/ImageDataStorageFormat.idl
 $(PROJECT_DIR)/html/InvokerElement.idl
 $(PROJECT_DIR)/html/MediaController.idl
 $(PROJECT_DIR)/html/MediaEncryptedEvent.idl
@@ -1789,6 +1797,7 @@ $(PROJECT_DIR)/html/canvas/WebGLVertexArrayObjectOES.idl
 $(PROJECT_DIR)/html/parser/HTMLEntityNames.in
 $(PROJECT_DIR)/html/parser/create-html-entity-table
 $(PROJECT_DIR)/html/shadow/attachmentElementShadow.css
+$(PROJECT_DIR)/html/shadow/detailsElementShadow.css
 $(PROJECT_DIR)/html/shadow/imageOverlay.css
 $(PROJECT_DIR)/html/shadow/mac/imageControlsMac.css
 $(PROJECT_DIR)/html/shadow/meterElementShadow.css
@@ -1885,6 +1894,7 @@ $(PROJECT_DIR)/page/PerformanceResourceTiming.idl
 $(PROJECT_DIR)/page/PerformanceServerTiming.idl
 $(PROJECT_DIR)/page/PerformanceTiming.idl
 $(PROJECT_DIR)/page/PostMessageOptions.idl
+$(PROJECT_DIR)/page/ProcessSyncData.in
 $(PROJECT_DIR)/page/ResizeObserver.idl
 $(PROJECT_DIR)/page/ResizeObserverBoxOptions.idl
 $(PROJECT_DIR)/page/ResizeObserverCallback.idl
@@ -1919,6 +1929,7 @@ $(PROJECT_DIR)/page/WindowSessionStorage.idl
 $(PROJECT_DIR)/page/WorkerNavigator.idl
 $(PROJECT_DIR)/page/csp/CSPViolationReportBody.idl
 $(PROJECT_DIR)/platform/ColorData.gperf
+$(PROJECT_DIR)/platform/LogMessages.in
 $(PROJECT_DIR)/platform/network/HTTPHeaderNames.in
 $(PROJECT_DIR)/platform/network/create-http-header-name-table
 $(PROJECT_DIR)/plugins/DOMMimeType.idl

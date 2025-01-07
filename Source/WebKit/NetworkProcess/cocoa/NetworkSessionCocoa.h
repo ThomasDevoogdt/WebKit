@@ -45,6 +45,7 @@ OBJC_CLASS NSURLCredentialStorage;
 #include <WebCore/NetworkLoadMetrics.h>
 #include <WebCore/RegistrableDomain.h>
 #include <wtf/HashMap.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -68,9 +69,9 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
 
     RetainPtr<NSURLSession> session;
     RetainPtr<WKNetworkSessionDelegate> delegate;
-    UncheckedKeyHashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>> dataTaskMap;
-    UncheckedKeyHashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID> downloadMap;
-    UncheckedKeyHashMap<NetworkDataTaskCocoa::TaskIdentifier, WeakPtr<WebSocketTask>> webSocketDataTaskMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>> dataTaskMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID> downloadMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, WeakPtr<WebSocketTask>> webSocketDataTaskMap;
 };
 
 struct IsolatedSession {
@@ -82,7 +83,7 @@ public:
     WallTime lastUsed;
 };
 
-struct SessionSet : public RefCounted<SessionSet>, public CanMakeWeakPtr<SessionSet> {
+struct SessionSet : public RefCountedAndCanMakeWeakPtr<SessionSet> {
 public:
     static Ref<SessionSet> create()
     {
@@ -92,7 +93,7 @@ public:
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
 
     SessionWrapper& isolatedSession(WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain&, NavigatingToAppBoundDomain, NetworkSessionCocoa&);
-    UncheckedKeyHashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> isolatedSessions;
+    HashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> isolatedSessions;
 
     std::unique_ptr<IsolatedSession> appBoundSession;
 
@@ -181,6 +182,7 @@ private:
 #endif
 
     void donateToSKAdNetwork(WebCore::PrivateClickMeasurement&&) final;
+    void notifyAdAttributionKitOfSessionTermination() final;
 
     Vector<WebCore::SecurityOriginData> hostNamesWithAlternativeServices() const override;
     void deleteAlternativeServicesForHostNames(const Vector<String>&) override;
@@ -199,9 +201,11 @@ private:
 
     void forEachSessionWrapper(Function<void(SessionWrapper&)>&&);
 
+    bool isNetworkSessionCocoa() const final { return true; }
+
     Ref<SessionSet> m_defaultSessionSet;
-    UncheckedKeyHashMap<WebPageProxyIdentifier, Ref<SessionSet>> m_perPageSessionSets;
-    UncheckedKeyHashMap<WebPageNetworkParameters, WeakPtr<SessionSet>> m_perParametersSessionSets;
+    HashMap<WebPageProxyIdentifier, Ref<SessionSet>> m_perPageSessionSets;
+    HashMap<WebPageNetworkParameters, WeakPtr<SessionSet>> m_perParametersSessionSets;
 
     void initializeNSURLSessionsInSet(SessionSet&, NSURLSessionConfiguration *);
     SessionSet& sessionSetForPage(std::optional<WebPageProxyIdentifier>);
@@ -222,10 +226,17 @@ private:
     bool m_fastServerTrustEvaluationEnabled { false };
     String m_dataConnectionServiceType;
     bool m_preventsSystemHTTPProxyAuthentication { false };
+#if HAVE(AD_ATTRIBUTION_KIT_PRIVATE_BROWSING)
+    Markable<WTF::UUID> m_donatedEphemeralImpressionSessionID;
+#endif
 
     class BlobDataTaskClient;
-    UncheckedKeyHashMap<DataTaskIdentifier, Ref<BlobDataTaskClient>> m_blobDataTasksForAPI;
-    UncheckedKeyHashMap<DataTaskIdentifier, RetainPtr<NSURLSessionDataTask>> m_dataTasksForAPI;
+    HashMap<DataTaskIdentifier, Ref<BlobDataTaskClient>> m_blobDataTasksForAPI;
+    HashMap<DataTaskIdentifier, RetainPtr<NSURLSessionDataTask>> m_dataTasksForAPI;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::NetworkSessionCocoa)
+    static bool isType(const WebKit::NetworkSession& networkSession) { return networkSession.isNetworkSessionCocoa(); }
+SPECIALIZE_TYPE_TRAITS_END()

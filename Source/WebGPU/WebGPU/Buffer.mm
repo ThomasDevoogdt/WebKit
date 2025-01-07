@@ -28,14 +28,24 @@
 
 #import "APIConversions.h"
 #import "Device.h"
-#if ENABLE(WEBGPU_SWIFT)
-#import "WebGPUSwiftInternal.h"
-#endif
+
 #import <wtf/CheckedArithmetic.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/TZoneMallocInlines.h>
 
+#if ENABLE(WEBGPU_SWIFT)
+#import "WebGPUSwiftInternal.h"
+
+DEFINE_SWIFTCXX_THUNK(WebGPU::Buffer, copyFrom, void, const std::span<const uint8_t>, const size_t);
+DEFINE_SWIFTCXX_THUNK(WebGPU::Buffer, getMappedRange, std::span<uint8_t>, size_t, size_t);
+#endif
+
 namespace WebGPU {
+
+static inline auto span(id<MTLBuffer> buffer)
+{
+    return unsafeMakeSpan(static_cast<uint8_t*>(buffer.contents), static_cast<size_t>(buffer.length));
+}
 
 static bool validateDescriptor(const Device& device, const WGPUBufferDescriptor& descriptor)
 {
@@ -159,9 +169,9 @@ Buffer::Buffer(id<MTLBuffer> buffer, uint64_t initialSize, WGPUBufferUsageFlags 
 #endif
 {
     if (m_usage & WGPUBufferUsage_Indirect)
-        m_indirectBuffer = device.safeCreateBuffer(sizeof(MTLDrawPrimitivesIndirectArguments), MTLStorageModePrivate);
+        m_indirectBuffer = device.safeCreateBuffer(sizeof(MTLDrawPrimitivesIndirectArguments) + sizeof(uint32_t), MTLStorageModeShared);
     if (m_usage & (WGPUBufferUsage_Indirect | WGPUBufferUsage_Index))
-        m_indirectIndexedBuffer = device.safeCreateBuffer(sizeof(MTLDrawIndexedPrimitivesIndirectArguments), MTLStorageModePrivate);
+        m_indirectIndexedBuffer = device.safeCreateBuffer(sizeof(MTLDrawIndexedPrimitivesIndirectArguments) + sizeof(uint32_t), MTLStorageModeShared);
 }
 
 Buffer::Buffer(Device& device)
@@ -173,20 +183,20 @@ Buffer::~Buffer() = default;
 
 void Buffer::incrementBufferMapCount()
 {
-    for (auto& commandEncoder : m_commandEncoders)
-        commandEncoder.incrementBufferMapCount();
+    for (Ref commandEncoder : m_commandEncoders)
+        commandEncoder->incrementBufferMapCount();
 }
 
 void Buffer::decrementBufferMapCount()
 {
-    for (auto& commandEncoder : m_commandEncoders)
-        commandEncoder.decrementBufferMapCount();
+    for (Ref commandEncoder : m_commandEncoders)
+        commandEncoder->decrementBufferMapCount();
 }
 
 void Buffer::setCommandEncoder(CommandEncoder& commandEncoder, bool mayModifyBuffer) const
 {
     UNUSED_PARAM(mayModifyBuffer);
-    m_commandEncoders.add(commandEncoder);
+    CommandEncoder::trackEncoder(commandEncoder, m_commandEncoders);
     commandEncoder.addBuffer(m_buffer);
     if (m_state == State::Mapped || m_state == State::MappedAtCreation)
         commandEncoder.incrementBufferMapCount();
@@ -204,11 +214,11 @@ void Buffer::destroy()
     }
 
     setState(State::Destroyed);
-    for (auto& commandEncoder : m_commandEncoders)
-        commandEncoder.makeSubmitInvalid();
+    for (Ref commandEncoder : m_commandEncoders)
+        commandEncoder->makeSubmitInvalid();
 
     m_commandEncoders.clear();
-    m_buffer = m_device->placeholderBuffer();
+    m_buffer = protectedDevice()->placeholderBuffer();
 }
 
 bool Buffer::validateGetMappedRange(size_t offset, size_t rangeSize) const
@@ -246,6 +256,7 @@ static size_t computeRangeSize(uint64_t size, size_t offset)
     return result.value();
 }
   
+#if !ENABLE(WEBGPU_SWIFT)
 std::span<uint8_t> Buffer::getMappedRange(size_t offset, size_t size)
 {
     // https://gpuweb.github.io/gpuweb/#dom-gpubuffer-getmappedrange
@@ -263,16 +274,14 @@ std::span<uint8_t> Buffer::getMappedRange(size_t offset, size_t size)
     m_mappedRanges.compact();
 
     if (!m_buffer.contents)
-        return std::span<uint8_t> { };
-    auto entireSpan = std::span<uint8_t> { static_cast<uint8_t*>(m_buffer.contents), m_buffer.length };
-    return entireSpan.subspan(offset);
+        return { };
+    return getBufferContents().subspan(offset);
 }
+#endif
 
 std::span<uint8_t> Buffer::getBufferContents()
 {
-    auto* pointer = static_cast<uint8_t*>(m_buffer.contents);
-    auto bufferSize = currentSize();
-    return { static_cast<uint8_t*>(pointer), static_cast<size_t>(bufferSize) };
+    return span(m_buffer);
 }
 
 NSString* Buffer::errorValidatingMapAsync(WGPUMapModeFlags mode, size_t offset, size_t rangeSize) const
@@ -316,8 +325,10 @@ void Buffer::mapAsync(WGPUMapModeFlags mode, size_t offset, size_t size, Complet
     if (size == WGPU_WHOLE_MAP_SIZE)
         rangeSize = computeRangeSize(currentSize(), offset);
 
+    auto device = protectedDevice();
+
     if (NSString* error = errorValidatingMapAsync(mode, offset, rangeSize)) {
-        m_device->generateAValidationError(error);
+        device->generateAValidationError(error);
 
         callback(WGPUBufferMapAsyncStatus_ValidationError);
         return;
@@ -327,7 +338,7 @@ void Buffer::mapAsync(WGPUMapModeFlags mode, size_t offset, size_t size, Complet
 
     m_mapMode = mode;
 
-    m_device->getQueue().onSubmittedWorkDone([protectedThis = Ref { *this }, offset, rangeSize, callback = WTFMove(callback)](WGPUQueueWorkDoneStatus status) mutable {
+    device->protectedQueue()->onSubmittedWorkDone([protectedThis = Ref { *this }, offset, rangeSize, callback = WTFMove(callback)](WGPUQueueWorkDoneStatus status) mutable {
         if (protectedThis->m_state == State::MappingPending) {
             protectedThis->setState(State::Mapped);
             protectedThis->incrementBufferMapCount();
@@ -373,7 +384,7 @@ void Buffer::unmap()
 {
     // https://gpuweb.github.io/gpuweb/#dom-gpubuffer-unmap
 
-    if (!validateUnmap() && !m_device->isValid())
+    if (!validateUnmap() && !protectedDevice()->isValid())
         return;
 
     decrementBufferMapCount();
@@ -414,27 +425,30 @@ bool Buffer::isValid() const
     return isDestroyed() || m_buffer;
 }
 
-bool Buffer::isDestroyed() const
-{
-    return state() == State::Destroyed;
-}
-
 id<MTLBuffer> Buffer::indirectBuffer() const
 {
     return m_indirectBuffer;
 }
 
-id<MTLBuffer> Buffer::indirectIndexedBuffer() const
+static uint64_t makeKey(uint32_t firstIndex, uint32_t indexCount)
 {
-    return m_indirectIndexedBuffer;
+    return firstIndex | (static_cast<uint64_t>(indexCount) << 32);
 }
 
-bool Buffer::indirectBufferRequiresRecomputation(uint32_t baseIndex, uint32_t indexCount, uint32_t minVertexCount, uint32_t minInstanceCount, MTLIndexType indexType, uint32_t firstInstance) const
+static uint64_t makeValue(uint32_t vertexCount, MTLIndexType indexType)
 {
-    auto rangeBegin = m_indirectCache.lastBaseIndex;
-    auto rangeEnd = m_indirectCache.lastBaseIndex + m_indirectCache.indexCount;
-    auto newRangeEnd = baseIndex + indexCount;
-    return baseIndex != rangeBegin || newRangeEnd != rangeEnd || minVertexCount != m_indirectCache.minVertexCount || minInstanceCount != m_indirectCache.minInstanceCount || m_indirectCache.indexType != indexType || m_indirectCache.firstInstance != firstInstance;
+    return vertexCount | (static_cast<uint64_t>(indexType) << 32);
+}
+
+bool Buffer::canSkipDrawIndexedValidation(uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, MTLIndexType indexType) const
+{
+    auto it = m_drawIndexedCache.find(makeKey(firstIndex, indexCount));
+    return it != m_drawIndexedCache.end() && it->value == makeValue(vertexCount, indexType);
+}
+
+void Buffer::drawIndexedValidated(uint32_t firstIndex, uint32_t indexCount, uint32_t vertexCount, MTLIndexType indexType)
+{
+    m_drawIndexedCache.set(makeKey(firstIndex, indexCount), makeValue(vertexCount, indexType));
 }
 
 bool Buffer::indirectBufferRequiresRecomputation(uint64_t indirectOffset, uint32_t minVertexCount, uint32_t minInstanceCount) const
@@ -463,36 +477,20 @@ void Buffer::indirectIndexedBufferRecomputed(MTLIndexType indexType, NSUInteger 
     m_indirectCache.minInstanceCount = minInstanceCount;
 }
 
-void Buffer::indirectBufferRecomputed(uint32_t baseIndex, uint32_t indexCount, uint32_t minVertexCount, uint32_t minInstanceCount, MTLIndexType indexType, uint32_t firstInstance)
-{
-    m_indirectCache.lastBaseIndex = baseIndex;
-    m_indirectCache.indexCount = indexCount;
-    m_indirectCache.minVertexCount = minVertexCount;
-    m_indirectCache.minInstanceCount = minInstanceCount;
-    m_indirectCache.indexType = indexType;
-    m_indirectCache.firstInstance = firstInstance;
-}
-
 void Buffer::indirectBufferInvalidated()
 {
-    m_indirectCache.indirectOffset = UINT64_MAX;
-    m_indirectCache.indexBufferOffsetInBytes = UINT64_MAX;
-    indirectBufferRecomputed(0, 0, 0, 0, MTLIndexTypeUInt16, 0);
-}
+    if (!(m_usage & (WGPUBufferUsage_Indirect | WGPUBufferUsage_Index)))
+        return;
 
-#if ENABLE(WEBGPU_SWIFT)
-void Buffer::copy(const std::span<const uint8_t> data, const size_t offset)
-{
-    auto buffer = getBufferContents();
-    RELEASE_ASSERT(buffer);
-    auto endOffset = checkedSum<size_t>(offset, data.size());
-    RELEASE_ASSERT(!(endOffset.hasOverflowed() || endOffset.value() > currentSize()));
-    auto checkSize = checkedSum<size_t>(currentSize());
-    RELEASE_ASSERT(!checkSize.hasOverflowed());
-    auto destination = std::span<uint8_t> { buffer + offset, static_cast<size_t>(currentSize()) - offset };
-    WebGPU::copySpan(destination, data);
+    m_drawIndexedCache.clear();
+    m_indirectCache = {
+        .indirectOffset = UINT64_MAX,
+        .indexBufferOffsetInBytes = UINT64_MAX,
+        .minVertexCount = 0,
+        .minInstanceCount = 0,
+        .indexType = MTLIndexTypeUInt16
+    };
 }
-#endif
 
 } // namespace WebGPU
 
@@ -510,12 +508,12 @@ void wgpuBufferRelease(WGPUBuffer buffer)
 
 void wgpuBufferDestroy(WGPUBuffer buffer)
 {
-    WebGPU::fromAPI(buffer).destroy();
+    WebGPU::protectedFromAPI(buffer)->destroy();
 }
 
 WGPUBufferMapState wgpuBufferGetMapState(WGPUBuffer buffer)
 {
-    switch (WebGPU::fromAPI(buffer).state()) {
+    switch (WebGPU::protectedFromAPI(buffer)->state()) {
     case WebGPU::Buffer::State::Mapped:
         return WGPUBufferMapState_Mapped;
     case WebGPU::Buffer::State::MappedAtCreation:
@@ -531,56 +529,56 @@ WGPUBufferMapState wgpuBufferGetMapState(WGPUBuffer buffer)
 
 std::span<uint8_t> wgpuBufferGetMappedRange(WGPUBuffer buffer, size_t offset, size_t size)
 {
-    return WebGPU::fromAPI(buffer).getMappedRange(offset, size);
+    return WebGPU::protectedFromAPI(buffer)->getMappedRange(offset, size);
 }
 
 std::span<uint8_t> wgpuBufferGetBufferContents(WGPUBuffer buffer)
 {
-    return WebGPU::fromAPI(buffer).getBufferContents();
+    return WebGPU::protectedFromAPI(buffer)->getBufferContents();
 }
 
 uint64_t wgpuBufferGetInitialSize(WGPUBuffer buffer)
 {
-    return WebGPU::fromAPI(buffer).initialSize();
+    return WebGPU::protectedFromAPI(buffer)->initialSize();
 }
 
 uint64_t wgpuBufferGetCurrentSize(WGPUBuffer buffer)
 {
-    return WebGPU::fromAPI(buffer).currentSize();
+    return WebGPU::protectedFromAPI(buffer)->currentSize();
 }
 
 void wgpuBufferMapAsync(WGPUBuffer buffer, WGPUMapModeFlags mode, size_t offset, size_t size, WGPUBufferMapCallback callback, void* userdata)
 {
-    WebGPU::fromAPI(buffer).mapAsync(mode, offset, size, [callback, userdata](WGPUBufferMapAsyncStatus status) {
+    WebGPU::protectedFromAPI(buffer)->mapAsync(mode, offset, size, [callback, userdata](WGPUBufferMapAsyncStatus status) {
         callback(status, userdata);
     });
 }
 
 void wgpuBufferMapAsyncWithBlock(WGPUBuffer buffer, WGPUMapModeFlags mode, size_t offset, size_t size, WGPUBufferMapBlockCallback callback)
 {
-    WebGPU::fromAPI(buffer).mapAsync(mode, offset, size, [callback = WebGPU::fromAPI(WTFMove(callback))](WGPUBufferMapAsyncStatus status) {
+    WebGPU::protectedFromAPI(buffer)->mapAsync(mode, offset, size, [callback = WebGPU::fromAPI(WTFMove(callback))](WGPUBufferMapAsyncStatus status) {
         callback(status);
     });
 }
 
 void wgpuBufferUnmap(WGPUBuffer buffer)
 {
-    WebGPU::fromAPI(buffer).unmap();
+    WebGPU::protectedFromAPI(buffer)->unmap();
 }
 
 void wgpuBufferSetLabel(WGPUBuffer buffer, const char* label)
 {
-    WebGPU::fromAPI(buffer).setLabel(WebGPU::fromAPI(label));
+    WebGPU::protectedFromAPI(buffer)->setLabel(WebGPU::fromAPI(label));
 }
 
 WGPUBufferUsageFlags wgpuBufferGetUsage(WGPUBuffer buffer)
 {
-    return WebGPU::fromAPI(buffer).usage();
+    return WebGPU::protectedFromAPI(buffer)->usage();
 }
 
 #if ENABLE(WEBGPU_SWIFT)
 void wgpuBufferCopy(WGPUBuffer buffer, std::span<const uint8_t> data, size_t offset)
 {
-    WebGPU::fromAPI(buffer).copy(data, offset);
+    WebGPU::protectedFromAPI(buffer)->copyFrom(data, offset);
 }
 #endif

@@ -54,6 +54,9 @@ public:
     ~ModelProcess();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::Model;
 
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
     void removeModelConnectionToWebProcess(ModelConnectionToWebProcess&);
 
     void prepareToSuspend(bool isSuspensionImminent, MonotonicTime estimatedSuspendTime, CompletionHandler<void()>&&);
@@ -97,7 +100,7 @@ private:
 #endif
 
     // Connections to WebProcesses.
-    UncheckedKeyHashMap<WebCore::ProcessIdentifier, Ref<ModelConnectionToWebProcess>> m_webProcessConnections;
+    HashMap<WebCore::ProcessIdentifier, Ref<ModelConnectionToWebProcess>> m_webProcessConnections;
     MonotonicTime m_creationTime { MonotonicTime::now() };
 
     HashSet<PAL::SessionID> m_sessions;

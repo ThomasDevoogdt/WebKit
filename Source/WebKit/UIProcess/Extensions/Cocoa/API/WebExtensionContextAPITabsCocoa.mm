@@ -45,7 +45,6 @@
 #import "WebExtensionTabIdentifier.h"
 #import "WebExtensionUtilities.h"
 #import "WebExtensionWindowIdentifier.h"
-#import "WebPageProxy.h"
 #import <WebCore/ImageBufferUtilitiesCG.h>
 #import <wtf/CallbackAggregator.h>
 
@@ -64,7 +63,13 @@ void WebExtensionContext::tabsCreate(std::optional<WebPageProxyIdentifier> webPa
 
     static NSString * const apiName = @"tabs.create()";
 
-    auto delegate = extensionController()->delegate();
+    RefPtr extensionController = this->extensionController();
+    if (!extensionController) {
+        completionHandler(toWebExtensionError(apiName, nil, @"No extensionController"));
+        return;
+    }
+
+    auto delegate = extensionController->delegate();
     if (![delegate respondsToSelector:@selector(webExtensionController:openNewTabUsingConfiguration:forExtensionContext:completionHandler:)]) {
         completionHandler(toWebExtensionError(apiName, nil, @"it is not implemented"));
         return;
@@ -99,7 +104,7 @@ void WebExtensionContext::tabsCreate(std::optional<WebPageProxyIdentifier> webPa
     if (parameters.url)
         configuration.url = parameters.url.value();
 
-    [delegate webExtensionController:extensionController()->wrapper() openNewTabUsingConfiguration:configuration forExtensionContext:wrapper() completionHandler:makeBlockPtr([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](id<WKWebExtensionTab> newTab, NSError *error) mutable {
+    [delegate webExtensionController:extensionController->wrapper() openNewTabUsingConfiguration:configuration forExtensionContext:wrapper() completionHandler:makeBlockPtr([this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](id<WKWebExtensionTab> newTab, NSError *error) mutable {
         if (error) {
             RELEASE_LOG_ERROR(Extensions, "Error for open new tab: %{public}@", privacyPreservingDescription(error));
             completionHandler(toWebExtensionError(apiName, nil, error.localizedDescription));
@@ -633,7 +638,7 @@ void WebExtensionContext::tabsInsertCSS(WebPageProxyIdentifier webPageProxyIdent
         }
 
         // FIXME: <https://webkit.org/b/262491> There is currently no way to inject CSS in specific frames based on ID's. If 'frameIds' is passed, default to the main frame.
-        auto injectedFrames = parameters.frameIDs ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames;
+        auto injectedFrames = parameters.frameIdentifiers ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames;
 
         auto styleSheetPairs = getSourcePairsForParameters(parameters, *this);
         injectStyleSheets(styleSheetPairs, webView, Ref { *m_contentScriptWorld }, parameters.styleLevel, injectedFrames, *this);
@@ -662,7 +667,7 @@ void WebExtensionContext::tabsRemoveCSS(WebPageProxyIdentifier webPageProxyIdent
     // and permission has been revoked since it inserted CSS. This allows for the extension to clean up.
 
     // FIXME: <https://webkit.org/b/262491> There is currently no way to inject CSS in specific frames based on ID's. If 'frameIds' is passed, default to the main frame.
-    auto injectedFrames = parameters.frameIDs ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames;
+    auto injectedFrames = parameters.frameIdentifiers ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames;
 
     auto styleSheetPairs = getSourcePairsForParameters(parameters, *this);
     removeStyleSheets(styleSheetPairs, webView, injectedFrames, *this);

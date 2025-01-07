@@ -58,14 +58,14 @@ private:
     ProcessingInstruction(Document&, String&& target, String&& data);
 
     String nodeName() const override;
-    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+    Ref<Node> cloneNodeInternal(TreeScope&, CloningOperation) override;
 
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
     void didFinishInsertingNode() override;
     void removedFromAncestor(RemovalType, ContainerNode&) override;
 
     void checkStyleSheet();
-    void setCSSStyleSheet(const String& href, const URL& baseURL, const String& charset, const CachedCSSStyleSheet*) override;
+    void setCSSStyleSheet(const String& href, const URL& baseURL, ASCIILiteral charset, const CachedCSSStyleSheet*) override;
 #if ENABLE(XSLT)
     void setXSLStyleSheet(const String& href, const URL& baseURL, const String& sheet) override;
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,11 +43,8 @@ public:
     ThreadSafeWeakPtrControlBlock* weakRef()
     {
         Locker locker { m_lock };
-        if (m_object) {
-            ++m_weakReferenceCount;
-            return this;
-        }
-        return nullptr;
+        ++m_weakReferenceCount;
+        return this;
     }
 
     void weakDeref()
@@ -63,7 +60,96 @@ public:
             delete this;
     }
 
-    size_t weakReferenceCount() const
+    void strongRef() const
+    {
+        Locker locker { m_lock };
+        ASSERT_WITH_SECURITY_IMPLICATION(m_object);
+        ++m_strongReferenceCount;
+    }
+
+    template<typename T, DestructionThread destructionThread>
+    void strongDeref() const
+    {
+        T* object;
+        {
+            Locker locker { m_lock };
+            ASSERT_WITH_SECURITY_IMPLICATION(m_object);
+            if (LIKELY(--m_strongReferenceCount))
+                return;
+            object = static_cast<T*>(std::exchange(m_object, nullptr));
+            // We need to take a weak ref so `this` survives until the `delete object` below.
+            // This comes up when destructors try to eagerly remove themselves from WeakHashSets.
+            // e.g.
+            // ~MyObject() { m_weakSet.remove(this); }
+            // if m_weakSet has the last reference to the ControlBlock then we could end up doing
+            // an amortized clean up, which removes the ControlBlock and destroys it. Then when we
+            // check m_weakSet's backing table after the cleanup we UAF the ControlBlock.
+            m_weakReferenceCount++;
+        }
+
+        auto deleteObject = [this, object] {
+            delete static_cast<const T*>(object);
+
+            bool hasOtherWeakRefs;
+            {
+                // We retained ourselves above.
+                Locker locker { m_lock };
+                hasOtherWeakRefs = --m_weakReferenceCount;
+                // release the lock here so we don't do it in Locker's destuctor after we've already called delete.
+            }
+
+            if (!hasOtherWeakRefs)
+                delete this;
+        };
+        switch (destructionThread) {
+        case DestructionThread::Any:
+            deleteObject();
+            break;
+        case DestructionThread::Main:
+            ensureOnMainThread(WTFMove(deleteObject));
+            break;
+        case DestructionThread::MainRunLoop:
+            ensureOnMainRunLoop(WTFMove(deleteObject));
+            break;
+        }
+    }
+
+    template<typename U>
+    RefPtr<U> makeStrongReferenceIfPossible(const U* maybeInteriorPointer) const
+    {
+        Locker locker { m_lock };
+        // N.B. We don't just return m_object here since a ThreadSafeWeakPtr could be calling with a pointer to
+        // some interior pointer when there is multiple inheritance.
+        // Consider:
+        // struct Cat : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Cat>;
+        // struct Dog { virtual ThreadSafeWeakPtrControlBlock& controlBlock() const = 0; };
+        // struct CatDog : public Cat, public Dog {
+        //     ThreadSafeWeakPtrControlBlock& controlBlock() const { return Cat::controlBlock(); }
+        // };
+        //
+        // If we have a ThreadSafeWeakPtr<Dog> from a CatDog then we want to return maybeInteriorPointer's Dog*
+        // and not m_object's CatDog* pointer.
+        if (m_object) {
+            // Calling the RefPtr constructor would call strongRef() and deadlock.
+            ++m_strongReferenceCount;
+            return adoptRef(const_cast<U*>(maybeInteriorPointer));
+        }
+        return nullptr;
+    }
+
+    // These should really only be used for debugging and shouldn't be used to guard any checks in production,
+    // unless you really know what you're doing. This is because they're prone to time of check time of use bugs.
+    // Consider:
+    // if (!objectHasStartedDeletion())
+    //     strongRef();
+    // Between objectHasStartedDeletion() and strongRef() another thread holding the sole remaining reference
+    // to the underlying object could release it's reference and start deletion.
+    bool objectHasStartedDeletion() const
+    {
+        Locker locker { m_lock };
+        return !m_object;
+    }
+    size_t weakRefCount() const
     {
         Locker locker { m_lock };
         return m_weakReferenceCount;
@@ -81,70 +167,14 @@ public:
         return m_strongReferenceCount == 1;
     }
 
-    void strongRef() const
-    {
-        Locker locker { m_lock };
-        ASSERT_WITH_SECURITY_IMPLICATION(m_object);
-        ++m_strongReferenceCount;
-    }
-
-    template<typename T, DestructionThread destructionThread>
-    void strongDeref() const
-    {
-        bool shouldDeleteControlBlock { false };
-        T* object;
-
-        {
-            Locker locker { m_lock };
-            ASSERT_WITH_SECURITY_IMPLICATION(m_object);
-            if (LIKELY(--m_strongReferenceCount))
-                return;
-            object = static_cast<T*>(std::exchange(m_object, nullptr));
-            if (!m_weakReferenceCount)
-                shouldDeleteControlBlock = true;
-        }
-
-        auto deleteObject = [this, object, shouldDeleteControlBlock] {
-            delete static_cast<const T*>(object);
-            if (shouldDeleteControlBlock)
-                delete this;
-        };
-        switch (destructionThread) {
-        case DestructionThread::Any:
-            deleteObject();
-            break;
-        case DestructionThread::Main:
-            ensureOnMainThread(WTFMove(deleteObject));
-            break;
-        case DestructionThread::MainRunLoop:
-            ensureOnMainRunLoop(WTFMove(deleteObject));
-            break;
-        }
-    }
-
-    template<typename T>
-    RefPtr<T> makeStrongReferenceIfPossible(const T* objectOfCorrectType) const
-    {
-        Locker locker { m_lock };
-        if (m_object) {
-            // Calling the RefPtr constructor would call strongRef() and deadlock.
-            ++m_strongReferenceCount;
-            return adoptRef(const_cast<T*>(objectOfCorrectType));
-        }
-        return nullptr;
-    }
-
-    bool objectHasStartedDeletion() const
-    {
-        Locker locker { m_lock };
-        return !m_object;
-    }
-
 private:
     template<typename, DestructionThread> friend class ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr;
-    template<typename T>
-    explicit ThreadSafeWeakPtrControlBlock(T* object)
-        : m_object(object) { }
+    template<typename T, DestructionThread thread>
+    explicit ThreadSafeWeakPtrControlBlock(const ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<T, thread>* object)
+        : m_object(const_cast<T*>(static_cast<const T*>(object)))
+    { }
+
+    void setStrongReferenceCountDuringInitialization(size_t count) WTF_IGNORES_THREAD_SAFETY_ANALYSIS { m_strongReferenceCount = count; }
 
     mutable Lock m_lock;
     mutable size_t m_strongReferenceCount WTF_GUARDED_BY_LOCK(m_lock) { 1 };
@@ -173,35 +203,122 @@ class ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr {
     WTF_MAKE_NONCOPYABLE(ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr);
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    void ref() const { m_controlBlock.strongRef(); }
-    void deref() const { m_controlBlock.template strongDeref<T, destructionThread>(); }
-    size_t refCount() const { return m_controlBlock.refCount(); }
-    bool hasOneRef() const { return m_controlBlock.hasOneRef(); }
+    static_assert(alignof(ThreadSafeWeakPtrControlBlock) >= 2);
+    static constexpr uintptr_t strongOnlyFlag = 1;
+    static constexpr uintptr_t destructionStartedFlag = 1ull << (sizeof(uintptr_t) * CHAR_BIT - 1);
+    static constexpr uintptr_t refIncrement = 2;
+
+    void ref() const
+    {
+        bool didRefStrongOnly = m_bits.transaction([&](uintptr_t& bits) {
+            if (!isStrongOnly(bits))
+                return false;
+            // FIXME: Add support for ref()/deref() during destruction like we support for other RefCounted types.
+            ASSERT(!(bits & destructionStartedFlag));
+            bits += refIncrement;
+            return true;
+        }, std::memory_order_relaxed);
+        if (didRefStrongOnly)
+            return;
+
+        std::bit_cast<ThreadSafeWeakPtrControlBlock*>(m_bits.loadRelaxed())->strongRef();
+    }
+
+    void deref() const
+    {
+        uintptr_t newStrongOnlyRefCount = 0;
+        bool didDerefStrongOnly = m_bits.transaction([&](uintptr_t& bits) {
+            if (!isStrongOnly(bits))
+                return false;
+            // FIXME: Add support for ref()/deref() during destruction like we support for other RefCounted types.
+            ASSERT(!(bits & destructionStartedFlag));
+            bits -= refIncrement;
+            newStrongOnlyRefCount = bits;
+            return true;
+        }, std::memory_order_relaxed);
+        if (didDerefStrongOnly) {
+            if (newStrongOnlyRefCount == strongOnlyFlag) {
+                ASSERT(m_bits.exchangeOr(destructionStartedFlag) == newStrongOnlyRefCount);
+                auto deleteObject = [this] {
+                    delete static_cast<const T*>(this);
+                };
+                switch (destructionThread) {
+                case DestructionThread::Any:
+                    deleteObject();
+                    break;
+                case DestructionThread::Main:
+                    ensureOnMainThread(WTFMove(deleteObject));
+                    break;
+                case DestructionThread::MainRunLoop:
+                    ensureOnMainRunLoop(WTFMove(deleteObject));
+                    break;
+                }
+            }
+            return;
+        }
+
+        std::bit_cast<ThreadSafeWeakPtrControlBlock*>(m_bits.loadRelaxed())->template strongDeref<T, destructionThread>();
+    }
+
+    size_t refCount() const
+    {
+        uintptr_t bits = m_bits.loadRelaxed();
+        if (isStrongOnly(bits)) {
+            // FIXME: Add support for ref()/deref() during destruction like we support for other RefCounted types.
+            ASSERT(!(bits & destructionStartedFlag));
+            // Technically, this bit-and isn't needed but it's included for clarity since the compiler will elide it anyway.
+            return (bits & ~strongOnlyFlag) / refIncrement;
+        }
+
+        return std::bit_cast<ThreadSafeWeakPtrControlBlock*>(bits)->refCount();
+    }
+
+    bool hasOneRef() const { return refCount() == 1; }
 protected:
     ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr() = default;
-    ThreadSafeWeakPtrControlBlock& controlBlock() const { return m_controlBlock; }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const
+    {
+        // If we ever decided there was a lot of contention here we could have some lock bits in m_bits but
+        // that seems unlikely since this is a one-way street. Once we add a controlBlock we don't go back
+        // to strong only.
+        uintptr_t bits = m_bits.loadRelaxed();
+        if (LIKELY(!isStrongOnly(bits)))
+            return *std::bit_cast<ThreadSafeWeakPtrControlBlock*>(bits);
+
+        auto* controlBlock = new ThreadSafeWeakPtrControlBlock(this);
+
+        bool didSetControlBlock = m_bits.transaction([&](uintptr_t& bits) {
+            if (!isStrongOnly(bits))
+                return false;
+
+            // It doesn't really make sense to create a ThreadSafeWeakPtr during destruction since the controlBlock has to
+            // view the object as dead. Otherwise a ThreadSafeWeakPtrFactory on an unrelated thread could vend out a partially
+            // destroyed object.
+            ASSERT(!(bits & destructionStartedFlag));
+            // Technically, this bit-and isn't needed but it's included for clarity since the compiler will elide it anyway.
+            controlBlock->setStrongReferenceCountDuringInitialization((bits & ~strongOnlyFlag) / refIncrement);
+            bits = std::bit_cast<uintptr_t>(controlBlock);
+            ASSERT(!isStrongOnly(bits));
+            return true;
+        }, std::memory_order_release); // We want memory_order_release here to make sure other threads see the right ref count / object.
+        if (didSetControlBlock)
+            return *controlBlock;
+
+        delete controlBlock;
+        return *std::bit_cast<ThreadSafeWeakPtrControlBlock*>(m_bits.loadRelaxed());
+    }
+
+    // Ideally this would have been private but AbstractRefCounted subclasses need to be able to access this function
+    // to provide its result to ThreadSafeWeakHashSet.
+    size_t weakRefCount() const { return !isStrongOnly(m_bits.loadRelaxed()) ? controlBlock().weakRefCount() : 0; }
+
 private:
+    static bool isStrongOnly(uintptr_t bits) { return bits & strongOnlyFlag; }
     template<typename, typename> friend class ThreadSafeWeakPtr;
     template<typename> friend class ThreadSafeWeakHashSet;
-    ThreadSafeWeakPtrControlBlock& m_controlBlock { *new ThreadSafeWeakPtrControlBlock(static_cast<T*>(this)) };
+
+    mutable Atomic<uintptr_t> m_bits { refIncrement + strongOnlyFlag };
 };
-
-template<typename T>
-inline void retainThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr(T* obj)
-{
-    RELEASE_ASSERT(obj != nullptr);
-    static_assert(std::derived_from<T, ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<T>>);
-    static_cast<ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<T>*>(obj)->ref();
-}
-
-template<typename T>
-inline void releaseThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr(T* obj)
-{
-    RELEASE_ASSERT(obj != nullptr);
-    static_assert(std::derived_from<T, ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<T>>);
-    static_cast<ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<T>*>(obj)->deref();
-}
-
 
 template<typename T, typename TaggingTraits /* = NoTaggingTraits<T> */>
 class ThreadSafeWeakPtr {
@@ -309,7 +426,8 @@ public:
     TagType tag() const { return m_objectOfCorrectType.tag(); }
 
 private:
-    template<typename U, std::enable_if_t<std::is_convertible_v<U*, T*>>* = nullptr>
+    template<typename U>
+    requires (std::is_convertible_v<U*, T*>)
     ThreadSafeWeakPtrControlBlock* controlBlock(const U& classOrChildClass)
     {
         return &classOrChildClass.controlBlock();
@@ -320,9 +438,9 @@ private:
     template<typename> friend class ThreadSafeWeakOrStrongPtr;
 
     TaggedPtr<T, TaggingTraits> m_objectOfCorrectType;
-    // FIXME: Either remove ThreadSafeWeakPtrControlBlock::m_object as redundant information,
-    // or use CompactRefPtrTuple to reduce sizeof(ThreadSafeWeakPtr) by storing just an offset
+    // FIXME: Use CompactRefPtrTuple to reduce sizeof(ThreadSafeWeakPtr) by storing just an offset
     // from ThreadSafeWeakPtrControlBlock::m_object and don't support structs larger than 65535.
+    // https://bugs.webkit.org/show_bug.cgi?id=283929
     ControlBlockRefPtr m_controlBlock;
 };
 

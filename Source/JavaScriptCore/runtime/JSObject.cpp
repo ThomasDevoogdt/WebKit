@@ -47,6 +47,8 @@
 #include <wtf/Assertions.h>
 #include <wtf/text/MakeString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 // We keep track of the size of the last array after it was grown. We use this
@@ -82,7 +84,7 @@ ALWAYS_INLINE void JSObject::markAuxiliaryAndVisitOutOfLineProperties(Visitor& v
         return;
 
     if (isCopyOnWrite(structure->indexingMode())) {
-        visitor.append(bitwise_cast<WriteBarrier<JSCell>>(JSImmutableButterfly::fromButterfly(butterfly)));
+        visitor.append(std::bit_cast<WriteBarrier<JSCell>>(JSImmutableButterfly::fromButterfly(butterfly)));
         return;
     }
 
@@ -93,7 +95,7 @@ ALWAYS_INLINE void JSObject::markAuxiliaryAndVisitOutOfLineProperties(Visitor& v
     else
         preCapacity = 0;
     
-    HeapCell* base = bitwise_cast<HeapCell*>(
+    HeapCell* base = std::bit_cast<HeapCell*>(
         butterfly->base(preCapacity, Structure::outOfLineCapacity(maxOffset)));
     
     ASSERT(Heap::heap(base) == visitor.heap());
@@ -1465,7 +1467,7 @@ ContiguousDoubles JSObject::convertInt32ToDouble(VM& vm)
     Butterfly* butterfly = m_butterfly.get();
     for (unsigned i = butterfly->vectorLength(); i--;) {
         WriteBarrier<Unknown>* current = &butterfly->contiguous().atUnsafe(i);
-        double* currentAsDouble = bitwise_cast<double*>(current);
+        double* currentAsDouble = std::bit_cast<double*>(current);
         JSValue v = current->get();
         // NOTE: Since this may be used during initialization, v could be garbage. If it's garbage,
         // that means it will be overwritten later.
@@ -1535,7 +1537,7 @@ ContiguousJSValues JSObject::convertDoubleToContiguous(VM& vm)
     Butterfly* butterfly = m_butterfly.get();
     for (unsigned i = butterfly->vectorLength(); i--;) {
         double* current = &butterfly->contiguousDouble().atUnsafe(i);
-        WriteBarrier<Unknown>* currentAsValue = bitwise_cast<WriteBarrier<Unknown>*>(current);
+        WriteBarrier<Unknown>* currentAsValue = std::bit_cast<WriteBarrier<Unknown>*>(current);
         double value = *current;
         if (value != value) {
             currentAsValue->clear();
@@ -1672,6 +1674,65 @@ ArrayStorage* JSObject::convertContiguousToArrayStorage(VM& vm, TransitionKind t
 ArrayStorage* JSObject::convertContiguousToArrayStorage(VM& vm)
 {
     return convertContiguousToArrayStorage(vm, suggestedArrayStorageTransition());
+}
+
+void JSObject::convertToIndexingTypeIfNeeded(VM& vm, IndexingType nextType)
+{
+    IndexingType currentType = indexingType();
+    if (currentType == nextType)
+        return;
+    switch (currentType) {
+    case ArrayWithUndecided: {
+        switch (nextType) {
+        case ArrayWithInt32:
+            convertUndecidedToInt32(vm);
+            break;
+        case ArrayWithDouble:
+            convertUndecidedToDouble(vm);
+            break;
+        case ArrayWithContiguous:
+            convertUndecidedToContiguous(vm);
+            break;
+        case ArrayWithArrayStorage:
+            convertUndecidedToArrayStorage(vm);
+            break;
+        }
+        break;
+    }
+    case ArrayWithInt32: {
+        switch (nextType) {
+        case ArrayWithDouble:
+            convertInt32ToDouble(vm);
+            break;
+        case ArrayWithContiguous:
+            convertInt32ToContiguous(vm);
+            break;
+        case ArrayWithArrayStorage:
+            convertInt32ToArrayStorage(vm);
+            break;
+        }
+        break;
+    }
+    case ArrayWithDouble: {
+        switch (nextType) {
+        case ArrayWithContiguous:
+            convertDoubleToContiguous(vm);
+            break;
+        case ArrayWithArrayStorage:
+            convertDoubleToArrayStorage(vm);
+            break;
+        }
+        break;
+    }
+    case ArrayWithContiguous: {
+        switch (nextType) {
+        case ArrayWithArrayStorage:
+            convertContiguousToArrayStorage(vm);
+            break;
+        }
+        break;
+    }
+    }
 }
 
 void JSObject::convertUndecidedForValue(VM& vm, JSValue value)
@@ -4204,3 +4265,5 @@ NEVER_INLINE void JSObject::putDirectForJSONSlow(VM& vm, PropertyName propertyNa
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

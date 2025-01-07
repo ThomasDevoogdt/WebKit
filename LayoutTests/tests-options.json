@@ -1970,10 +1970,16 @@
     "imported/w3c/web-platform-tests/content-security-policy/object-src/object-src-2_2.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/content-security-policy/report-hash/multiple-policies.https.sub.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/content-security-policy/reporting-api/reporting-api-report-to-overrides-report-uri-2.https.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/content-security-policy/reporting/report-cross-origin-no-cookies.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/content-security-policy/reporting/report-frame-ancestors-no-parent-cookies.sub.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/content-security-policy/reporting/report-only-in-meta.sub.html": [
@@ -2312,6 +2318,18 @@
     "imported/w3c/web-platform-tests/css/selectors/media/media-loading-state.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/custom-elements/form-associated/ElementInternals-target-element-is-held-strongly.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/custom-elements/state/custom-state-set-strong-ref.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/custom-elements/state/state-css-selector-shadow-dom.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/custom-elements/state/state-css-selector.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/custom-state-pseudo-class/custom-state-set-strong-ref.tentative.html": [
         "slow"
     ],
@@ -2448,6 +2466,9 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/dom/traversal/TreeWalker.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/editing/crashtests/insertparagraph-in-listitem-in-svg-followed-by-collapsible-spaces.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/editing/run/backcolor.html": [
@@ -4166,16 +4187,10 @@
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-attribute-basic.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-attribute-basic.tentative.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus-2.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-focus.tentative.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-hover-hide-hide.tentative.html": [
@@ -4196,22 +4211,13 @@
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-invoking-attribute.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-invoking-attribute.tentative.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss-hint.tentative.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss-with-anchor.tentative.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss-with-anchor.tentative.tentative.html": [
-        "slow"
-    ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss.html": [
-        "slow"
-    ],
-    "imported/w3c/web-platform-tests/html/semantics/popovers/popover-light-dismiss.tentative.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/html/semantics/popovers/popover-target-action-hover.tentative.html": [
@@ -5381,6 +5387,21 @@
     "imported/w3c/web-platform-tests/pointerevents/pointerlock/pointerevent_movementxy.html": [
         "slow"
     ],
+    "imported/w3c/web-platform-tests/pointerlock/movementX_Y_basic.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/pointerlock/pointerlock_promise.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/pointerlock/pointerlock_remove_target.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/pointerlock/pointerlock_shadow.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/pointerlock/pointerlock_without_gesture.html": [
+        "slow"
+    ],
     "imported/w3c/web-platform-tests/quirks/hashless-hex-color/limited-quirks.html": [
         "slow"
     ],
@@ -5478,6 +5499,24 @@
         "slow"
     ],
     "imported/w3c/web-platform-tests/scroll-to-text-fragment/find-range-from-text-directive.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/scroll-to-text-fragment/force-load-at-top.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/scroll-to-text-fragment/iframes.sub.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/scroll-to-text-fragment/non-html-documents.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/scroll-to-text-fragment/redirects.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/scroll-to-text-fragment/scroll-to-text-fragment-after-DOMContentLoaded.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/scroll-to-text-fragment/scroll-to-text-fragment-scroll-to-center.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/scroll-to-text-fragment/scroll-to-text-fragment.html": [
@@ -5792,7 +5831,22 @@
     "imported/w3c/web-platform-tests/svg/animations/svglengthlist-animation-3.html": [
         "slow"
     ],
-    "imported/w3c/web-platform-tests/trusted-types/TrustedTypePolicyFactory-metadata.html": [
+    "imported/w3c/web-platform-tests/svg/interact/scripted/async-01.svg": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/svg/interact/scripted/async-02.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/svg/interact/scripted/async-03.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/svg/interact/scripted/defer-02.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/svg/interact/scripted/module-02.html": [
+        "slow"
+    ],
+    "imported/w3c/web-platform-tests/trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html": [
         "slow"
     ],
     "imported/w3c/web-platform-tests/trusted-types/TrustedTypePolicyFactory-metadata.tentative.html": [

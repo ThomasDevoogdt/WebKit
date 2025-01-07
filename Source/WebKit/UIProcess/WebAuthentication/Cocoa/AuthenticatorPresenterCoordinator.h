@@ -61,6 +61,7 @@ public:
 
     void updatePresenter(WebAuthenticationStatus);
     void requestPin(uint64_t retries, CompletionHandler<void(const String&)>&&);
+    void requestNewPin(uint64_t, CompletionHandler<void(const String&)>&&);
     void selectAssertionResponse(Vector<Ref<WebCore::AuthenticatorAssertionResponse>>&&, WebAuthenticationSource, CompletionHandler<void(WebCore::AuthenticatorAssertionResponse*)>&&);
     void requestLAContextForUserVerification(CompletionHandler<void(LAContext *)>&&);
     void dimissPresenter(WebAuthenticationResult);
@@ -88,7 +89,7 @@ private:
     RetainPtr<LAContext> m_laContext;
 
     CompletionHandler<void(WebCore::AuthenticatorAssertionResponse*)> m_responseHandler;
-    UncheckedKeyHashMap<String, RefPtr<WebCore::AuthenticatorAssertionResponse>> m_credentials;
+    HashMap<String, RefPtr<WebCore::AuthenticatorAssertionResponse>> m_credentials;
 
     CompletionHandler<void(const String&)> m_pinHandler;
 #if HAVE(ASC_AUTH_UI)

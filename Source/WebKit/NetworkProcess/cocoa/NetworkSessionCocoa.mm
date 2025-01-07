@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -66,6 +66,7 @@
 #import <wtf/ObjCRuntimeExtras.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/SoftLinking.h>
+#import <wtf/StdLibExtras.h>
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/URL.h>
 #import <wtf/WeakObjCPtr.h>
@@ -857,16 +858,18 @@ static NSString *description(nw_dns_failure_reason_t reason)
 
 static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 {
-    auto reportValue = (__bridge CFTypeRef)error.userInfo[@"_NSURLErrorNWResolutionReportKey"];
+    RetainPtr reportValue = (__bridge CFTypeRef)error.userInfo[@"_NSURLErrorNWResolutionReportKey"];
     if (!reportValue)
         return nil;
 
-    auto pathValue = (__bridge CFTypeRef)error.userInfo[@"_NSURLErrorNWPathKey"];
+    RetainPtr pathValue = (__bridge CFTypeRef)error.userInfo[@"_NSURLErrorNWPathKey"];
     if (!pathValue)
         return nil;
 
     auto interfaces = adoptNS([[NSMutableArray alloc] initWithCapacity:1]);
-    nw_path_enumerate_interfaces(static_cast<nw_path_t>(pathValue), ^bool(nw_interface_t interface) {
+    if (!interfaces.get())
+        return nil;
+    nw_path_enumerate_interfaces(static_cast<nw_path_t>(pathValue.get()), ^bool(nw_interface_t interface) {
         [interfaces addObject:@{
             @"type" : description(nw_interface_get_type(interface)),
             @"name" : @(nw_interface_get_name(interface) ?: "")
@@ -874,7 +877,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         return true;
     });
 
-    auto report = static_cast<nw_resolution_report_t>(reportValue);
+    auto report = static_cast<nw_resolution_report_t>(reportValue.get());
     return @{
         @"provider" : @(nw_resolution_report_get_provider_name(report) ?: ""),
         @"dnsFailureReason" : description(nw_resolution_report_get_dns_failure_reason(report)),
@@ -1074,8 +1077,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 // FIXME: Remove when rdar://108002223 can be resolved.
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task _didReceiveInformationalResponse:(NSURLResponse *)response
 {
-    if ([response isKindOfClass:[NSHTTPURLResponse class]])
-        [self URLSession:session task:task didReceiveInformationalResponse:(NSHTTPURLResponse *)response];
+    if (auto *httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response))
+        [self URLSession:session task:task didReceiveInformationalResponse:httpResponse];
 }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler
@@ -1103,9 +1106,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         ALLOW_DEPRECATED_DECLARATIONS_END
 
         // Avoid MIME type sniffing if the response comes back as 304 Not Modified.
-        auto isNSHTTPURLResponseClass = [response isKindOfClass:NSHTTPURLResponse.class];
-        int statusCode = isNSHTTPURLResponseClass ? [(NSHTTPURLResponse *)response statusCode] : 0;
-        NSString *xContentTypeOptions = isNSHTTPURLResponseClass ? [(NSHTTPURLResponse *)response valueForHTTPHeaderField:@"X-Content-Type-Options"] : nil;
+        auto httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response);
+        int statusCode = httpResponse ? [httpResponse statusCode] : 0;
+        NSString *xContentTypeOptions = httpResponse ? [httpResponse valueForHTTPHeaderField:@"X-Content-Type-Options"] : nil;
         bool isNoSniff = xContentTypeOptions && [xContentTypeOptions caseInsensitiveCompare:@"nosniff"] == NSOrderedSame;
         if (statusCode != httpStatus304NotModified) {
             bool isMainResourceLoad = networkDataTask->firstRequest().requester() == WebCore::ResourceRequestRequester::Main;
@@ -1185,8 +1188,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     Ref<NetworkDataTaskCocoa> protectedNetworkDataTask(*networkDataTask);
     auto downloadID = *networkDataTask->pendingDownloadID();
     auto& downloadManager = sessionCocoa->networkProcess().downloadManager();
-    auto download = makeUnique<WebKit::Download>(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
-    networkDataTask->transferSandboxExtensionToDownload(*download);
+    Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
+    networkDataTask->transferSandboxExtensionToDownload(download);
     ASSERT(FileSystem::fileExists(networkDataTask->pendingDownloadLocation()));
     download->didCreateDestination(networkDataTask->pendingDownloadLocation());
     downloadManager.dataTaskBecameDownloadTask(downloadID, WTFMove(download));
@@ -1519,7 +1522,23 @@ NetworkSessionCocoa::NetworkSessionCocoa(NetworkProcess& networkProcess, const N
 #endif
 }
 
-NetworkSessionCocoa::~NetworkSessionCocoa() = default;
+NetworkSessionCocoa::~NetworkSessionCocoa()
+{
+    notifyAdAttributionKitOfSessionTermination();
+}
+
+void NetworkSessionCocoa::notifyAdAttributionKitOfSessionTermination()
+{
+    // FIXME: Ad attribution stuff should be pulled to a separate object that has the same lifetime as
+    // NetworkSessionCocoa, perhaps owned by NetworkSessionCocoa. It is separate from the network responsibilities.
+#if HAVE(AD_ATTRIBUTION_KIT_PRIVATE_BROWSING)
+    if (m_donatedEphemeralImpressionSessionID) {
+        // FIXME: Remove this respondsToSelector check in 2026 or so.
+        if ([ASDInstallWebAttributionService.sharedInstance respondsToSelector:@selector(removeInstallWebAttributionParamsFromPrivateBrowsingSessionId:completionHandler:)])
+            [ASDInstallWebAttributionService.sharedInstance removeInstallWebAttributionParamsFromPrivateBrowsingSessionId:*m_donatedEphemeralImpressionSessionID completionHandler:^(NSError *) { }];
+    }
+#endif
+}
 
 void NetworkSessionCocoa::initializeNSURLSessionsInSet(SessionSet& sessionSet, NSURLSessionConfiguration *configuration)
 {
@@ -1905,6 +1924,15 @@ std::unique_ptr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageP
             ensureMutableRequest()._privacyProxyFailClosedForUnreachableNonMainHosts = YES;
     }
 
+#if HAVE(ALLOW_ONLY_PARTITIONED_COOKIES)
+    if ([mutableRequest respondsToSelector:@selector(_setAllowOnlyPartitionedCookies:)]) {
+        if (CheckedPtr storageSession = networkStorageSession(); storageSession && storageSession->isOptInCookiePartitioningEnabled()) {
+            bool shouldAllowOnlyPartitioned = storageSession->thirdPartyCookieBlockingDecisionForRequest(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking) == WebCore::ThirdPartyCookieBlockingDecision::AllExceptPartitioned;
+            [mutableRequest _setAllowOnlyPartitionedCookies:shouldAllowOnlyPartitioned];
+        }
+    }
+#endif
+
     enableAdvancedPrivacyProtections(ensureMutableRequest(), advancedPrivacyProtections);
 
     Ref sessionSet = sessionSetForPage(webPageProxyID);
@@ -2020,7 +2048,7 @@ private:
     const DataTaskIdentifier m_identifier;
 };
 
-WTF_MAKE_TZONE_ALLOCATED_IMPL_NESTED(NetworkSessionCocoaBlobDataTaskClient, NetworkSessionCocoa::BlobDataTaskClient);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSessionCocoa::BlobDataTaskClient);
 
 void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& request, WebPageProxyIdentifier pageID, size_t maximumBytesFromNetwork, CompletionHandler<void(std::variant<WebCore::ResourceError, Ref<WebCore::FragmentedSharedBuffer>>&&)>&& completionHandler)
 {
@@ -2182,10 +2210,19 @@ void NetworkSessionCocoa::donateToSKAdNetwork(WebCore::PrivateClickMeasurement&&
     config.get().sourceWebRegistrableDomain = pcm.sourceSite().registrableDomain.string();
     config.get().version = @"4.0";
     config.get().attributionContext = AttributionTypeDefault;
+#if HAVE(AD_ATTRIBUTION_KIT_PRIVATE_BROWSING)
+    if (m_sessionID.isEphemeral()) {
+        m_donatedEphemeralImpressionSessionID = WTF::UUID::createVersion4();
+
+        // FIXME: Remove this respondsToSelector check in 2026 or so.
+        if ([config respondsToSelector:@selector(privateBrowsingSessionId)])
+            config.get().privateBrowsingSessionId = *m_donatedEphemeralImpressionSessionID;
+    }
+#endif // HAVE(AD_ATTRIBUTION_KIT_PRIVATE_BROWSING)
 #if HAVE(ASD_INSTALL_WEB_ATTRIBUTION_SERVICE)
     [[ASDInstallWebAttributionService sharedInstance] addInstallWebAttributionParamsWithConfig:config.get() completionHandler:^(NSError *) { }];
-#endif
-#endif
+#endif // HAVE(ASD_INSTALL_WEB_ATTRIBUTION_SERVICE)
+#endif // HAVE(SKADNETWORK_v4)
 
     if (!m_privateClickMeasurementDebugModeEnabled)
         return;
@@ -2286,7 +2323,7 @@ void NetworkSessionCocoa::setProxyConfigData(const Vector<std::pair<Vector<uint8
     bool recreateSessions = false;
     for (auto& config : proxyConfigurations) {
         uuid_t identifier;
-        memcpy(identifier, config.second.span().data(), sizeof(uuid_t));
+        memcpySpan(asMutableByteSpan(identifier), config.second.span().first(sizeof(uuid_t)));
 
         auto nwProxyConfig = adoptNS(createProxyConfig(config.first.data(), config.first.size(), identifier));
 

@@ -1,8 +1,8 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
- * Copyright (C) 2021 Google Inc. All rights reserved.
+ * Copyright (C) 2004-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2024 Google Inc. All rights reserved.
  * Copyright (C) 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  * Copyright (C) 2011 Motorola Mobility. All rights reserved.
  *
@@ -129,10 +129,11 @@ String HTMLElement::nodeName() const
 
 static inline CSSValueID unicodeBidiAttributeForDirAuto(HTMLElement& element)
 {
-    if (element.hasTagName(preTag) || element.hasTagName(textareaTag))
+    ASSERT(!element.hasTagName(bdoTag));
+    ASSERT(!element.hasTagName(preTag));
+    ASSERT(!element.hasTagName(textareaTag));
+    if (RefPtr input = dynamicDowncast<HTMLInputElement>(element); input && (input->isTelephoneField() || input->isEmailField() || input->isSearchField() || input->isURLField()))
         return CSSValuePlaintext;
-    // FIXME: For bdo element, dir="auto" should result in "bidi-override isolate" but we don't support having multiple values in unicode-bidi yet.
-    // See https://bugs.webkit.org/show_bug.cgi?id=73164.
     return CSSValueIsolate;
 }
 
@@ -246,13 +247,11 @@ void HTMLElement::collectPresentationalHintsForAttribute(const QualifiedName& na
             addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitUserDrag, CSSValueNone);
         break;
     case AttributeNames::dirAttr:
-        if (equalLettersIgnoringASCIICase(value, "auto"_s))
-            addPropertyToPresentationalHintStyle(style, CSSPropertyUnicodeBidi, unicodeBidiAttributeForDirAuto(*this));
-        else if (equalLettersIgnoringASCIICase(value, "rtl"_s) || equalLettersIgnoringASCIICase(value, "ltr"_s)) {
+        if (equalLettersIgnoringASCIICase(value, "auto"_s)) {
+            if (!hasTagName(bdoTag) && !hasTagName(preTag) && !hasTagName(textareaTag))
+                addPropertyToPresentationalHintStyle(style, CSSPropertyUnicodeBidi, unicodeBidiAttributeForDirAuto(*this));
+        } else if (equalLettersIgnoringASCIICase(value, "rtl"_s) || equalLettersIgnoringASCIICase(value, "ltr"_s))
             addPropertyToPresentationalHintStyle(style, CSSPropertyDirection, value);
-            if (!hasTagName(bdiTag) && !hasTagName(bdoTag) && !hasTagName(outputTag))
-                addPropertyToPresentationalHintStyle(style, CSSPropertyUnicodeBidi, CSSValueIsolate);
-        }
         break;
     case AttributeNames::XML::langAttr:
         mapLanguageAttributeToLocale(value, style);
@@ -1038,6 +1037,9 @@ static ExceptionOr<bool> checkPopoverValidity(HTMLElement& element, PopoverVisib
     if (auto* dialog = dynamicDowncast<HTMLDialogElement>(element); dialog && dialog->isModal())
         return Exception { ExceptionCode::InvalidStateError, "Element is a modal <dialog> element"_s };
 
+    if (!element.document().isFullyActive())
+        return Exception { ExceptionCode::InvalidStateError, "Invalid for popovers within documents that are not fully active"_s };
+
 #if ENABLE(FULLSCREEN_API)
     if (element.hasFullscreenFlag())
         return Exception { ExceptionCode::InvalidStateError, "Element is fullscreen"_s };
@@ -1055,8 +1057,11 @@ static void runPopoverFocusingSteps(HTMLElement& popover)
     }
 
     RefPtr control = popover.hasAttribute(autofocusAttr) ? &popover : popover.findAutofocusDelegate();
-
     if (!control)
+        return;
+
+    RefPtr page = control->document().protectedPage();
+    if (!page)
         return;
 
     control->runFocusingStepsForAutofocus();
@@ -1066,29 +1071,20 @@ static void runPopoverFocusingSteps(HTMLElement& popover)
 
     Ref topDocument = control->document().topDocument();
     topDocument->clearAutofocusCandidates();
-    topDocument->setAutofocusProcessed();
+    page->setAutofocusProcessed();
 }
 
-void HTMLElement::queuePopoverToggleEventTask(PopoverVisibilityState oldState, PopoverVisibilityState newState)
+void HTMLElement::queuePopoverToggleEventTask(ToggleState oldState, ToggleState newState)
 {
-    if (auto queuedEventData = popoverData()->queuedToggleEventData())
-        oldState = queuedEventData->oldState;
-    popoverData()->setQueuedToggleEventData({ oldState, newState });
-    queueTaskKeepingThisNodeAlive(TaskSource::DOMManipulation, [this, newState] {
-        if (!popoverData())
-            return;
-        auto queuedEventData = popoverData()->queuedToggleEventData();
-        if (!queuedEventData || queuedEventData->newState != newState)
-            return;
-        popoverData()->clearQueuedToggleEventData();
-        auto stringForState = [](PopoverVisibilityState state) {
-            return state == PopoverVisibilityState::Hidden ? "closed"_s : "open"_s;
-        };
-        dispatchEvent(ToggleEvent::create(eventNames().toggleEvent, { EventInit { }, stringForState(queuedEventData->oldState), stringForState(queuedEventData->newState) }, Event::IsCancelable::No));
-    });
+    popoverData()->ensureToggleEventTask(*this)->queue(oldState, newState);
 }
 
-ExceptionOr<void> HTMLElement::showPopover(const HTMLFormControlElement* invoker)
+ExceptionOr<void> HTMLElement::showPopover(const ShowPopoverOptions& options)
+{
+    return showPopoverInternal(options.source.get());
+}
+
+ExceptionOr<void> HTMLElement::showPopoverInternal(const HTMLElement* invoker)
 {
     auto check = checkPopoverValidity(*this, PopoverVisibilityState::Hidden);
     if (check.hasException())
@@ -1153,7 +1149,7 @@ ExceptionOr<void> HTMLElement::showPopover(const HTMLFormControlElement* invoker
         popoverData()->setPreviouslyFocusedElement(previouslyFocusedElement.get());
     }
 
-    queuePopoverToggleEventTask(PopoverVisibilityState::Hidden, PopoverVisibilityState::Showing);
+    queuePopoverToggleEventTask(ToggleState::Closed, ToggleState::Open);
 
     if (CheckedPtr cache = document->existingAXObjectCache())
         cache->onPopoverToggle(*this);
@@ -1200,11 +1196,13 @@ ExceptionOr<void> HTMLElement::hidePopoverInternal(FocusPreviousElement focusPre
 
     removeFromTopLayer();
 
-    Style::PseudoClassChangeInvalidation styleInvalidation(*this, CSSSelector::PseudoClass::PopoverOpen, false);
+    std::optional<Style::PseudoClassChangeInvalidation> styleInvalidation;
+    if (isConnected())
+        styleInvalidation.emplace(*this, CSSSelector::PseudoClass::PopoverOpen, false, Style::InvalidationScope::Descendants);
     popoverData()->setVisibilityState(PopoverVisibilityState::Hidden);
 
     if (fireEvents == FireEvents::Yes)
-        queuePopoverToggleEventTask(PopoverVisibilityState::Showing, PopoverVisibilityState::Hidden);
+        queuePopoverToggleEventTask(ToggleState::Open, ToggleState::Closed);
 
     if (RefPtr element = popoverData()->previouslyFocusedElement()) {
         if (focusPreviousElement == FocusPreviousElement::Yes && containsIncludingShadowDOM(document().focusedElement())) {
@@ -1226,14 +1224,29 @@ ExceptionOr<void> HTMLElement::hidePopover()
     return hidePopoverInternal(FocusPreviousElement::Yes, FireEvents::Yes);
 }
 
-ExceptionOr<bool> HTMLElement::togglePopover(std::optional<bool> force)
+ExceptionOr<bool> HTMLElement::togglePopover(std::optional<std::variant<WebCore::HTMLElement::TogglePopoverOptions, bool>> options)
 {
+    std::optional<bool> force;
+    HTMLElement* invoker = nullptr;
+
+    if (options.has_value()) {
+        WTF::switchOn(options.value(),
+            [&](TogglePopoverOptions options) {
+                force = options.force;
+                invoker = options.source.get();
+            },
+            [&](bool value) {
+                force = value;
+            }
+        );
+    }
+
     if (isPopoverShowing() && !force.value_or(false)) {
         auto returnValue = hidePopover();
         if (returnValue.hasException())
             return returnValue.releaseException();
     } else if (!isPopoverShowing() && force.value_or(true)) {
-        auto returnValue = showPopover();
+        auto returnValue = showPopoverInternal(invoker);
         if (returnValue.hasException())
             return returnValue.releaseException();
     } else {
@@ -1294,7 +1307,7 @@ bool HTMLElement::handleCommandInternal(const HTMLFormControlElement& invoker, c
     } else {
         bool shouldShow = command == CommandType::TogglePopover || command == CommandType::ShowPopover;
         if (shouldShow) {
-            showPopover(&invoker);
+            showPopoverInternal(&invoker);
             return true;
         }
     }

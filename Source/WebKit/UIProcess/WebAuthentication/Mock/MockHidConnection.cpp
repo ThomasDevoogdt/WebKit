@@ -219,9 +219,9 @@ void MockHidConnection::feedReports()
         // FIXME(205839):
         Vector<uint8_t> infoData;
         if (m_configuration.hid->canDowngrade)
-            infoData = encodeAsCBOR(AuthenticatorGetInfoResponse({ ProtocolVersion::kCtap, ProtocolVersion::kU2f }, Vector<uint8_t>(aaguidLength, 0u)));
+            infoData = encodeAsCBOR(AuthenticatorGetInfoResponse({ ProtocolVersion::kCtap2, ProtocolVersion::kU2f }, Vector<uint8_t>(aaguidLength, 0u)));
         else {
-            AuthenticatorGetInfoResponse infoResponse({ ProtocolVersion::kCtap }, Vector<uint8_t>(aaguidLength, 0u));
+            AuthenticatorGetInfoResponse infoResponse({ ProtocolVersion::kCtap2 }, Vector<uint8_t>(aaguidLength, 0u));
             AuthenticatorSupportedOptions options;
             if (m_configuration.hid->supportClientPin) {
                 infoResponse.setPinProtocols({ pin::kProtocolVersion });
@@ -230,8 +230,6 @@ void MockHidConnection::feedReports()
             if (m_configuration.hid->supportInternalUV)
                 options.setUserVerificationAvailability(AuthenticatorSupportedOptions::UserVerificationAvailability::kSupportedAndConfigured);
             infoResponse.setOptions(WTFMove(options));
-            infoResponse.setMaxCredentialCountInList(m_configuration.hid->maxCredentialCountInList);
-            infoResponse.setMaxCredentialIDLength(m_configuration.hid->maxCredentialIdLength);
             infoData = encodeAsCBOR(infoResponse);
         }
         infoData.insert(0, static_cast<uint8_t>(CtapDeviceResponseCode::kSuccess)); // Prepend status code.

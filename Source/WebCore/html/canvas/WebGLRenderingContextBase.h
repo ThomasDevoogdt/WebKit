@@ -66,6 +66,8 @@
 
 #include "GCGLSpan.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WebCore {
 class WebGLRenderingContextBase;
 }
@@ -346,6 +348,8 @@ public:
             : m_variant(WTFMove(variant))
         {
         }
+
+        std::span<const DataType> span() const { return unsafeMakeSpan(data(), length()); }
 
         const DataType* data() const
         {
@@ -638,9 +642,9 @@ protected:
 
         GCGLenum type;
         union {
-            GCGLfloat fValue[4];
-            GCGLint iValue[4];
-            GCGLuint uiValue[4];
+            std::array<GCGLfloat, 4> fValue;
+            std::array<GCGLint, 4> iValue;
+            std::array<GCGLuint, 4> uiValue;
         };
     };
     Vector<VertexAttribValue> m_vertexAttribValue;
@@ -698,17 +702,16 @@ protected:
 
     PredefinedColorSpace m_drawingBufferColorSpace { PredefinedColorSpace::SRGB };
 
-    GCGLfloat m_clearColor[4];
+    std::array<GCGLfloat, 4> m_clearColor;
     bool m_scissorEnabled;
     GCGLfloat m_clearDepth;
     GCGLint m_clearStencil;
-    GCGLboolean m_colorMask[4];
+    std::array<GCGLboolean, 4> m_colorMask;
     GCGLuint m_stencilMask;
     GCGLboolean m_depthMask;
 
     bool m_rasterizerDiscardEnabled { false };
 
-    bool m_isGLES2Compliant;
     bool m_isDepthStencilSupported;
 
     int m_numGLErrorsToConsoleAllowed;
@@ -778,9 +781,9 @@ protected:
     bool m_areOESTextureHalfFloatFormatsAndTypesAdded { false };
     bool m_areEXTsRGBFormatsAndTypesAdded { false };
 
-    HashSet<GCGLenum> m_supportedTexImageSourceInternalFormats;
-    HashSet<GCGLenum> m_supportedTexImageSourceFormats;
-    HashSet<GCGLenum> m_supportedTexImageSourceTypes;
+    UncheckedKeyHashSet<GCGLenum> m_supportedTexImageSourceInternalFormats;
+    UncheckedKeyHashSet<GCGLenum> m_supportedTexImageSourceFormats;
+    UncheckedKeyHashSet<GCGLenum> m_supportedTexImageSourceTypes;
 
     // Helpers for getParameter and other similar functions.
     bool getBooleanParameter(GCGLenum);
@@ -1098,5 +1101,7 @@ WebCoreOpaqueRoot root(const WebGLExtension<WebGLRenderingContextBase>*);
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CANVASRENDERINGCONTEXT(WebCore::WebGLRenderingContextBase, isWebGL())
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

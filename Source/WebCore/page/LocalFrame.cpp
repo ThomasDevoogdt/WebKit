@@ -61,6 +61,7 @@
 #include "HTMLFormControlElement.h"
 #include "HTMLFormElement.h"
 #include "HTMLFrameElementBase.h"
+#include "HTMLIFrameElement.h"
 #include "HTMLNames.h"
 #include "HTMLTableCellElement.h"
 #include "HTMLTableRowElement.h"
@@ -74,11 +75,13 @@
 #include "LocalDOMWindow.h"
 #include "LocalFrameLoaderClient.h"
 #include "LocalFrameView.h"
+#include "LocalizedStrings.h"
 #include "Logging.h"
 #include "Navigator.h"
 #include "NodeList.h"
 #include "NodeTraversal.h"
 #include "Page.h"
+#include "ProcessSyncClient.h"
 #include "ProcessWarming.h"
 #include "RemoteFrame.h"
 #include "RenderLayerCompositor.h"
@@ -88,6 +91,7 @@
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "RenderWidget.h"
+#include "ResourceMonitor.h"
 #include "SVGDocument.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGElementTypeHelpers.h"
@@ -118,6 +122,10 @@
 
 #if ENABLE(DATA_DETECTION)
 #include "DataDetectionResultsStorage.h"
+#endif
+
+#if ENABLE(CONTENT_EXTENSIONS) && USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/LocalFrameAdditions.h>)
+#include <WebKitAdditions/LocalFrameAdditions.h>
 #endif
 
 #define FRAME_RELEASE_LOG_ERROR(channel, fmt, ...) RELEASE_LOG_ERROR(channel, "%p - Frame::" fmt, this, ##__VA_ARGS__)
@@ -159,7 +167,7 @@ static const LocalFrame& rootFrame(const LocalFrame& frame)
 
 LocalFrame::LocalFrame(Page& page, ClientCreator&& clientCreator, FrameIdentifier identifier, SandboxFlags sandboxFlags, std::optional<ScrollbarMode> scrollingMode, HTMLFrameOwnerElement* ownerElement, Frame* parent, Frame* opener)
     : Frame(page, identifier, FrameType::Local, ownerElement, parent, opener)
-    , m_loader(makeUniqueRef<FrameLoader>(*this, WTFMove(clientCreator)))
+    , m_loader(makeUniqueRefWithoutRefCountedCheck<FrameLoader>(*this, WTFMove(clientCreator)))
     , m_script(makeUniqueRef<ScriptController>(*this))
     , m_pageZoomFactor(parentPageZoomFactor(this))
     , m_textZoomFactor(parentTextZoomFactor(this))
@@ -170,7 +178,7 @@ LocalFrame::LocalFrame(Page& page, ClientCreator&& clientCreator, FrameIdentifie
     ProcessWarming::initializeNames();
     StaticCSSValuePool::init();
 
-    if (RefPtr localMainFrame = dynamicDowncast<LocalFrame>(mainFrame()); localMainFrame && parent)
+    if (RefPtr localMainFrame = this->localMainFrame(); localMainFrame && parent)
         localMainFrame->selfOnlyRef();
 
 #ifndef NDEBUG
@@ -232,11 +240,16 @@ LocalFrame::~LocalFrame()
     while (auto* destructionObserver = m_destructionObservers.takeAny())
         destructionObserver->frameDestroyed();
 
-    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(mainFrame());
+    RefPtr localMainFrame = this->localMainFrame();
     if (!isMainFrame() && localMainFrame)
         localMainFrame->selfOnlyDeref();
 
     detachFromPage();
+}
+
+RefPtr<LocalFrame> LocalFrame::localMainFrame() const
+{
+    return dynamicDowncast<LocalFrame>(mainFrame());
 }
 
 void LocalFrame::addDestructionObserver(FrameDestructionObserver& observer)
@@ -278,12 +291,12 @@ void LocalFrame::setView(RefPtr<LocalFrameView>&& view)
     protectedLoader()->resetMultipleFormSubmissionProtection();
 }
 
-CheckedRef<Editor> LocalFrame::checkedEditor()
+Ref<Editor> LocalFrame::protectedEditor()
 {
     return editor();
 }
 
-CheckedRef<const Editor> LocalFrame::checkedEditor() const
+Ref<const Editor> LocalFrame::protectedEditor() const
 {
     return editor();
 }
@@ -306,7 +319,7 @@ void LocalFrame::setDocument(RefPtr<Document>&& newDocument)
     if (RefPtr previousDocument = m_doc) {
 #if ENABLE(ATTACHMENT_ELEMENT)
         for (Ref attachment : previousDocument->attachmentElementsByIdentifier().values())
-            checkedEditor()->didRemoveAttachmentElement(attachment);
+            protectedEditor()->didRemoveAttachmentElement(attachment);
 #endif
 
         if (previousDocument->backForwardCacheState() != Document::InBackForwardCache)
@@ -324,7 +337,7 @@ void LocalFrame::setDocument(RefPtr<Document>&& newDocument)
 
 #if ENABLE(ATTACHMENT_ELEMENT)
     if (RefPtr document = m_doc) {
-        CheckedRef editor = this->editor();
+        Ref editor = this->editor();
         for (Ref attachment : document->attachmentElementsByIdentifier().values())
             editor->didInsertAttachmentElement(attachment);
     }
@@ -689,7 +702,7 @@ FloatSize LocalFrame::resizePageRectsKeepingRatio(const FloatSize& originalSize,
     if (!contentRenderer())
         return FloatSize();
 
-    if (contentRenderer()->style().isHorizontalWritingMode()) {
+    if (contentRenderer()->writingMode().isHorizontal()) {
         ASSERT(std::abs(originalSize.width()) > std::numeric_limits<float>::epsilon());
         float ratio = originalSize.height() / originalSize.width();
         resultSize.setWidth(floorf(expectedSize.width()));
@@ -892,22 +905,19 @@ std::optional<SimpleRange> LocalFrame::rangeForPoint(const IntPoint& framePoint)
         return std::nullopt;
 
     if (auto previousCharacterRange = makeSimpleRange(position.previous(), position)) {
-        if (checkedEditor()->firstRectForRange(*previousCharacterRange).contains(framePoint))
+        if (protectedEditor()->firstRectForRange(*previousCharacterRange).contains(framePoint))
             return *previousCharacterRange;
     }
 
     if (auto nextCharacterRange = makeSimpleRange(position, position.next())) {
-        if (checkedEditor()->firstRectForRange(*nextCharacterRange).contains(framePoint))
+        if (protectedEditor()->firstRectForRange(*nextCharacterRange).contains(framePoint))
             return *nextCharacterRange;
     }
 
     return std::nullopt;
 }
 
-void LocalFrame::createView(const IntSize& viewportSize, const std::optional<Color>& backgroundColor,
-    const IntSize& fixedLayoutSize, const IntRect& fixedVisibleContentRect,
-    bool useFixedLayout, ScrollbarMode horizontalScrollbarMode, bool horizontalLock,
-    ScrollbarMode verticalScrollbarMode, bool verticalLock)
+void LocalFrame::createView(const IntSize& viewportSize, const std::optional<Color>& backgroundColor, const IntSize& fixedLayoutSize, bool useFixedLayout, ScrollbarMode horizontalScrollbarMode, bool horizontalLock, ScrollbarMode verticalScrollbarMode, bool verticalLock)
 {
     ASSERT(page());
 
@@ -922,11 +932,6 @@ void LocalFrame::createView(const IntSize& viewportSize, const std::optional<Col
     if (isRootFrame) {
         frameView = LocalFrameView::create(*this, viewportSize);
         frameView->setFixedLayoutSize(fixedLayoutSize);
-#if USE(COORDINATED_GRAPHICS)
-        frameView->setFixedVisibleContentRect(fixedVisibleContentRect);
-#else
-        UNUSED_PARAM(fixedVisibleContentRect);
-#endif
         frameView->setUseFixedLayout(useFixedLayout);
     } else
         frameView = LocalFrameView::create(*this);
@@ -1020,7 +1025,7 @@ void LocalFrame::setPageAndTextZoomFactors(float pageZoomFactor, float textZoomF
     if (!document)
         return;
 
-    checkedEditor()->dismissCorrectionPanelAsIgnored();
+    protectedEditor()->dismissCorrectionPanelAsIgnored();
 
     // Respect SVGs zoomAndPan="disabled" property in standalone SVG documents.
     // FIXME: How to handle compound documents + zoomAndPan="disabled"? Needs SVG WG clarification.
@@ -1246,12 +1251,15 @@ CheckedRef<const EventHandler> LocalFrame::checkedEventHandler() const
     return m_eventHandler.get();
 }
 
-void LocalFrame::documentURLDidChange(const URL& url)
+void LocalFrame::documentURLOrOriginDidChange()
 {
-    if (RefPtr page = this->page(); page && isMainFrame()) {
-        page->setMainFrameURL(url);
-        protectedLoader()->client().broadcastMainFrameURLChangeToOtherProcesses(url);
-    }
+    if (!isMainFrame())
+        return;
+
+    RefPtr page = this->protectedPage();
+    RefPtr document = this->protectedDocument();
+    if (page && document)
+        page->setMainFrameURLAndOrigin(document->url(), document->protectedSecurityOrigin());
 }
 
 #if ENABLE(DATA_DETECTION)
@@ -1387,6 +1395,38 @@ void LocalFrame::setScrollingMode(ScrollbarMode scrollingMode)
     if (RefPtr view = this->view())
         view->setCanHaveScrollbars(m_scrollingMode != ScrollbarMode::AlwaysOff);
 }
+
+#if ENABLE(CONTENT_EXTENSIONS)
+
+static String generateResourceMonitorErrorHTML()
+{
+#if PLATFORM(COCOA) && HAVE(LOCAL_FRAME_ADDITIONS)
+    return generateResourceMonitorErrorHTMLForCocoa();
+#else
+    return WEB_UI_STRING("This frame is hidden for using too many system resources.", "Description HTML for frame unloaded by ResourceMonitor");
+#endif
+}
+
+void LocalFrame::showResourceMonitoringError()
+{
+    RefPtr iframeElement = dynamicDowncast<HTMLIFrameElement>(ownerElement());
+    if (!iframeElement)
+        return;
+
+    for (RefPtr<Frame> frame = this; frame; frame = frame->tree().traverseNext()) {
+        if (RefPtr localFrame = dynamicDowncast<LocalFrame>(frame)) {
+            if (RefPtr window = localFrame->window())
+                window->removeAllEventListeners();
+        }
+    }
+
+    iframeElement->setSrcdoc(generateResourceMonitorErrorHTML());
+
+    if (RefPtr document = this->document())
+        document->addConsoleMessage(MessageSource::ContentBlocker, MessageLevel::Error, "Frame was unloaded because its network usage exceeded the limit."_s);
+}
+
+#endif
 
 } // namespace WebCore
 

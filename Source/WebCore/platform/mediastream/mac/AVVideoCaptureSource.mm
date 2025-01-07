@@ -212,6 +212,12 @@ static WorkQueue& photoQueue()
     return queue.get();
 }
 
+static bool s_useAVCaptureDeviceRotationCoordinatorAPI = false;
+void AVVideoCaptureSource::setUseAVCaptureDeviceRotationCoordinatorAPI(bool value)
+{
+    s_useAVCaptureDeviceRotationCoordinatorAPI = value;
+}
+
 CaptureSourceOrError AVVideoCaptureSource::create(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
     auto *avDevice = [PAL::getAVCaptureDeviceClass() deviceWithUniqueID:device.persistentId()];
@@ -243,9 +249,6 @@ AVVideoCaptureSource::AVVideoCaptureSource(AVCaptureDevice* avDevice, const Capt
     , m_objcObserver(adoptNS([[WebCoreAVVideoCaptureSourceObserver alloc] initWithCaptureSource:this]))
     , m_device(avDevice)
     , m_zoomScaleFactor(cameraZoomScaleFactor([avDevice deviceType]))
-#if PLATFORM(IOS_FAMILY)
-    , m_startupTimer(*this, &AVVideoCaptureSource::startupTimerFired)
-#endif
     , m_verifyCapturingTimer(*this, &AVVideoCaptureSource::verifyIsCapturing)
     , m_defaultTorchMode((int64_t)[m_device torchMode])
 {
@@ -326,8 +329,12 @@ void AVVideoCaptureSource::startProducingData()
 
 #if PLATFORM(IOS_FAMILY)
     m_shouldCallNotifyMutedChange = false;
+
+    if (!m_startupTimer)
+        m_startupTimer = makeUnique<Timer>(*this, &AVVideoCaptureSource::startupTimerFired);
+
     static constexpr Seconds startupTimerInterval = 1_s;
-    m_startupTimer.startOneShot(startupTimerInterval);
+    m_startupTimer->startOneShot(startupTimerInterval);
 #endif
 }
 
@@ -412,6 +419,7 @@ void AVVideoCaptureSource::settingsDidChange(OptionSet<RealtimeMediaSourceSettin
     if (!whiteBalanceModeChanged && !torchChanged)
         return;
 
+    m_pendingSettingsChanges = settings;
     scheduleDeferredTask([this, whiteBalanceModeChanged, torchChanged] {
         startApplyingConstraints();
         if (whiteBalanceModeChanged)
@@ -419,6 +427,7 @@ void AVVideoCaptureSource::settingsDidChange(OptionSet<RealtimeMediaSourceSettin
         if (torchChanged)
             updateTorch();
         endApplyingConstraints();
+        m_pendingSettingsChanges = { };
     });
 }
 
@@ -487,12 +496,14 @@ const RealtimeMediaSourceSettings& AVVideoCaptureSource::settings()
 
     if (!supportedWhiteBalanceModes(device()).isEmpty()) {
         supportedConstraints.setSupportsWhiteBalanceMode(true);
-        settings.setWhiteBalanceMode(meteringModeFromAVCaptureWhiteBalanceMode([device() whiteBalanceMode]));
+        auto value = m_pendingSettingsChanges.contains(RealtimeMediaSourceSettings::Flag::WhiteBalanceMode) ? whiteBalanceMode() : meteringModeFromAVCaptureWhiteBalanceMode([device() whiteBalanceMode]);
+        settings.setWhiteBalanceMode(value);
     }
 
     if ([device() hasTorch]) {
         supportedConstraints.setSupportsTorch(true);
-        settings.setTorch([device() torchMode] == AVCaptureTorchModeOn);
+        auto value = m_pendingSettingsChanges.contains(RealtimeMediaSourceSettings::Flag::Torch) ? torch() : [device() torchMode] == AVCaptureTorchModeOn;
+        settings.setTorch(value);
     }
 
 #if PLATFORM(IOS_FAMILY)
@@ -815,10 +826,12 @@ void AVVideoCaptureSource::applyFrameRateAndZoomWithPreset(double requestedFrame
 #if PLATFORM(IOS_FAMILY)
     // Updating the device configuration may switch off the torch. We reenable torch asynchronously if needed.
     if (torch()) {
+        m_pendingSettingsChanges = { RealtimeMediaSourceSettings::Flag::Torch };
         scheduleDeferredTask([this] {
             startApplyingConstraints();
             updateTorch();
             endApplyingConstraints();
+            m_pendingSettingsChanges = { };
         });
     }
 #endif
@@ -981,6 +994,7 @@ void AVVideoCaptureSource::updateWhiteBalanceMode()
     }
 
     [device unlockForConfiguration];
+    m_currentSettings = std::nullopt;
 }
 
 void AVVideoCaptureSource::updateTorch()
@@ -1011,6 +1025,7 @@ void AVVideoCaptureSource::updateTorch()
     }
 
     [device unlockForConfiguration];
+    m_currentSettings = std::nullopt;
 }
 
 IntDegrees AVVideoCaptureSource::sensorOrientationFromVideoOutput()
@@ -1126,6 +1141,16 @@ bool AVVideoCaptureSource::setupCaptureSession()
         return false;
     }
     [session() addOutput:m_videoOutput.get()];
+
+#if PLATFORM(IOS_FAMILY)
+    if (s_useAVCaptureDeviceRotationCoordinatorAPI) {
+        AVCaptureConnection* connection = [m_videoOutput connectionWithMediaType:AVMediaTypeVideo];
+        if ([connection isVideoRotationAngleSupported:0]) {
+            RELEASE_LOG(WebRTC, "Setting AVVideoCaptureSource connection angle to 0");
+            [connection setVideoRotationAngle:0];
+        }
+    }
+#endif
 
     setSessionSizeFrameRateAndZoom();
     m_needsTorchReconfiguration = m_needsTorchReconfiguration || torch();
@@ -1268,7 +1293,7 @@ void AVVideoCaptureSource::captureSessionIsRunningDidChange(bool state)
         updateVerifyCapturingTimer();
 
 #if PLATFORM(IOS_FAMILY)
-        if (m_startupTimer.isActive()) {
+        if (m_startupTimer && m_startupTimer->isActive()) {
             m_shouldCallNotifyMutedChange = true;
             return;
         }

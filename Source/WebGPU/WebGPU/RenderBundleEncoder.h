@@ -45,9 +45,10 @@ struct WGPURenderBundleEncoderImpl {
 
 @interface RenderBundleICBWithResources : NSObject
 
-- (instancetype)initWithICB:(id<MTLIndirectCommandBuffer>)icb containerBuffer:(id<MTLBuffer>)containerBuffer pipelineState:(id<MTLRenderPipelineState>)pipelineState depthStencilState:(id<MTLDepthStencilState>)depthStencilState cullMode:(MTLCullMode)cullMode frontFace:(MTLWinding)frontFace depthClipMode:(MTLDepthClipMode)depthClipMode depthBias:(float)depthBias depthBiasSlopeScale:(float)depthBiasSlopeScale depthBiasClamp:(float)depthBiasClamp fragmentDynamicOffsetsBuffer:(id<MTLBuffer>)fragmentDynamicOffsetsBuffer pipeline:(const WebGPU::RenderPipeline*)pipeline minVertexCounts:(WebGPU::RenderBundle::MinVertexCountsContainer*)minVertexCounts NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithICB:(id<MTLIndirectCommandBuffer>)icb containerBuffer:(id<MTLBuffer>)containerBuffer pipelineState:(id<MTLRenderPipelineState>)pipelineState depthStencilState:(id<MTLDepthStencilState>)depthStencilState cullMode:(MTLCullMode)cullMode frontFace:(MTLWinding)frontFace depthClipMode:(MTLDepthClipMode)depthClipMode depthBias:(float)depthBias depthBiasSlopeScale:(float)depthBiasSlopeScale depthBiasClamp:(float)depthBiasClamp fragmentDynamicOffsetsBuffer:(id<MTLBuffer>)fragmentDynamicOffsetsBuffer pipeline:(const WebGPU::RenderPipeline*)pipeline minVertexCounts:(WebGPU::RenderBundle::MinVertexCountsContainer*)minVertexCounts outOfBoundsReadFlag:(id<MTLBuffer>)outOfBoundsReadFlag NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
+@property (readonly, nonatomic) id<MTLBuffer> outOfBoundsReadFlag;
 @property (readonly, nonatomic) id<MTLIndirectCommandBuffer> indirectCommandBuffer;
 @property (readonly, nonatomic) id<MTLBuffer> indirectCommandBufferContainer;
 @property (readonly, nonatomic) id<MTLRenderPipelineState> currentPipelineState;
@@ -141,6 +142,7 @@ private:
     void recordCommand(WTF::Function<bool(void)>&&);
     void storeVertexBufferCountsForValidation(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex, uint32_t firstInstance, MTLIndexType, NSUInteger indexBufferOffsetInBytes);
     std::pair<uint32_t, uint32_t> computeMininumVertexInstanceCount() const;
+    void resetIndexBuffer();
 
     const Ref<Device> m_device;
     RefPtr<Buffer> m_indexBuffer;
@@ -150,7 +152,7 @@ private:
     RefPtr<const RenderPipeline> m_pipeline;
     uint32_t m_maxVertexBufferSlot { 0 };
     uint32_t m_maxBindGroupSlot { 0 };
-    using UtilizedBufferIndicesContainer = UncheckedKeyHashMap<uint32_t, uint64_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+    using UtilizedBufferIndicesContainer = HashMap<uint32_t, uint64_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     UtilizedBufferIndicesContainer m_utilizedBufferIndices;
 
     id<MTLIndirectCommandBuffer> m_indirectCommandBuffer { nil };
@@ -179,9 +181,9 @@ private:
     };
     Vector<BufferAndOffset> m_vertexBuffers;
     Vector<BufferAndOffset> m_fragmentBuffers;
-    using BindGroupDynamicOffsetsContainer = UncheckedKeyHashMap<uint32_t, Vector<uint32_t>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
+    using BindGroupDynamicOffsetsContainer = HashMap<uint32_t, Vector<uint32_t>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     std::optional<BindGroupDynamicOffsetsContainer> m_bindGroupDynamicOffsets;
-    UncheckedKeyHashMap<uint32_t, RefPtr<const BindGroup>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_bindGroups;
+    HashMap<uint32_t, RefPtr<const BindGroup>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_bindGroups;
     RenderBundle::MinVertexCountsContainer m_minVertexCountForDrawCommand;
     NSMutableArray<RenderBundleICBWithResources*> *m_icbArray;
     id<MTLBuffer> m_dynamicOffsetsVertexBuffer { nil };
@@ -197,6 +199,7 @@ private:
     bool m_requiresCommandReplay { false };
     bool m_finished { false };
     uint32_t m_sampleMask { defaultSampleMask };
+    bool m_makeSubmitInvalid { false };
 };
 
 } // namespace WebGPU

@@ -4,7 +4,7 @@
  *           (C) 1998 Waldo Bastian (bastian@kde.org)
  *           (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2014-2019 Google Inc. All rights reserved.
  * Copyright (C) 2006 Alexey Proskuryakov (ap@nypop.com)
  *
@@ -281,11 +281,11 @@ void RenderTable::updateLogicalWidth()
     RenderBlock& cb = *containingBlock();
 
     LayoutUnit availableLogicalWidth = containingBlockLogicalWidthForContent();
-    bool hasPerpendicularContainingBlock = cb.style().isHorizontalWritingMode() != style().isHorizontalWritingMode();
+    bool hasPerpendicularContainingBlock = writingMode().isOrthogonal(cb.writingMode());
     LayoutUnit containerWidthInInlineDirection = hasPerpendicularContainingBlock ? perpendicularContainingBlockLogicalHeight() : availableLogicalWidth;
 
     Length styleLogicalWidth = style().logicalWidth();
-    if (auto overridingLogicalWidth = this->overridingLogicalWidth())
+    if (auto overridingLogicalWidth = this->overridingBorderBoxLogicalWidth())
         setLogicalWidth(*overridingLogicalWidth);
     else if ((styleLogicalWidth.isSpecified() && styleLogicalWidth.isPositive()) || styleLogicalWidth.isIntrinsic())
         setLogicalWidth(convertStyleLogicalWidthToComputedWidth(styleLogicalWidth, containerWidthInInlineDirection));
@@ -299,7 +299,7 @@ void RenderTable::updateLogicalWidth()
         LayoutUnit availableContentLogicalWidth = std::max<LayoutUnit>(0, containerWidthInInlineDirection - marginTotal);
         if (shrinkToAvoidFloats() && cb.containsFloats() && !hasPerpendicularContainingBlock) {
             // FIXME: Work with regions someday.
-            availableContentLogicalWidth = shrinkLogicalWidthToAvoidFloats(marginStart, marginEnd, cb, 0);
+            availableContentLogicalWidth = shrinkLogicalWidthToAvoidFloats(marginStart, marginEnd, cb);
         }
 
         // Ensure we aren't bigger than our available width.
@@ -336,12 +336,12 @@ void RenderTable::updateLogicalWidth()
     if (!hasPerpendicularContainingBlock) {
         LayoutUnit containerLogicalWidthForAutoMargins = availableLogicalWidth;
         if (avoidsFloats() && cb.containsFloats())
-            containerLogicalWidthForAutoMargins = containingBlockAvailableLineWidthInFragment(0); // FIXME: Work with regions someday.
+            containerLogicalWidthForAutoMargins = containingBlockAvailableLineWidth();
         ComputedMarginValues marginValues;
-        bool hasInvertedDirection =  cb.style().isLeftToRightDirection() == style().isLeftToRightDirection();
+        bool hasSameDirection = !cb.writingMode().isInlineOpposing(writingMode());
         computeInlineDirectionMargins(cb, availableLogicalWidth, containerLogicalWidthForAutoMargins, logicalWidth(),
-            hasInvertedDirection ? marginValues.m_start : marginValues.m_end,
-            hasInvertedDirection ? marginValues.m_end : marginValues.m_start);
+            hasSameDirection ? marginValues.m_start : marginValues.m_end,
+            hasSameDirection ? marginValues.m_end : marginValues.m_start);
         setMarginStart(marginValues.m_start);
         setMarginEnd(marginValues.m_end);
     } else {
@@ -473,7 +473,7 @@ void RenderTable::layout()
 
     LayoutRepainter repainter(*this);
     {
-        LayoutStateMaintainer statePusher(*this, locationOffset(), isTransformed() || hasReflection() || style().isFlippedBlocksWritingMode());
+        LayoutStateMaintainer statePusher(*this, locationOffset(), isTransformed() || hasReflection() || writingMode().isBlockFlipped());
 
         LayoutUnit oldLogicalWidth = logicalWidth();
         LayoutUnit oldLogicalHeight = logicalHeight();
@@ -539,7 +539,7 @@ void RenderTable::layout()
         if (logicalHeightLength.isIntrinsic() || (logicalHeightLength.isSpecified() && logicalHeightLength.isPositive()))
             computedLogicalHeight = convertStyleLogicalHeightToComputedHeight(logicalHeightLength);
 
-        if (auto overridingLogicalHeight = this->overridingLogicalHeight())
+        if (auto overridingLogicalHeight = this->overridingBorderBoxLogicalHeight())
             computedLogicalHeight = std::max(computedLogicalHeight, *overridingLogicalHeight - borderAndPaddingAfter - sumCaptionsLogicalHeight());
 
         if (!shouldIgnoreLogicalMinMaxHeightSizes()) {
@@ -569,16 +569,16 @@ void RenderTable::layout()
             // overriding or specified height in strict mode, but this value will not be cached.
             shouldCacheIntrinsicContentLogicalHeightForFlexItem = false;
             auto tableLogicalHeight = [&] {
-                if (auto overridingLogicalHeight = this->overridingLogicalHeight())
+                if (auto overridingLogicalHeight = this->overridingBorderBoxLogicalHeight())
                     return *overridingLogicalHeight - borderAndPaddingAfter;
                 return logicalHeight() + computedLogicalHeight;
             };
             setLogicalHeight(tableLogicalHeight());
         }
 
-        LayoutUnit sectionLogicalLeft = style().isLeftToRightDirection() ? borderStart() : borderEnd();
+        LayoutUnit sectionLogicalLeft = writingMode().isLogicalLeftInlineStart() ? borderStart() : borderEnd();
         if (!collapsing)
-            sectionLogicalLeft += style().isLeftToRightDirection() ? paddingStart() : paddingEnd();
+            sectionLogicalLeft += writingMode().isLogicalLeftInlineStart() ? paddingStart() : paddingEnd();
 
         // position the table sections
         RenderTableSection* section = topSection();
@@ -586,7 +586,7 @@ void RenderTable::layout()
             sectionCount++;
             if (!sectionMoved && section->logicalTop() != logicalHeight()) {
                 sectionMoved = true;
-                movedSectionLogicalTop = std::min(logicalHeight(), section->logicalTop()) + (style().isHorizontalWritingMode() ? section->visualOverflowRect().y() : section->visualOverflowRect().x());
+                movedSectionLogicalTop = std::min(logicalHeight(), section->logicalTop()) + (writingMode().isHorizontal() ? section->visualOverflowRect().y() : section->visualOverflowRect().x());
             }
             section->setLogicalLocation(LayoutPoint(sectionLogicalLeft, logicalHeight()));
 
@@ -625,7 +625,7 @@ void RenderTable::layout()
     bool didFullRepaint = repainter.repaintAfterLayout();
     // Repaint with our new bounds if they are different from our old bounds.
     if (!didFullRepaint && sectionMoved) {
-        if (style().isHorizontalWritingMode())
+        if (writingMode().isHorizontal())
             repaintRectangle(LayoutRect(visualOverflowRect().x(), movedSectionLogicalTop, visualOverflowRect().width(), visualOverflowRect().maxY() - movedSectionLogicalTop));
         else
             repaintRectangle(LayoutRect(movedSectionLogicalTop, visualOverflowRect().y(), visualOverflowRect().maxX() - movedSectionLogicalTop, visualOverflowRect().height()));
@@ -645,7 +645,7 @@ void RenderTable::layout()
     // FIXME: This value isn't the intrinsic content logical height, but we need
     // to update the value as its used by flexbox layout. crbug.com/367324
     if (shouldCacheIntrinsicContentLogicalHeightForFlexItem)
-        cacheIntrinsicContentLogicalHeightForFlexItem(contentLogicalHeight());
+        cacheIntrinsicContentLogicalHeightForFlexItem(contentBoxLogicalHeight());
 
     m_columnLogicalWidthChanged = false;
     clearNeedsLayout();
@@ -824,8 +824,8 @@ void RenderTable::adjustBorderBoxRectForPainting(LayoutRect& rect)
 {
     for (unsigned i = 0; i < m_captions.size(); i++) {
         LayoutUnit captionLogicalHeight = m_captions[i]->logicalHeight() + m_captions[i]->marginBefore() + m_captions[i]->marginAfter();
-        bool captionIsBefore = (m_captions[i]->style().captionSide() != CaptionSide::Bottom) ^ style().isFlippedBlocksWritingMode();
-        if (style().isHorizontalWritingMode()) {
+        bool captionIsBefore = (m_captions[i]->style().captionSide() != CaptionSide::Bottom) ^ writingMode().isBlockFlipped();
+        if (writingMode().isHorizontal()) {
             rect.setHeight(rect.height() - captionLogicalHeight);
             if (captionIsBefore)
                 rect.move(0_lu, captionLogicalHeight);
@@ -1253,7 +1253,7 @@ LayoutUnit RenderTable::calcBorderStart() const
                 borderWidth = std::max(borderWidth, firstRowAdjoiningBorder.width());
         }
     }
-    return CollapsedBorderValue::adjustedCollapsedBorderWidth(borderWidth, document().deviceScaleFactor(), !style().isLeftToRightDirection());
+    return CollapsedBorderValue::adjustedCollapsedBorderWidth(borderWidth, document().deviceScaleFactor(), writingMode().isInlineFlipped());
 }
 
 LayoutUnit RenderTable::calcBorderEnd() const
@@ -1308,7 +1308,7 @@ LayoutUnit RenderTable::calcBorderEnd() const
                 borderWidth = std::max(borderWidth, firstRowAdjoiningBorder.width());
         }
     }
-    return CollapsedBorderValue::adjustedCollapsedBorderWidth(borderWidth, document().deviceScaleFactor(), style().isLeftToRightDirection());
+    return CollapsedBorderValue::adjustedCollapsedBorderWidth(borderWidth, document().deviceScaleFactor(), !writingMode().isInlineFlipped());
 }
 
 void RenderTable::recalcBordersInRowDirection()
@@ -1389,7 +1389,7 @@ LayoutUnit RenderTable::outerBorderStart() const
     if (tb.style() == BorderStyle::Hidden)
         return 0;
     if (tb.style() > BorderStyle::Hidden)
-        return CollapsedBorderValue::adjustedCollapsedBorderWidth(tb.width(), document().deviceScaleFactor(), !style().isLeftToRightDirection());
+        return CollapsedBorderValue::adjustedCollapsedBorderWidth(tb.width(), document().deviceScaleFactor(), writingMode().isInlineFlipped());
 
     bool allHidden = true;
     for (RenderTableSection* section = topSection(); section; section = sectionBelow(section)) {
@@ -1416,7 +1416,7 @@ LayoutUnit RenderTable::outerBorderEnd() const
     if (tb.style() == BorderStyle::Hidden)
         return 0;
     if (tb.style() > BorderStyle::Hidden)
-        return CollapsedBorderValue::adjustedCollapsedBorderWidth(tb.width(), document().deviceScaleFactor(), style().isLeftToRightDirection());
+        return CollapsedBorderValue::adjustedCollapsedBorderWidth(tb.width(), document().deviceScaleFactor(), !writingMode().isInlineFlipped());
 
     bool allHidden = true;
     for (RenderTableSection* section = topSection(); section; section = sectionBelow(section)) {
@@ -1593,7 +1593,11 @@ std::optional<LayoutUnit> RenderTable::firstLineBaseline() const
     if (auto baseline = topNonEmptySection->firstLineBaseline())
         return std::optional<LayoutUnit>(topNonEmptySection->logicalTop() + baseline.value());
 
-    // FIXME: A table row always has a baseline per CSS 2.1. Will this return the right value?
+    // Other browsers use the top of the section as the baseline if its first row is empty of cells or content.
+    // The baseline of an empty row isn't specified by CSS 2.1.
+    if (topNonEmptySection->firstRow() && !topNonEmptySection->firstRow()->firstCell())
+        return topNonEmptySection->logicalTop();
+
     return std::optional<LayoutUnit>();
 }
 
@@ -1613,16 +1617,16 @@ std::optional<LayoutUnit> RenderTable::lastLineBaseline() const
     return { };
 }
 
-LayoutRect RenderTable::overflowClipRect(const LayoutPoint& location, RenderFragmentContainer* fragment, OverlayScrollbarSizeRelevancy relevancy, PaintPhase phase) const
+LayoutRect RenderTable::overflowClipRect(const LayoutPoint& location, OverlayScrollbarSizeRelevancy relevancy, PaintPhase phase) const
 {
     LayoutRect rect;
     // Don't clip out the table's side of the collapsed borders if we're in the paint phase that will ask the sections to paint them.
     // Likewise, if we're self-painting we avoid clipping them out as the clip rect that will be passed down to child layers from RenderLayer will do that instead.
     if (phase == PaintPhase::ChildBlockBackgrounds || layer()->isSelfPaintingLayer()) {
-        rect = borderBoxRectInFragment(fragment);
+        rect = borderBoxRect();
         rect.setLocation(location + rect.location());
     } else
-        rect = RenderBox::overflowClipRect(location, fragment, relevancy);
+        rect = RenderBox::overflowClipRect(location, relevancy);
 
     // If we have a caption, expand the clip to include the caption.
     // FIXME: Technically this is wrong, but it's virtually impossible to fix this
@@ -1631,7 +1635,7 @@ LayoutRect RenderTable::overflowClipRect(const LayoutPoint& location, RenderFrag
     // supported.  When we actually support left/right and stop mapping them to top/bottom,
     // we might have to hack this code first (depending on what order we do these bug fixes in).
     if (!m_captions.isEmpty()) {
-        if (style().isHorizontalWritingMode()) {
+        if (writingMode().isHorizontal()) {
             rect.setHeight(height());
             rect.setY(location.y());
         } else {
@@ -1648,7 +1652,7 @@ bool RenderTable::nodeAtPoint(const HitTestRequest& request, HitTestResult& resu
     LayoutPoint adjustedLocation = accumulatedOffset + location();
 
     // Check kids first.
-    if (!hasNonVisibleOverflow() || locationInContainer.intersects(overflowClipRect(adjustedLocation, nullptr))) {
+    if (!hasNonVisibleOverflow() || locationInContainer.intersects(overflowClipRect(adjustedLocation))) {
         for (RenderObject* child = lastChild(); child; child = child->previousSibling()) {
             CheckedPtr box = dynamicDowncast<RenderBox>(*child);
             if (box && !box->hasSelfPaintingLayer() && (box->isRenderTableSection() || box->isRenderTableCaption())) {

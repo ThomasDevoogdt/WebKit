@@ -619,11 +619,6 @@ VkResult AllocateBufferMemoryWithRequirements(Context *context,
                                               uint32_t *memoryTypeIndexOut,
                                               DeviceMemory *deviceMemoryOut);
 
-angle::Result InitShaderModule(Context *context,
-                               ShaderModule *shaderModule,
-                               const uint32_t *shaderCode,
-                               size_t shaderCodeSize);
-
 gl::TextureType Get2DTextureType(uint32_t layerCount, GLint samples);
 
 enum class RecordingMode
@@ -710,6 +705,9 @@ class RefCounted : angle::NonCopyable
 {
   public:
     RefCounted() : mRefCount(0) {}
+    template <class... Args>
+    explicit RefCounted(Args &&...args) : mRefCount(0), mObject(std::forward<Args>(args)...)
+    {}
     explicit RefCounted(T &&newObject) : mRefCount(0), mObject(std::move(newObject)) {}
     ~RefCounted() { ASSERT(mRefCount == 0 && !mObject.valid()); }
 
@@ -745,6 +743,8 @@ class RefCounted : angle::NonCopyable
     }
 
     bool isReferenced() const { return mRefCount != 0; }
+    uint32_t getRefCount() const { return mRefCount; }
+    bool isLastReferenceCount() const { return mRefCount == 1; }
 
     T &get() { return mObject; }
     const T &get() const { return mObject; }
@@ -794,6 +794,10 @@ class AtomicRefCounted : angle::NonCopyable
     // Warning: method does not perform any synchronization.  See `releaseRef()` for details.
     // Method may be only used after external synchronization.
     bool isReferenced() const { return mRefCount.load(std::memory_order_relaxed) != 0; }
+    uint32_t getRefCount() const { return mRefCount.load(std::memory_order_relaxed); }
+
+    // This is used by SharedPtr::unique, so needs strong ordering.
+    bool isLastReferenceCount() const { return mRefCount.load(std::memory_order_acquire) == 1; }
 
     T &get() { return mObject; }
     const T &get() const { return mObject; }
@@ -845,6 +849,175 @@ class BindingPointer final : angle::NonCopyable
 
 template <typename T>
 using AtomicBindingPointer = BindingPointer<T, AtomicRefCounted<T>>;
+
+// This is intended to have same interface as std::shared_ptr except this must used in thread safe
+// environment.
+template <typename>
+class WeakPtr;
+template <typename T, class RefCountedStorage = RefCounted<T>>
+class SharedPtr final
+{
+  public:
+    SharedPtr() : mRefCounted(nullptr) {}
+    SharedPtr(T &&object)
+    {
+        mRefCounted = new RefCountedStorage(std::move(object));
+        mRefCounted->addRef();
+    }
+    SharedPtr(const WeakPtr<T> &other) : mRefCounted(other.mRefCounted)
+    {
+        if (mRefCounted)
+        {
+            // There must already have another SharedPtr holding onto the underline object when
+            // WeakPtr is valid.
+            ASSERT(mRefCounted->isReferenced());
+            mRefCounted->addRef();
+        }
+    }
+    ~SharedPtr() { reset(); }
+
+    SharedPtr(const SharedPtr &other) : mRefCounted(nullptr) { *this = other; }
+
+    SharedPtr(SharedPtr &&other) : mRefCounted(nullptr) { *this = std::move(other); }
+
+    template <class... Args>
+    static SharedPtr<T, RefCountedStorage> MakeShared(Args &&...args)
+    {
+        SharedPtr<T, RefCountedStorage> newObject;
+        newObject.mRefCounted = new RefCountedStorage(std::forward<Args>(args)...);
+        newObject.mRefCounted->addRef();
+        return newObject;
+    }
+
+    void reset()
+    {
+        if (mRefCounted)
+        {
+            releaseRef();
+            mRefCounted = nullptr;
+        }
+    }
+
+    SharedPtr &operator=(SharedPtr &&other)
+    {
+        if (mRefCounted)
+        {
+            releaseRef();
+        }
+        mRefCounted       = other.mRefCounted;
+        other.mRefCounted = nullptr;
+        return *this;
+    }
+
+    SharedPtr &operator=(const SharedPtr &other)
+    {
+        if (mRefCounted)
+        {
+            releaseRef();
+        }
+        mRefCounted = other.mRefCounted;
+        if (mRefCounted)
+        {
+            mRefCounted->addRef();
+        }
+        return *this;
+    }
+
+    operator bool() const { return mRefCounted != nullptr; }
+
+    T &operator*() const
+    {
+        ASSERT(mRefCounted != nullptr);
+        return mRefCounted->get();
+    }
+
+    T *operator->() const { return get(); }
+
+    T *get() const
+    {
+        ASSERT(mRefCounted != nullptr);
+        return &mRefCounted->get();
+    }
+
+    bool unique() const
+    {
+        ASSERT(mRefCounted != nullptr);
+        return mRefCounted->isLastReferenceCount();
+    }
+
+    bool owner_equal(const SharedPtr<T> &other) const { return mRefCounted == other.mRefCounted; }
+
+    uint32_t getRefCount() const { return mRefCounted->getRefCount(); }
+
+  private:
+    void releaseRef()
+    {
+        ASSERT(mRefCounted != nullptr);
+        unsigned int refCount = mRefCounted->getAndReleaseRef();
+        if (refCount == 1)
+        {
+            mRefCounted->get().destroy();
+            SafeDelete(mRefCounted);
+        }
+    }
+
+    friend class WeakPtr<T>;
+    RefCountedStorage *mRefCounted;
+};
+
+template <typename T>
+using AtomicSharedPtr = SharedPtr<T, AtomicRefCounted<T>>;
+
+// This is intended to have same interface as std::weak_ptr
+template <typename T>
+class WeakPtr final
+{
+  public:
+    using RefCountedStorage = RefCounted<T>;
+
+    WeakPtr() : mRefCounted(nullptr) {}
+
+    WeakPtr(const SharedPtr<T> &other) { mRefCounted = other.mRefCounted; }
+
+    void reset() { mRefCounted = nullptr; }
+
+    operator bool() const
+    {
+        // There must have another SharedPtr holding onto the underline object when WeakPtr is
+        // valid.
+        ASSERT(mRefCounted == nullptr || mRefCounted->isReferenced());
+        return mRefCounted != nullptr;
+    }
+
+    T *operator->() const { return get(); }
+
+    T *get() const
+    {
+        ASSERT(mRefCounted != nullptr);
+        ASSERT(mRefCounted->isReferenced());
+        return &mRefCounted->get();
+    }
+
+    long use_count() const
+    {
+        ASSERT(mRefCounted != nullptr);
+        // There must have another SharedPtr holding onto the underline object when WeakPtr is
+        // valid.
+        ASSERT(mRefCounted->isReferenced());
+        return mRefCounted->getRefCount();
+    }
+    bool owner_equal(const SharedPtr<T> &other) const
+    {
+        // There must have another SharedPtr holding onto the underlying object when WeakPtr is
+        // valid.
+        ASSERT(mRefCounted == nullptr || mRefCounted->isReferenced());
+        return mRefCounted == other.mRefCounted;
+    }
+
+  private:
+    friend class SharedPtr<T>;
+    RefCountedStorage *mRefCounted;
+};
 
 // Helper class to share ref-counted Vulkan objects.  Requires that T have a destroy method
 // that takes a VkDevice and returns void.
@@ -1024,8 +1197,13 @@ ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 template <typename T>
 using SpecializationConstantMap = angle::PackedEnumMap<sh::vk::SpecializationConstantId, T>;
 
-using ShaderModulePointer = BindingPointer<ShaderModule>;
-using ShaderModuleMap     = gl::ShaderMap<ShaderModulePointer>;
+using ShaderModulePtr = SharedPtr<ShaderModule>;
+using ShaderModuleMap = gl::ShaderMap<ShaderModulePtr>;
+
+angle::Result InitShaderModule(Context *context,
+                               ShaderModulePtr *shaderModulePtr,
+                               const uint32_t *shaderCode,
+                               size_t shaderCodeSize);
 
 void MakeDebugUtilsLabel(GLenum source, const char *marker, VkDebugUtilsLabelEXT *label);
 
@@ -1341,6 +1519,12 @@ GLuint GetMaxSampleCount(VkSampleCountFlags sampleCounts);
 GLuint GetSampleCount(VkSampleCountFlags supportedCounts, GLuint requestedCount);
 
 gl::LevelIndex GetLevelIndex(vk::LevelIndex levelVk, gl::LevelIndex baseLevel);
+
+GLenum ConvertVkFixedRateToGLFixedRate(const VkImageCompressionFixedRateFlagsEXT vkCompressionRate);
+GLint convertCompressionFlagsToGLFixedRates(
+    VkImageCompressionFixedRateFlagsEXT imageCompressionFixedRateFlags,
+    GLsizei bufSize,
+    GLint *rates);
 }  // namespace vk_gl
 
 enum class RenderPassClosureReason
@@ -1412,6 +1596,7 @@ enum class RenderPassClosureReason
     OutOfReservedQueueSerialForOutsideCommands,
 
     // UtilsVk
+    GenerateMipmapWithDraw,
     PrepareForBlit,
     PrepareForImageCopy,
     TemporaryForClearTexture,

@@ -92,6 +92,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/RefCountedLeakCounter.h>
 #include <wtf/SHA1.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
@@ -104,12 +105,12 @@
 
 namespace WebCore {
 
-WTF_MAKE_COMPACT_TZONE_OR_ISO_ALLOCATED_IMPL(Node);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(Node);
 
 using namespace HTMLNames;
 
 struct SameSizeAsNode : EventTarget, CanMakeCheckedPtr<SameSizeAsNode> {
-    WTF_MAKE_TZONE_ALLOCATED_INLINE(SameSizeAsNode);
+    WTF_MAKE_TZONE_ALLOCATED(SameSizeAsNode);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SameSizeAsNode);
 public:
 #if ASSERT_ENABLED
@@ -118,13 +119,17 @@ public:
 #endif
     uint32_t refCountAndParentBit;
     uint32_t nodeFlags;
+    uint16_t elementStateFlags;
+    uint16_t styleBitfields;
     void* parentNode;
     void* treeScope;
-    uint8_t previous[8];
+    void* previous;
     void* next;
-    uint8_t rendererWithStyleFlags[8];
+    void* renderer;
     uint8_t rareDataWithBitfields[8];
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SameSizeAsNode);
 
 static_assert(sizeof(Node) == sizeof(SameSizeAsNode), "Node should stay small");
 
@@ -192,6 +197,8 @@ static ASCIILiteral stringForRareDataUseType(NodeRareData::UseType useType)
         return "ExplicitlySetAttrElementsMap"_s;
     case NodeRareData::UseType::Popover:
         return "Popover"_s;
+    case NodeRareData::UseType::UserInfo:
+        return "UserInfo"_s;
     }
     return { };
 }
@@ -432,7 +439,7 @@ Node::~Node()
 
     ASSERT(!renderer());
     ASSERT(!parentNode());
-    ASSERT(!m_previous.pointer());
+    ASSERT(!m_previousSibling);
     ASSERT(!m_next);
 
     {
@@ -454,9 +461,12 @@ Node::~Node()
     }
 #endif
 
-    // FIXME: Test performance, then add a RELEASE_ASSERT for this too.
+// refCount() is 1 during Node destruction (see Node::deref()) but can be 0 during Document destruction (see Document::removedLastRef()).
+#if CHECK_REF_COUNTED_LIFECYCLE
     if (refCount() > 1)
         WTF::RefCountedBase::printRefDuringDestructionLogAndCrash(this);
+#endif
+    RELEASE_ASSERT(refCount() <= 1);
 }
 
 void Node::willBeDeletedFrom(Document& document)
@@ -567,9 +577,9 @@ ExceptionOr<void> Node::appendChild(Node& newChild)
     return Exception { ExceptionCode::HierarchyRequestError };
 }
 
-static HashSet<RefPtr<Node>> nodeSetPreTransformedFromNodeOrStringVector(const FixedVector<NodeOrString>& vector)
+static UncheckedKeyHashSet<RefPtr<Node>> nodeSetPreTransformedFromNodeOrStringVector(const FixedVector<NodeOrString>& vector)
 {
-    HashSet<RefPtr<Node>> nodeSet;
+    UncheckedKeyHashSet<RefPtr<Node>> nodeSet;
     for (const auto& variant : vector) {
         WTF::switchOn(variant,
             [&] (const RefPtr<Node>& node) { nodeSet.add(const_cast<Node*>(node.get())); },
@@ -579,7 +589,7 @@ static HashSet<RefPtr<Node>> nodeSetPreTransformedFromNodeOrStringVector(const F
     return nodeSet;
 }
 
-static RefPtr<Node> firstPrecedingSiblingNotInNodeSet(Node& context, const HashSet<RefPtr<Node>>& nodeSet)
+static RefPtr<Node> firstPrecedingSiblingNotInNodeSet(Node& context, const UncheckedKeyHashSet<RefPtr<Node>>& nodeSet)
 {
     for (auto* sibling = context.previousSibling(); sibling; sibling = sibling->previousSibling()) {
         if (!nodeSet.contains(sibling))
@@ -588,7 +598,7 @@ static RefPtr<Node> firstPrecedingSiblingNotInNodeSet(Node& context, const HashS
     return nullptr;
 }
 
-static RefPtr<Node> firstFollowingSiblingNotInNodeSet(Node& context, const HashSet<RefPtr<Node>>& nodeSet)
+static RefPtr<Node> firstFollowingSiblingNotInNodeSet(Node& context, const UncheckedKeyHashSet<RefPtr<Node>>& nodeSet)
 {
     for (auto* sibling = context.nextSibling(); sibling; sibling = sibling->nextSibling()) {
         if (!nodeSet.contains(sibling))
@@ -792,6 +802,12 @@ void Node::normalize()
     }
 }
 
+Ref<Node> Node::cloneNode(bool deep)
+{
+    ASSERT(!isShadowRoot());
+    return cloneNodeInternal(document(), deep ? CloningOperation::Everything : CloningOperation::OnlySelf);
+}
+
 ExceptionOr<Ref<Node>> Node::cloneNodeForBindings(bool deep)
 {
     if (UNLIKELY(isShadowRoot()))
@@ -925,9 +941,9 @@ LayoutRect Node::absoluteBoundingRect(bool* isReplaced)
     }
     RenderObject* renderer = hitRenderer;
     while (renderer && !renderer->isBody() && !renderer->isDocumentElementRenderer()) {
-        if (renderer->isRenderBlock() || renderer->isInlineBlockOrInlineTable() || renderer->isReplacedOrInlineBlock()) {
+        if (renderer->isRenderBlock() || renderer->isNonReplacedAtomicInline() || renderer->isReplacedOrAtomicInline()) {
             // FIXME: Is this really what callers want for the "isReplaced" flag?
-            *isReplaced = renderer->isReplacedOrInlineBlock();
+            *isReplaced = renderer->isReplacedOrAtomicInline();
             return renderer->absoluteBoundingBoxRect();
         }
         renderer = renderer->parent();
@@ -1030,7 +1046,7 @@ unsigned Node::computeNodeIndex() const
 }
 
 template<unsigned type>
-bool shouldInvalidateNodeListCachesForAttr(const unsigned nodeListCounts[], const QualifiedName& attrName)
+bool shouldInvalidateNodeListCachesForAttr(std::span<const unsigned, numNodeListInvalidationTypes> nodeListCounts, const QualifiedName& attrName)
 {
     if constexpr (type >= numNodeListInvalidationTypes)
         return false;
@@ -1798,7 +1814,7 @@ ExceptionOr<void> Node::setTextContent(String&& text)
 static SHA1::Digest hashPointer(const void* pointer)
 {
     SHA1 sha1;
-    sha1.addBytes(std::span { reinterpret_cast<const uint8_t*>(&pointer), sizeof(pointer) });
+    sha1.addBytes(asByteSpan(pointer));
     SHA1::Digest digest;
     sha1.computeHash(digest);
     return digest;
@@ -1815,7 +1831,7 @@ static inline unsigned short compareDetachedElementsPosition(Node& firstNode, No
     SHA1::Digest firstHash = hashPointer(&firstNode);
     SHA1::Digest secondHash = hashPointer(&secondNode);
 
-    unsigned short direction = memcmp(firstHash.data(), secondHash.data(), SHA1::hashSize) > 0 ? Node::DOCUMENT_POSITION_PRECEDING : Node::DOCUMENT_POSITION_FOLLOWING;
+    unsigned short direction = compareSpans(std::span { firstHash }, std::span { secondHash }) > 0 ? Node::DOCUMENT_POSITION_PRECEDING : Node::DOCUMENT_POSITION_FOLLOWING;
 
     return Node::DOCUMENT_POSITION_DISCONNECTED | Node::DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | direction;
 }
@@ -2456,6 +2472,16 @@ static inline bool tryAddEventListener(Node* targetNode, const AtomString& event
         document->addTouchEventHandler(*targetNode);
 #endif
 
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
+    if (typeInfo.isInCategory(EventCategory::MouseMoveRelated)) {
+        if (WeakPtr observer = document->contentChangeObserverIfExists())
+            observer->didAddMouseMoveRelatedEventListener(eventType, *targetNode);
+    }
+#endif
+
+    if (CheckedPtr cache = document->existingAXObjectCache())
+        cache->onEventListenerAdded(*targetNode, eventType);
+
     return true;
 }
 
@@ -2497,6 +2523,9 @@ static inline bool didRemoveEventListenerOfType(Node& targetNode, const AtomStri
     if (typeInfo.isInCategory(EventCategory::Gesture))
         document->removeTouchEventHandler(targetNode);
 #endif
+
+    if (CheckedPtr cache = document->existingAXObjectCache())
+        cache->onEventListenerRemoved(targetNode, eventType);
 
     return true;
 }

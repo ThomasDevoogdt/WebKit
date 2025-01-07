@@ -65,8 +65,10 @@ public:
     size_t sizeOfType(Type type) const { return m_typeSizes.get(type); }
     void setSizeOfType(Type type, size_t size) { m_typeSizes.set(type, size); }
 
+#if PLATFORM(COCOA)
     NSArray *errors();
     void addError(NSString *debugDescription, Type);
+#endif
 
 #ifdef __OBJC__
     WKWebExtensionDataRecord *wrapper() const { return (WKWebExtensionDataRecord *)API::ObjectImpl<API::Object::Type::WebExtensionDataRecord>::wrapper(); }
@@ -77,8 +79,10 @@ public:
 private:
     String m_displayName;
     String m_uniqueIdentifier;
-    UncheckedKeyHashMap<Type, size_t> m_typeSizes;
+    HashMap<Type, size_t> m_typeSizes;
+#if PLATFORM(COCOA)
     RetainPtr<NSMutableArray> m_errors;
+#endif
 };
 
 class WebExtensionDataRecordHolder : public RefCounted<WebExtensionDataRecordHolder> {
@@ -94,7 +98,7 @@ public:
 
     WebExtensionDataRecordHolder() { };
 
-    UncheckedKeyHashMap<String, Ref<WebExtensionDataRecord>> recordsMap;
+    HashMap<String, Ref<WebExtensionDataRecord>> recordsMap;
 };
 
 } // namespace WebKit

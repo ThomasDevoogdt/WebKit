@@ -71,6 +71,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URLParser.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
@@ -136,7 +137,7 @@ enum {
     N_PROPERTIES,
 };
 
-static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
+static std::array<GParamSpec*, N_PROPERTIES> sObjProperties;
 
 enum {
 #if !ENABLE(2022_GLIB_API)
@@ -202,10 +203,10 @@ private:
     WebKitURISchemeRequestCallback m_callback { nullptr };
     void* m_userData { nullptr };
     GDestroyNotify m_destroyNotify { nullptr };
-    UncheckedKeyHashMap<std::pair<WebCore::ResourceLoaderIdentifier, WebPageProxyIdentifier>, GRefPtr<WebKitURISchemeRequest>> m_requests;
+    HashMap<std::pair<WebCore::ResourceLoaderIdentifier, WebPageProxyIdentifier>, GRefPtr<WebKitURISchemeRequest>> m_requests;
 };
 
-typedef UncheckedKeyHashMap<String, RefPtr<WebKitURISchemeHandler> > URISchemeHandlerMap;
+typedef HashMap<String, RefPtr<WebKitURISchemeHandler> > URISchemeHandlerMap;
 
 #if ENABLE(REMOTE_INSPECTOR)
 class WebKitAutomationClient final : Inspector::RemoteInspector::Client {
@@ -262,7 +263,7 @@ struct _WebKitWebContextPrivate {
     GRefPtr<WebKitWebsiteDataManager> websiteDataManager;
 #endif
 
-    UncheckedKeyHashMap<WebPageProxyIdentifier, WebKitWebView*> webViews;
+    HashMap<WebPageProxyIdentifier, WebKitWebView*> webViews;
 
     CString webProcessExtensionsDirectory;
     GRefPtr<GVariant> webProcessExtensionsInitializationUserData;
@@ -290,7 +291,7 @@ struct _WebKitWebContextPrivate {
     CString timeZoneOverride;
 };
 
-static guint signals[LAST_SIGNAL] = { 0, };
+static std::array<unsigned, LAST_SIGNAL> signals;
 
 WEBKIT_DEFINE_FINAL_TYPE(WebKitWebContext, webkit_web_context, G_TYPE_OBJECT, GObject)
 
@@ -631,7 +632,7 @@ static void webkit_web_context_class_init(WebKitWebContextClass* webContextClass
             nullptr,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
 
-    g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties);
+    g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties.data());
 
 #if !ENABLE(2022_GLIB_API)
     /**
@@ -1454,7 +1455,9 @@ static bool pathIsBlocked(const char* path)
         return true;
 
     GUniquePtr<char*> splitPath(g_strsplit(path, G_DIR_SEPARATOR_S, 3));
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE Port
     return blockedPrefixes.contains(splitPath.get()[1]);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 /**
@@ -1607,8 +1610,8 @@ void webkit_web_context_set_spell_checking_languages(WebKitWebContext* context, 
 
 #if ENABLE(SPELLCHECK)
     Vector<String> spellCheckingLanguages;
-    for (size_t i = 0; languages[i]; ++i)
-        spellCheckingLanguages.append(String::fromUTF8(languages[i]));
+    for (const char* language : span(const_cast<char**>(languages)))
+        spellCheckingLanguages.append(String::fromUTF8(language));
     TextChecker::setSpellCheckingLanguages(spellCheckingLanguages);
 #endif
 }
@@ -1636,13 +1639,15 @@ void webkit_web_context_set_preferred_languages(WebKitWebContext* context, const
     if (!languageList || !g_strv_length(const_cast<char**>(languageList)))
         return;
 
+    auto languagesSpan = span(const_cast<char**>(languageList));
+
     Vector<String> languages;
-    for (size_t i = 0; languageList[i]; ++i) {
+    for (auto language : languagesSpan) {
         // Do not propagate the C locale to WebCore.
-        if (!g_ascii_strcasecmp(languageList[i], "C") || !g_ascii_strcasecmp(languageList[i], "POSIX"))
+        if (!g_ascii_strcasecmp(language, "C") || !g_ascii_strcasecmp(language, "POSIX"))
             languages.append("en-US"_s);
         else
-            languages.append(makeStringByReplacingAll(String::fromUTF8(languageList[i]), '_', '-'));
+            languages.append(makeStringByReplacingAll(String::fromUTF8(language), '_', '-'));
     }
     context->priv->processPool->setOverrideLanguages(WTFMove(languages));
 }
@@ -1868,7 +1873,7 @@ guint webkit_web_context_get_web_process_count_limit(WebKitWebContext* context)
 }
 #endif
 
-static void addOriginToMap(WebKitSecurityOrigin* origin, UncheckedKeyHashMap<String, bool>* map, bool allowed)
+static void addOriginToMap(WebKitSecurityOrigin* origin, HashMap<String, bool>* map, bool allowed)
 {
     String string = webkitSecurityOriginGetSecurityOriginData(origin).toString();
     if (string != "null"_s)
@@ -1902,12 +1907,12 @@ static void addOriginToMap(WebKitSecurityOrigin* origin, UncheckedKeyHashMap<Str
  */
 void webkit_web_context_initialize_notification_permissions(WebKitWebContext* context, GList* allowedOrigins, GList* disallowedOrigins)
 {
-    UncheckedKeyHashMap<String, bool> map;
+    HashMap<String, bool> map;
     g_list_foreach(allowedOrigins, [](gpointer data, gpointer userData) {
-        addOriginToMap(static_cast<WebKitSecurityOrigin*>(data), static_cast<UncheckedKeyHashMap<String, bool>*>(userData), true);
+        addOriginToMap(static_cast<WebKitSecurityOrigin*>(data), static_cast<HashMap<String, bool>*>(userData), true);
     }, &map);
     g_list_foreach(disallowedOrigins, [](gpointer data, gpointer userData) {
-        addOriginToMap(static_cast<WebKitSecurityOrigin*>(data), static_cast<UncheckedKeyHashMap<String, bool>*>(userData), false);
+        addOriginToMap(static_cast<WebKitSecurityOrigin*>(data), static_cast<HashMap<String, bool>*>(userData), false);
     }, &map);
     context->priv->notificationProvider->setNotificationPermissions(WTFMove(map));
 }

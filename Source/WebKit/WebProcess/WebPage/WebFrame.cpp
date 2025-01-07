@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,7 +45,6 @@
 #include "WKBundleAPICast.h"
 #include "WebChromeClient.h"
 #include "WebContextMenu.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebEventConversion.h"
 #include "WebEventFactory.h"
 #include "WebImage.h"
@@ -140,7 +139,7 @@ Ref<WebFrame> WebFrame::createSubframe(WebPage& page, WebFrame& parent, const At
     auto frame = create(page, frameID);
     ASSERT(page.corePage());
     auto coreFrame = LocalFrame::createSubframe(*page.corePage(), [frame] (auto& localFrame, auto& frameLoader) {
-        return makeUniqueRef<WebLocalFrameLoaderClient>(localFrame, frameLoader, frame.get(), frame->makeInvalidator());
+        return makeUniqueRefWithoutRefCountedCheck<WebLocalFrameLoaderClient>(localFrame, frameLoader, frame.get(), frame->makeInvalidator());
     }, frameID, effectiveSandboxFlags, ownerElement);
     frame->m_coreFrame = coreFrame.get();
 
@@ -268,22 +267,36 @@ WebCore::Frame* WebFrame::coreFrame() const
 FrameInfoData WebFrame::info() const
 {
     RefPtr parent = parentFrame();
+    RefPtr coreFrame = this->coreFrame();
+    RefPtr coreLocalFrame = this->coreLocalFrame();
+    RefPtr document = coreLocalFrame ? coreLocalFrame->document() : nullptr;
 
-    FrameInfoData info {
+    WebFrameMetrics metrics;
+    if (coreFrame) {
+        if (RefPtr coreView = coreFrame->virtualView()) {
+            IsScrollable isScrollable = hasHorizontalScrollbar() || hasVerticalScrollbar() ? IsScrollable::Yes : IsScrollable::No;
+            IntSize contentSize { coreView->contentsWidth(), coreView->contentsHeight() };
+            auto visibleContentSize = coreView->visibleContentRectIncludingScrollbars().size();
+            auto visibleContentSizeExcludingScrollbars = coreView->visibleContentRect().size();
+            metrics = { isScrollable, contentSize, visibleContentSize, visibleContentSizeExcludingScrollbars };
+        }
+    }
+
+    return {
         isMainFrame(),
-        is<WebCore::LocalFrame>(coreFrame()) ? FrameType::Local : FrameType::Remote,
+        coreLocalFrame ? FrameType::Local : FrameType::Remote,
         // FIXME: This should use the full request.
         ResourceRequest(url()),
-        SecurityOriginData::fromFrame(dynamicDowncast<LocalFrame>(m_coreFrame.get())),
-        m_coreFrame ? m_coreFrame->tree().specifiedName().string() : String(),
+        SecurityOriginData::fromFrame(coreLocalFrame.get()),
+        coreFrame ? coreFrame->tree().specifiedName().string() : String(),
         frameID(),
-        parent ? std::optional<WebCore::FrameIdentifier> { parent->frameID() } : std::nullopt,
+        parent ? std::optional { parent->frameID() } : std::nullopt,
+        document ? std::optional { document->identifier() } : std::nullopt,
         getCurrentProcessID(),
         isFocused(),
-        coreLocalFrame() ? coreLocalFrame()->loader().errorOccurredInLoading() : false
+        coreLocalFrame ? coreLocalFrame->loader().errorOccurredInLoading() : false,
+        WTFMove(metrics)
     };
-
-    return info;
 }
 
 FrameTreeNodeData WebFrame::frameTreeData() const
@@ -315,7 +328,8 @@ FrameTreeNodeData WebFrame::frameTreeData() const
 void WebFrame::invalidate()
 {
     ASSERT(!WebProcess::singleton().webFrame(m_frameID) || WebProcess::singleton().webFrame(m_frameID) == this);
-    WebProcess::singleton().removeWebFrame(frameID(), m_page ? std::optional<WebPageProxyIdentifier>(m_page->webPageProxyIdentifier()) : std::nullopt);
+    RefPtr page = m_page.get();
+    WebProcess::singleton().removeWebFrame(frameID(), page.get());
     m_coreFrame = nullptr;
 }
 
@@ -373,7 +387,7 @@ void WebFrame::loadDidCommitInAnotherProcess(std::optional<WebCore::LayerHosting
     };
     auto newFrame = ownerElement
         ? WebCore::RemoteFrame::createSubframeWithContentsInAnotherProcess(*corePage, WTFMove(clientCreator), m_frameID, *ownerElement, layerHostingContextIdentifier)
-        : parent ? WebCore::RemoteFrame::createSubframe(*corePage, WTFMove(clientCreator), m_frameID, *parent, localFrame->opener()) : WebCore::RemoteFrame::createMainFrame(*corePage, WTFMove(clientCreator), m_frameID, localFrame->opener());
+        : parent ? WebCore::RemoteFrame::createSubframe(*corePage, WTFMove(clientCreator), m_frameID, *parent, nullptr) : WebCore::RemoteFrame::createMainFrame(*corePage, WTFMove(clientCreator), m_frameID, nullptr);
     if (!parent)
         corePage->setMainFrame(newFrame.copyRef());
     newFrame->takeWindowProxyAndOpenerFrom(*localFrame);
@@ -409,11 +423,12 @@ void WebFrame::createProvisionalFrame(ProvisionalFrameCreationParameters&& param
 
     RefPtr parent = remoteFrame->tree().parent();
     auto clientCreator = [this, protectedThis = Ref { *this }] (auto& localFrame, auto& frameLoader) mutable {
-        return makeUniqueRef<WebLocalFrameLoaderClient>(localFrame, frameLoader, WTFMove(protectedThis), makeInvalidator());
+        return makeUniqueRefWithoutRefCountedCheck<WebLocalFrameLoaderClient>(localFrame, frameLoader, WTFMove(protectedThis), makeInvalidator());
     };
     auto localFrame = parent ? LocalFrame::createProvisionalSubframe(*corePage, WTFMove(clientCreator), m_frameID, parameters.effectiveSandboxFlags, parameters.scrollingMode, *parent) : LocalFrame::createMainFrame(*corePage, WTFMove(clientCreator), m_frameID, parameters.effectiveSandboxFlags, nullptr);
     m_provisionalFrame = localFrame.ptr();
     localFrame->init();
+    localFrame->protectedDocument()->setURL(aboutBlankURL());
 
     if (parameters.layerHostingContextIdentifier)
         setLayerHostingContextIdentifier(*parameters.layerHostingContextIdentifier);

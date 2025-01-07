@@ -123,13 +123,14 @@ public:
     const WTF::String& openedMainFrameName() const;
     void setOpenedMainFrameName(const WTF::String&);
 
-    WebCore::SandboxFlags initialSandboxFlags() const;
+    WebCore::SandboxFlags initialSandboxFlags() const { return m_data.initialSandboxFlags; }
     void setInitialSandboxFlags(WebCore::SandboxFlags);
 
     const std::optional<WebCore::WindowFeatures>& windowFeatures() const;
     void setWindowFeatures(WebCore::WindowFeatures&&);
 
     WebKit::WebProcessPool& processPool() const;
+    Ref<WebKit::WebProcessPool> protectedProcessPool() const;
     void setProcessPool(RefPtr<WebKit::WebProcessPool>&&);
 
     WebKit::WebUserContentControllerProxy& userContentController() const;
@@ -260,7 +261,7 @@ public:
 
     RefPtr<WebKit::WebURLSchemeHandler> urlSchemeHandlerForURLScheme(const WTF::String&);
     void setURLSchemeHandlerForURLScheme(Ref<WebKit::WebURLSchemeHandler>&&, const WTF::String&);
-    const UncheckedKeyHashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>>& urlSchemeHandlers() { return m_data.urlSchemeHandlers; }
+    const HashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>>& urlSchemeHandlers() { return m_data.urlSchemeHandlers; }
 
     const Vector<WTF::String>& corsDisablingPatterns() const { return m_data.corsDisablingPatterns; }
     void setCORSDisablingPatterns(Vector<WTF::String>&& patterns) { m_data.corsDisablingPatterns = WTFMove(patterns); }
@@ -451,10 +452,6 @@ public:
     void setGamepadAccessRequiresExplicitConsent(WebCore::ShouldRequireExplicitConsentForGamepadAccess value) { m_data.gamepadAccessRequiresExplicitConsent = value; }
 #endif // ENABLE(GAMEPAD)
 
-#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
-    bool overlayRegionsEnabled() const { return m_data.overlayRegionsEnabled; }
-    void setOverlayRegionsEnabled(bool value) { m_data.overlayRegionsEnabled = value; }
-#endif // ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     bool cssTransformStyleSeparatedEnabled() const { return m_data.cssTransformStyleSeparatedEnabled; }
     void setCSSTransformStyleSeparatedEnabled(bool value) { m_data.cssTransformStyleSeparatedEnabled = value; }
@@ -567,7 +564,7 @@ private:
         RefPtr<ApplicationManifest> applicationManifest;
 #endif
 
-        UncheckedKeyHashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>> urlSchemeHandlers;
+        HashMap<WTF::String, Ref<WebKit::WebURLSchemeHandler>> urlSchemeHandlers;
         Vector<WTF::String> corsDisablingPatterns;
         HashSet<WTF::String> maskedURLSchemes;
         bool maskedURLSchemesWasSet { false };
@@ -635,9 +632,6 @@ private:
         WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent { WebCore::ShouldRequireExplicitConsentForGamepadAccess::No };
 #endif // ENABLE(GAMEPAD)
 
-#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
-        bool overlayRegionsEnabled { false };
-#endif
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
         bool cssTransformStyleSeparatedEnabled { false };
 #endif

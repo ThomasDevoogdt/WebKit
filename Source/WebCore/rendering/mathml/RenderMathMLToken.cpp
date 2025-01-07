@@ -39,6 +39,7 @@
 #include "RenderElement.h"
 #include "RenderIterator.h"
 #include "RenderStyleInlines.h"
+#include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -543,7 +544,7 @@ void RenderMathMLToken::updateMathVariantGlyph()
         char32_t transformedCodePoint = mathVariant(codePoint.value(), mathvariant);
         if (transformedCodePoint != codePoint.value()) {
             m_mathVariantCodePoint = mathVariant(codePoint.value(), mathvariant);
-            m_mathVariantIsMirrored = !style().isLeftToRightDirection();
+            m_mathVariantIsMirrored = writingMode().isBidiRTL();
         }
     }
 }
@@ -623,7 +624,7 @@ void RenderMathMLToken::paint(PaintInfo& info, const LayoutPoint& paintOffset)
     LayoutUnit glyphAscent = static_cast<int>(lroundf(-mathVariantGlyph.font->boundsForGlyph(mathVariantGlyph.glyph).y()));
     // FIXME: If we're just drawing a single glyph, why do we need to compute an advance?
     auto advance = makeGlyphBufferAdvance(mathVariantGlyph.font->widthForGlyph(mathVariantGlyph.glyph));
-    info.context().drawGlyphs(*mathVariantGlyph.font, &mathVariantGlyph.glyph, &advance, 1, paintOffset + location() + LayoutPoint(borderLeft() + paddingLeft(), glyphAscent + borderAndPaddingBefore()), style().fontCascade().fontDescription().usedFontSmoothing());
+    info.context().drawGlyphs(*mathVariantGlyph.font, singleElementSpan(mathVariantGlyph.glyph), singleElementSpan(advance), paintOffset + location() + LayoutPoint(borderLeft() + paddingLeft(), glyphAscent + borderAndPaddingBefore()), style().fontCascade().fontDescription().usedFontSmoothing());
 }
 
 void RenderMathMLToken::paintChildren(PaintInfo& paintInfo, const LayoutPoint& paintOffset, PaintInfo& paintInfoForChild, bool usePrintRect)

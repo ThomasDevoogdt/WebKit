@@ -59,6 +59,10 @@
 #include "SystemSettings.h"
 #endif
 
+#if USE(GLIB)
+#include <wtf/glib/GSpanExtras.h>
+#endif
+
 namespace WebCore {
 using namespace WebCore::Adwaita;
 
@@ -231,7 +235,7 @@ String RenderThemeAdwaita::mediaControlsBase64StringForIconNameAndType(const Str
     auto data = adoptGRef(g_resources_lookup_data(path.latin1().data(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
     if (!data)
         return emptyString();
-    return base64EncodeToString({ static_cast<const uint8_t*>(g_bytes_get_data(data.get(), nullptr)), g_bytes_get_size(data.get()) });
+    return base64EncodeToString(span(data));
 #elif PLATFORM(WIN)
     auto path = webKitBundlePath(iconName, iconType, "media-controls"_s);
     auto data = FileSystem::readEntireFile(path);
@@ -273,7 +277,7 @@ Color RenderThemeAdwaita::systemColor(CSSValueID cssValueID, OptionSet<StyleColo
         return { Color::white, Color::Flags::Semantic };
 
     case CSSValueField:
-#if HAVE(OS_DARK_MODE_SUPPORT)
+#if PLATFORM(COCOA)
     case CSSValueWebkitControlBackground:
 #endif
         if (useDarkAppearance)
@@ -341,8 +345,8 @@ LengthBox RenderThemeAdwaita::popupInternalPaddingBox(const RenderStyle& style) 
         return { };
 
     auto zoomedArrowSize = menuListButtonArrowSize * style.usedZoom();
-    int leftPadding = menuListButtonPadding + (style.direction() == TextDirection::RTL ? zoomedArrowSize : 0);
-    int rightPadding = menuListButtonPadding + (style.direction() == TextDirection::LTR ? zoomedArrowSize : 0);
+    int leftPadding = menuListButtonPadding + (style.writingMode().isBidiRTL() ? zoomedArrowSize : 0);
+    int rightPadding = menuListButtonPadding + (style.writingMode().isBidiLTR() ? zoomedArrowSize : 0);
 
     return { menuListButtonPadding, rightPadding, menuListButtonPadding, leftPadding };
 }

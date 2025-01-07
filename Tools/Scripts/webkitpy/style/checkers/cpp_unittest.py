@@ -2045,6 +2045,28 @@ class CppStyleTest(CppStyleTestBase):
             '  [softlink/header] [5]',
             file_name='foo.h')
 
+    def test_inlines_header(self):
+        self.assert_lint(
+            '''#include "FooInlines.h"''',
+            'Never put an Inlines.h header in a non-Inlines.h header.'
+            '  [build-speed/inlines] [4]',
+            file_name='foo.h')
+
+        self.assert_lint(
+            '''#include "FooInlines.h"''',
+            '',
+            file_name='foo.cpp')
+
+        self.assert_lint(
+            '''#include "FooInlines.h"''',
+            '',
+            file_name='foo.mm')
+
+        self.assert_lint(
+            '''#include "FooInlines.h"''',
+            '',
+            file_name='BarInlines.h')
+
     # Variable-length arrays are not permitted.
     def test_variable_length_array_detection(self):
         errmsg = ('Do not use variable-length arrays.  Use an appropriately named '
@@ -4503,6 +4525,148 @@ class NoNonVirtualDestructorsTest(CppStyleTestBase):
                 enum Foo { FOO_ONE, FOO_TWO };''',
             '')
 
+    def test_enum_no_yes(self):
+        self.assert_multi_line_lint(
+            '''\
+                enum { No, Yes };
+                enum {
+                    No, Yes
+                };
+                enum {
+                    No,
+                    Yes
+                };
+                enum Foo { No, Yes };
+                enum Foo {
+                    No, Yes
+                };
+                enum Foo {
+                    No,
+                    Yes
+                };
+                enum class Foo { No, Yes };
+                enum class Foo {
+                    No, Yes
+                };
+                enum class Foo {
+                    No,
+                    Yes
+                };''',
+            '')
+
+        self.assert_multi_line_lint(
+            '''\
+                enum : bool { No, Yes };
+                enum : bool {
+                    No, Yes
+                };
+                enum : bool {
+                    No,
+                    Yes
+                };
+                enum Foo : bool { No, Yes };
+                enum Foo : bool {
+                    No, Yes
+                };
+                enum Foo : bool {
+                    No,
+                    Yes
+                };
+                enum class Foo : bool { No, Yes };
+                enum class Foo : bool {
+                    No, Yes
+                };
+                enum class Foo : bool {
+                    No,
+                    Yes
+                };''',
+            '')
+
+        self.assert_multi_line_lint(
+            '''\
+                enum { Yes, No };
+                enum {
+                    Yes, No
+                };
+                enum {
+                    Yes,
+                    No
+                };
+                enum Foo { Yes, No };
+                enum Foo {
+                    Yes, No
+                };
+                enum Foo {
+                    Yes,
+                    No
+                };
+                enum class Foo { Yes, No };
+                enum class Foo {
+                    Yes, No
+                };
+                enum class Foo {
+                    Yes,
+                    No
+                };''',
+            '')
+
+        self.assert_lint(
+            'enum : bool { Yes, No };',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            '''\
+                enum : bool {
+                    Yes, No
+                };''',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            '''\
+                enum : bool {
+                    Yes,
+                    No
+                };''',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            'enum Foo : bool { Yes, No };',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            '''\
+                enum Foo : bool {
+                    Yes, No
+                };''',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            '''\
+                enum Foo : bool {
+                    Yes,
+                    No
+                };''',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            'enum class Foo : bool { Yes, No };',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            '''\
+                enum class Foo : bool {
+                    Yes, No
+                };''',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
+        self.assert_lint(
+            '''\
+                enum class Foo : bool {
+                    Yes,
+                    No
+                };''',
+            'Change the order to { No, Yes }.  [readability/enum_no_yes] [5]')
+
     def test_enum_trailing_semicolon(self):
         self.assert_lint(
             'enum MyEnum { Value1, Value2 };',
@@ -6023,6 +6187,34 @@ class WebKitStyleTest(CppStyleTestBase):
             "  [runtime/lock_guard] [4]",
             'foo.mm')
 
+    def test_log(self):
+        error_string = "Use a channel to log with 'LOG...(MyChannel,...)'.  [runtime/log] [4]"
+
+        self.assert_lint(
+            'LOG_WITH_STREAM(Channel, stream << 2);',
+            '',
+            'foo.cpp')
+
+        self.assert_lint(
+            'CUSTOM_MACRO_WTF_ALWAYS_LOG(2);',
+            '',
+            'foo.cpp')
+
+        self.assert_lint(
+            '// WTF_ALWAYS_LOG(2);',
+            '',
+            'foo.cpp')
+
+        self.assert_lint(
+            'WTFLogAlways("foo");',
+            error_string,
+            'foo.cpp')
+
+        self.assert_lint(
+            'WTF_ALWAYS_LOG(34);',
+            error_string,
+            'foo.cpp')
+
     def test_once_flag(self):
         self.assert_lint(
             'static std::once_flag onceKey;',
@@ -6091,6 +6283,27 @@ class WebKitStyleTest(CppStyleTestBase):
             "std::once_flag / dispatch_once_t should be in `static` storage."
             "  [runtime/once_flag] [4]",
             'foo.mm')
+
+    def test_safer_cpp(self):
+        self.assert_lint(
+            'template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::TimerAlignment> : std::true_type { };',
+            'Do not add IsDeprecatedWeakRefSmartPointerException.  [safercpp/weak_ref_exception] [4]',
+            'foo.cpp')
+
+        self.assert_lint(
+            'IsDeprecatedWeakRefSmartPointerException should be removed',
+            '',
+            'foo.cpp')
+
+        self.assert_lint(
+            'template<> struct IsDeprecatedTimerSmartPointerException<WebCore::TimerAlignment> : std::true_type { };',
+            'Do not add IsDeprecatedTimerSmartPointerException.  [safercpp/timer_exception] [4]',
+            'foo.cpp')
+
+        self.assert_lint(
+            'IsDeprecatedTimerSmartPointerException should be removed',
+            '',
+            'foo.cpp')
 
     def test_ctype_fucntion(self):
         self.assert_lint(

@@ -35,11 +35,12 @@ namespace WebCore {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ImmutableStyleProperties);
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 ImmutableStyleProperties::ImmutableStyleProperties(const CSSProperty* properties, unsigned length, CSSParserMode mode)
     : StyleProperties(mode, length)
 {
     auto* metadataArray = const_cast<StylePropertyMetadata*>(this->metadataArray());
-    auto* valueArray = bitwise_cast<PackedPtr<CSSValue>*>(this->valueArray());
+    auto* valueArray = std::bit_cast<PackedPtr<CSSValue>*>(this->valueArray());
     for (unsigned i = 0; i < length; ++i) {
         metadataArray[i] = properties[i].metadata();
         RefPtr value = properties[i].value();
@@ -47,12 +48,15 @@ ImmutableStyleProperties::ImmutableStyleProperties(const CSSProperty* properties
         value->ref();
     }
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 ImmutableStyleProperties::~ImmutableStyleProperties()
 {
-    auto* valueArray = bitwise_cast<PackedPtr<CSSValue>*>(this->valueArray());
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    auto* valueArray = std::bit_cast<PackedPtr<CSSValue>*>(this->valueArray());
     for (unsigned i = 0; i < m_arraySize; ++i)
         valueArray[i]->deref();
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 Ref<ImmutableStyleProperties> ImmutableStyleProperties::create(const CSSProperty* properties, unsigned count, CSSParserMode mode)
@@ -67,6 +71,7 @@ static auto& deduplicationMap()
     return map.get();
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 Ref<ImmutableStyleProperties> ImmutableStyleProperties::createDeduplicating(const CSSProperty* properties, unsigned count, CSSParserMode mode)
 {
     static constexpr auto maximumDeduplicationMapSize = 1024u;
@@ -109,6 +114,7 @@ Ref<ImmutableStyleProperties> ImmutableStyleProperties::createDeduplicating(cons
 
     return result.iterator->value;
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 void ImmutableStyleProperties::clearDeduplicationMap()
 {
@@ -121,8 +127,10 @@ int ImmutableStyleProperties::findPropertyIndex(CSSPropertyID propertyID) const
     // the compiler converting it to an int multiple times in the loop.
     uint16_t id = enumToUnderlyingType(propertyID);
     for (int n = m_arraySize - 1 ; n >= 0; --n) {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         if (metadataArray()[n].m_propertyID == id)
             return n;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
     return -1;
 }
@@ -130,6 +138,7 @@ int ImmutableStyleProperties::findPropertyIndex(CSSPropertyID propertyID) const
 int ImmutableStyleProperties::findCustomPropertyIndex(StringView propertyName) const
 {
     for (int n = m_arraySize - 1 ; n >= 0; --n) {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         if (metadataArray()[n].m_propertyID == CSSPropertyCustom) {
             // We found a custom property. See if the name matches.
             auto* value = valueArray()[n].get();
@@ -138,6 +147,7 @@ int ImmutableStyleProperties::findCustomPropertyIndex(StringView propertyName) c
             if (downcast<CSSCustomPropertyValue>(*value).name() == propertyName)
                 return n;
         }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
     return -1;
 }

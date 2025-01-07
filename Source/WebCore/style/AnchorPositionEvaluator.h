@@ -24,9 +24,10 @@
 
 #pragma once
 
-#include "CSSCalcTree.h"
+#include "CSSValueKeywords.h"
 #include "EventTarget.h"
 #include "LayoutUnit.h"
+#include "ScopedName.h"
 #include <wtf/HashMap.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashMap.h>
@@ -37,6 +38,8 @@ namespace WebCore {
 
 class Document;
 class Element;
+class LayoutRect;
+class RenderBlock;
 class RenderBoxModelObject;
 
 namespace Style {
@@ -50,31 +53,59 @@ enum class AnchorPositionResolutionStage : uint8_t {
     Positioned,
 };
 
-using AnchorElements = UncheckedKeyHashMap<AtomString, WeakRef<Element, WeakPtrImplWithEventTargetData>>;
+using AnchorElements = HashMap<AtomString, WeakRef<Element, WeakPtrImplWithEventTargetData>>;
 
 struct AnchorPositionedState {
     WTF_MAKE_TZONE_ALLOCATED(AnchorPositionedState);
 public:
     AnchorElements anchorElements;
-    HashSet<AtomString> anchorNames;
+    UncheckedKeyHashSet<AtomString> anchorNames;
     AnchorPositionResolutionStage stage;
 };
 
-using AnchorsForAnchorName = UncheckedKeyHashMap<AtomString, Vector<SingleThreadWeakRef<const RenderBoxModelObject>>>;
+using AnchorsForAnchorName = HashMap<AtomString, Vector<SingleThreadWeakRef<const RenderBoxModelObject>>>;
+
+// https://drafts.csswg.org/css-anchor-position-1/#typedef-anchor-size
+enum class AnchorSizeDimension : uint8_t {
+    Width,
+    Height,
+    Block,
+    Inline,
+    SelfBlock,
+    SelfInline
+};
 
 using AnchorPositionedStates = WeakHashMap<Element, std::unique_ptr<AnchorPositionedState>, WeakPtrImplWithEventTargetData>;
 
+// https://drafts.csswg.org/css-anchor-position-1/#position-try-order-property
+enum class PositionTryOrder : uint8_t {
+    Normal,
+    MostWidth,
+    MostHeight,
+    MostBlockSize,
+    MostInlineSize
+};
+
+WTF::TextStream& operator<<(WTF::TextStream&, PositionTryOrder);
+
 class AnchorPositionEvaluator {
 public:
+    // Find the anchor element indicated by `elementName` and update the associated anchor resolution data.
+    // Returns nullptr if the anchor element can't be found.
+    static RefPtr<Element> findAnchorAndAttemptResolution(const BuilderState&, std::optional<ScopedName> elementName);
+
     using Side = std::variant<CSSValueID, double>;
-    static std::optional<double> evaluate(const BuilderState&, AtomString elementName, Side);
+    static std::optional<double> evaluate(const BuilderState&, std::optional<ScopedName> elementName, Side);
+    static std::optional<double> evaluateSize(const BuilderState&, std::optional<ScopedName> elementName, std::optional<AnchorSizeDimension>);
 
     static void updateAnchorPositioningStatesAfterInterleavedLayout(const Document&);
     static void cleanupAnchorPositionedState(Element&);
     static void updateSnapshottedScrollOffsets(Document&);
 
+    static LayoutRect computeAnchorRectRelativeToContainingBlock(CheckedRef<const RenderBoxModelObject> anchorBox, const RenderBlock& containingBlock);
+
 private:
-    static AnchorElements findAnchorsForAnchorPositionedElement(const Element&, const HashSet<AtomString>& anchorNames, const AnchorsForAnchorName&);
+    static AnchorElements findAnchorsForAnchorPositionedElement(const Element&, const UncheckedKeyHashSet<AtomString>& anchorNames, const AnchorsForAnchorName&);
 };
 
 } // namespace Style

@@ -38,19 +38,22 @@
 
 namespace WebKit {
 
-class RemoteLegacyCDMProxy
-    : public IPC::MessageReceiver
-    , public WebCore::LegacyCDMClient {
+class RemoteLegacyCDMProxy : public IPC::MessageReceiver, public WebCore::LegacyCDMClient, public RefCounted<RemoteLegacyCDMProxy> {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteLegacyCDMProxy);
 public:
-    static std::unique_ptr<RemoteLegacyCDMProxy> create(WeakPtr<RemoteLegacyCDMFactoryProxy>, std::optional<WebCore::MediaPlayerIdentifier>, std::unique_ptr<WebCore::LegacyCDM>&&);
+    static Ref<RemoteLegacyCDMProxy> create(WeakPtr<RemoteLegacyCDMFactoryProxy>, std::optional<WebCore::MediaPlayerIdentifier>, Ref<WebCore::LegacyCDM>&&);
     ~RemoteLegacyCDMProxy();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     RemoteLegacyCDMFactoryProxy* factory() const { return m_factory.get(); }
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
 private:
     friend class RemoteLegacyCDMFactoryProxy;
-    RemoteLegacyCDMProxy(WeakPtr<RemoteLegacyCDMFactoryProxy>&&, std::optional<WebCore::MediaPlayerIdentifier>, std::unique_ptr<WebCore::LegacyCDM>&&);
+    RemoteLegacyCDMProxy(WeakPtr<RemoteLegacyCDMFactoryProxy>&&, std::optional<WebCore::MediaPlayerIdentifier>, Ref<WebCore::LegacyCDM>&&);
 
     RefPtr<RemoteLegacyCDMFactoryProxy> protectedFactory() const { return m_factory.get(); }
 
@@ -68,9 +71,11 @@ private:
     // LegacyCDMClient
     RefPtr<WebCore::MediaPlayer> cdmMediaPlayer(const WebCore::LegacyCDM*) const final;
 
+    Ref<WebCore::LegacyCDM> protectedCDM() const { return m_cdm; }
+
     WeakPtr<RemoteLegacyCDMFactoryProxy> m_factory;
     Markable<WebCore::MediaPlayerIdentifier> m_playerId;
-    std::unique_ptr<WebCore::LegacyCDM> m_cdm;
+    Ref<WebCore::LegacyCDM> m_cdm;
 };
 
 }

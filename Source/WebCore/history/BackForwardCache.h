@@ -56,13 +56,14 @@ public:
 
     WEBCORE_EXPORT std::unique_ptr<CachedPage> suspendPage(Page&);
     WEBCORE_EXPORT bool addIfCacheable(HistoryItem&, Page*); // Prunes if maxSize() is exceeded.
+    WEBCORE_EXPORT void remove(BackForwardItemIdentifier);
     WEBCORE_EXPORT void remove(HistoryItem&);
     CachedPage* get(HistoryItem&, Page*);
     std::unique_ptr<CachedPage> take(HistoryItem&, Page*);
 
     void removeAllItemsForPage(Page&);
 
-    WEBCORE_EXPORT void clearEntriesForOrigins(const HashSet<RefPtr<SecurityOrigin>>&);
+    WEBCORE_EXPORT void clearEntriesForOrigins(const UncheckedKeyHashSet<RefPtr<SecurityOrigin>>&);
 
     unsigned pageCount() const { return m_items.size(); }
     WEBCORE_EXPORT unsigned frameCount() const;
@@ -87,7 +88,7 @@ private:
     void prune(PruningReason);
     void dump() const;
 
-    UncheckedKeyHashMap<BackForwardItemIdentifier, std::variant<PruningReason, UniqueRef<CachedPage>>> m_cachedPageMap;
+    HashMap<BackForwardItemIdentifier, std::variant<PruningReason, UniqueRef<CachedPage>>> m_cachedPageMap;
     ListHashSet<BackForwardItemIdentifier> m_items;
     unsigned m_maxSize {0};
 

@@ -91,7 +91,6 @@ tests_sources = [
   "$_tests/FontMgrFlags.cpp",
   "$_tests/FontMgrTest.cpp",
   "$_tests/FontNamesTest.cpp",
-  "$_tests/FontScanner.cpp",
   "$_tests/FontTest.cpp",
   "$_tests/FrontBufferedStreamTest.cpp",
   "$_tests/GLBackendSurfaceTest.cpp",
@@ -269,7 +268,6 @@ tests_sources = [
   "$_tests/SkSLTest.cpp",
   "$_tests/SkSLTypeTest.cpp",
   "$_tests/SkSLWGSLTestbed.cpp",
-  "$_tests/SkSharedMutexTest.cpp",
   "$_tests/SkSpanTest.cpp",
   "$_tests/SkStrikeCacheTest.cpp",
   "$_tests/SkStrikeTest.cpp",
@@ -387,6 +385,7 @@ precompile_tests_sources = [
   "$_tests/graphite/precompile/ChromePrecompileTest.cpp",
   "$_tests/graphite/precompile/CombinationBuilderTest.cpp",
   "$_tests/graphite/precompile/PaintParamsKeyTest.cpp",
+  "$_tests/graphite/precompile/ThreadedPrecompileTest.cpp",
 ]
 
 graphite_dawn_tests_sources = [ "$_tests/graphite/DawnBackendTextureTest.cpp" ]

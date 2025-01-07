@@ -85,6 +85,9 @@ public:
 
     ~RemoteWebInspectorUIProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void setClient(RemoteWebInspectorUIProxyClient* client) { m_client = client; }
 
     bool isUnderTest() const { return false; }
@@ -188,7 +191,7 @@ private:
     RetainPtr<WKInspectorViewController> m_inspectorView;
     RetainPtr<NSWindow> m_window;
     RetainPtr<WKRemoteWebInspectorUIProxyObjCAdapter> m_objCAdapter;
-    UncheckedKeyHashMap<String, RetainPtr<NSURL>> m_suggestedToActualURLMap;
+    HashMap<String, RetainPtr<NSURL>> m_suggestedToActualURLMap;
     WebCore::FloatRect m_sheetRect;
 #endif
 #if PLATFORM(GTK)

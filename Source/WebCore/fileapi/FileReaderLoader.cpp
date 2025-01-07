@@ -50,6 +50,7 @@
 #include "ThreadableLoader.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <wtf/RefPtr.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/MakeString.h>
@@ -100,6 +101,7 @@ void FileReaderLoader::start(ScriptExecutionContext* scriptExecutionContext, con
     // Construct and load the request.
     ResourceRequest request(m_urlForReading);
     request.setHTTPMethod("GET"_s);
+    request.setHiddenFromInspector(true);
 
     ThreadableLoaderOptions options;
     options.sendLoadCallbacks = SendCallbackPolicy::SendCallbacks;
@@ -224,7 +226,7 @@ void FileReaderLoader::didReceiveData(const SharedBuffer& buffer)
                 failed(ExceptionCode::NotReadableError);
                 return;
             }
-            memcpy(static_cast<char*>(newData->data()), static_cast<char*>(m_rawData->data()), m_bytesLoaded);
+            memcpySpan(newData->mutableSpan(), m_rawData->span().first(m_bytesLoaded));
 
             m_rawData = newData;
             m_totalBytes = static_cast<unsigned>(newLength);
@@ -237,7 +239,7 @@ void FileReaderLoader::didReceiveData(const SharedBuffer& buffer)
     if (length <= 0)
         return;
 
-    memcpy(static_cast<char*>(m_rawData->data()) + m_bytesLoaded, buffer.span().data(), length);
+    memcpySpan(m_rawData->mutableSpan().subspan(m_bytesLoaded), buffer.span().first(length));
     m_bytesLoaded += length;
 
     m_isRawDataConverted = false;
